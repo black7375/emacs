@@ -8521,7 +8521,7 @@ not_in_argv (NSString *arg)
   NSTRACE ("[EmacsWindow accessibilityAttributeValue:]");
 
   if ([attribute isEqualToString:NSAccessibilityRoleAttribute])
-    return NSAccessibilityTextFieldRole;
+    return NSAccessibilityWindowRole;
 
   if ([attribute isEqualToString:NSAccessibilitySelectedTextAttribute]
       && curbuf && ! NILP (BVAR (curbuf, mark_active)))
