@@ -18,6 +18,8 @@ jobs:
         run: |
           rm -rfv .git/hooks/commit-msg
           git config pull.rebase off
+          git config user.name alstjr7375
+          git config user.email alstjr7375@daum.net
       - name: Set Upstream(emacs-mirror/emacs)
         run: |
           git remote add upstream https://github.com/emacs-mirror/emacs
@@ -34,7 +36,5 @@ jobs:
 
       # https://github.com/marketplace/actions/github-push
       - name: Push Changes
-        uses: ad-m/github-push-action@master
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ github.ref }}
+        run: |
+          git push
