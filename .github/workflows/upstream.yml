@@ -18,6 +18,8 @@ jobs:
         run: |
           rm -rfv .git/hooks/commit-msg
           git config pull.rebase off
+          git config user.name alstjr7375
+          git config user.email alstjr7375@daum.net
       - name: Set Upstream(emacs-mirror/emacs)
         run: |
           git remote add upstream https://github.com/emacs-mirror/emacs
