@@ -36,5 +36,7 @@ jobs:
 
       # https://github.com/marketplace/actions/github-push
       - name: Push Changes
-        run: |
-          git push
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
