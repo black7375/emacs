@@ -1,0 +1,40 @@
+on:
+  push:
+    branches:
+    - workflow
+  schedule:
+    # Run on every Monday 10:00 AM
+    - cron: "00 10 * * 1" # minute(0-59) hour(0-23) month[day](1-31) month(1-12) week[day](0-6)
+
+jobs:
+  upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
+          fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
+      - name: Git setting
+        run: |
+          rm -rfv .git/hooks/commit-msg
+          git config pull.rebase off
+      - name: Set Upstream(emacs-mirror/emacs)
+        run: |
+          git remote add upstream https://github.com/emacs-mirror/emacs
+          git fetch upstream
+      - name: Merge feature/pgtk
+        run: |
+          git pull --no-edit upstream feature/pgtk
+      - name: Merge feature/native-comp
+        run: |
+          git pull --no-edit upstream feature/native-comp
+      - name: Merge master
+        run: |
+          git pull --no-edit upstream master
+
+      # https://github.com/marketplace/actions/github-push
+      - name: Push Changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
