@@ -10,23 +10,23 @@ jobs:
   upstream:
     runs-on: ubuntu-latest
     steps:
+      ## Git Setting
       - uses: actions/checkout@v2
         with:
           persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
           fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
-      - name: Git setting
+      - name: Git Setting
         run: |
           rm -rfv .git/hooks/commit-msg
           git config pull.rebase off
-          git config user.name alstjr7375
-          git config user.email alstjr7375@daum.net
-      - name: Set Upstream(emacs-mirror/emacs)
+      - name: Git User Setting
+        uses: fregante/setup-git-user@v1
+      - name: Set Upstream (emacs-mirror/emacs)
         run: |
           git remote add upstream https://github.com/emacs-mirror/emacs
           git fetch upstream
-      - name: Merge feature/pgtk
-        run: |
-          git pull --no-edit upstream feature/pgtk
+
+      ## Upstream for master
       - name: Merge feature/native-comp
         run: |
           git pull --no-edit upstream feature/native-comp
@@ -34,7 +34,89 @@ jobs:
         run: |
           git pull --no-edit upstream master
 
+      ## Push
       # https://github.com/marketplace/actions/github-push
+      - name: Push Changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
+
+  upstream-linux:
+    needs:
+      - upstream
+    runs-on: ubuntu-latest
+    steps:
+      ## Git Setting
+      - uses: actions/checkout@v2
+        with:
+          persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
+          fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
+          ref: target/linux-pgtk
+      - name: Git Setting
+        run: |
+          rm -rfv .git/hooks/commit-msg
+          git config pull.rebase off
+      - name: Git User Setting
+        uses: fregante/setup-git-user@v1
+      - name: Set Upstream (emacs-mirror/emacs)
+        run: |
+          git remote add upstream https://github.com/emacs-mirror/emacs
+          git fetch upstream
+
+      - name: Merge Master
+        run: |
+          git merge --no-edit master
+      - name: Merge feature/pgtk
+        run: |
+          git pull --no-edit upstream feature/pgtk
+
+      ## Push
+      - name: Push Changes
+        uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
+
+  upstream-mac:
+    needs:
+      - upstream
+    runs-on: ubuntu-latest
+    steps:
+      ## Git Setting
+      - uses: actions/checkout@v2
+        with:
+          persist-credentials: false # otherwise, the token used is the GITHUB_TOKEN, instead of your personal token
+          fetch-depth: 0 # otherwise, you will failed to push refs to dest repo
+          ref: target/mac-cocoa
+      - name: Git Setting
+        run: |
+          rm -rfv .git/hooks/commit-msg
+          git config pull.rebase off
+      - name: Git User Setting
+        uses: fregante/setup-git-user@v1
+      - name: Set Upstream (mituharu/emacs-mac)
+        run: |
+          git remote add emacs-mac https://bitbucket.org/mituharu/emacs-mac
+          git fetch emacs-mac
+
+      ## Upstream
+      - name: Merge Master
+        run: |
+          git merge --no-edit master
+      - name: Merge feature/pgtk
+        run: |
+          git pull --no-edit upstream feature/pgtk
+      - name: Merge emacs-mac
+        if: ${{ matrix.target.mac }}
+        run: |
+          git pull --no-edit emacs-mac master
+      - name: Merge emacs-mac(work)
+        if: ${{ matrix.target.mac }}
+        run: |
+          git pull --no-edit emacs-mac work
+
+      ## Push
       - name: Push Changes
         uses: ad-m/github-push-action@master
         with:
