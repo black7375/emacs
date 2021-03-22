@@ -57,7 +57,7 @@
 ;; bidi.c needs for its job.
 (setq redisplay--inhibit-bidi t)
 
-(message "dump mode: %s" dump-mode)
+(message "Dump mode: %s" dump-mode)
 
 ;; Add subdirectories to the load-path for files that might get
 ;; autoloaded when bootstrapping or running Emacs normally.
@@ -157,7 +157,8 @@
 ;; Load-time macro-expansion can only take effect after setting
 ;; load-source-file-function because of where it is called in lread.c.
 (load "emacs-lisp/macroexp")
-(if (byte-code-function-p (symbol-function 'macroexpand-all))
+(if (or (byte-code-function-p (symbol-function 'macroexpand-all))
+        (subr-native-elisp-p (symbol-function 'macroexpand-all)))
     nil
   ;; Since loaddefs is not yet loaded, macroexp's uses of pcase will simply
   ;; fail until pcase is explicitly loaded.  This also means that we have to
@@ -170,7 +171,6 @@
 (load "cus-face")
 (load "faces")  ; after here, `defface' may be used.
 
-(load "button")
 
 ;; We don't want to store loaddefs.el in the repository because it is
 ;; a generated file; but it is required in order to compile the lisp files.
@@ -193,6 +193,7 @@
            definition-prefixes)
   (setq definition-prefixes new))
 
+(load "button")                  ;After loaddefs, because of define-minor-mode!
 (load "emacs-lisp/nadvice")
 (load "emacs-lisp/cl-preloaded")
 (load "obarray")        ;abbrev.el is implemented in terms of obarrays.
@@ -253,9 +254,6 @@
 (load "startup")
 (load "term/tty-colors")
 (load "font-core")
-;; facemenu must be loaded before font-lock, because `facemenu-keymap'
-;; needs to be defined when font-lock is loaded.
-(load "facemenu")
 (load "emacs-lisp/syntax")
 (load "font-lock")
 (load "jit-lock")
@@ -265,6 +263,7 @@
     (load "scroll-bar"))
 (load "select")
 (load "emacs-lisp/timer")
+(load "emacs-lisp/easymenu")
 (load "isearch")
 (load "rfn-eshadow")
 
@@ -355,6 +354,7 @@
 (load "cus-start") ;Late to reduce customize-rogue (needs loaddefs.el anyway)
 (if (not (eq system-type 'ms-dos))
     (load "tooltip"))
+(load "international/iso-transl") ; Binds Alt-[ and friends.
 
 ;; This file doesn't exist when building a development version of Emacs
 ;; from the repository.  It is generated just after temacs is built.
@@ -453,6 +453,35 @@ lost after dumping")))
 ;; At this point, we're ready to resume undo recording for scratch.
 (buffer-enable-undo "*scratch*")
 
+(when (featurep 'nativecomp)
+  ;; Fix the compilation unit filename to have it working when
+  ;; installed or if the source directory got moved.  This is set to be
+  ;; a cons cell of the form:
+  ;;     (rel-filename-from-install-bin . rel-filename-from-local-bin).
+  (let ((h (make-hash-table :test #'eq))
+        (bin-dest-dir (cadr (member "--bin-dest" command-line-args)))
+        (eln-dest-dir (cadr (member "--eln-dest" command-line-args))))
+    (when (and bin-dest-dir eln-dest-dir)
+      (setq eln-dest-dir
+            (concat eln-dest-dir "native-lisp/" comp-native-version-dir "/"))
+      (mapatoms (lambda (s)
+                  (let ((f (symbol-function s)))
+                    (when (subr-native-elisp-p f)
+                      (puthash (subr-native-comp-unit f) nil h)))))
+      (maphash (lambda (cu _)
+                 (native-comp-unit-set-file
+                  cu
+	          (cons
+                   ;; Relative filename from the installed binary.
+                   (file-relative-name (concat eln-dest-dir
+                                               (file-name-nondirectory
+                                                (native-comp-unit-file cu)))
+                                       bin-dest-dir)
+                   ;; Relative filename from the built uninstalled binary.
+                   (file-relative-name (native-comp-unit-file cu)
+                                       invocation-directory))))
+	       h))))
+
 (when (hash-table-p purify-flag)
   (let ((strings 0)
         (vectors 0)
@@ -480,12 +509,19 @@ lost after dumping")))
 ;; Make sure we will attempt bidi reordering henceforth.
 (setq redisplay--inhibit-bidi nil)
 
+
+
 (if dump-mode
     (let ((output (cond ((equal dump-mode "pdump") "emacs.pdmp")
                         ((equal dump-mode "dump") "emacs")
                         ((equal dump-mode "bootstrap") "emacs")
                         ((equal dump-mode "pbootstrap") "bootstrap-emacs.pdmp")
                         (t (error "unrecognized dump mode %s" dump-mode)))))
+      (when (and (featurep 'nativecomp)
+                 (equal dump-mode "pdump"))
+        ;; Don't enable this before bootstrap is completed, as the
+        ;; compiler infrastructure may not be usable yet.
+        (setq comp-enable-subr-trampolines t))
       (message "Dumping under the name %s" output)
       (condition-case ()
           (delete-file output)
@@ -542,6 +578,7 @@ lost after dumping")))
 ;; Don't keep `load-file-name' set during the top-level session!
 ;; Otherwise, it breaks a lot of code which does things like
 ;; (or load-file-name byte-compile-current-file).
+(setq load-true-file-name nil)
 (setq load-file-name nil)
 (eval top-level)
 

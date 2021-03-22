@@ -1,4 +1,4 @@
-;;; calc-menu.el --- a menu for Calc
+;;; calc-menu.el --- a menu for Calc  -*- lexical-binding:t -*-
 
 ;; Copyright (C) 2007-2021 Free Software Foundation, Inc.
 
@@ -781,7 +781,7 @@
                :active (>= (calc-stack-size) 2)
                :help "The cross product in R^3"]
               ["(2:) dot (1:)"
-               calc-mult
+               calc-times
                :keys "*"
                :active (>= (calc-stack-size) 2)
                :help "The dot product"]

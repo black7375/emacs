@@ -1,4 +1,4 @@
-;;; format.el --- read and save files in multiple formats
+;;; format.el --- read and save files in multiple formats  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1994-1995, 1997, 1999, 2001-2021 Free Software
 ;; Foundation, Inc.
@@ -237,9 +237,8 @@ For most purposes, consider using `format-encode-region' instead."
                   ;; delete the buffer once the write is done, but do
                   ;; it after running to-fn so it doesn't affect
                   ;; write-region calls in to-fn.
-                  (set (make-local-variable
-                        'write-region-post-annotation-function)
-                       'kill-buffer)))
+                  (setq-local write-region-post-annotation-function
+                              #'kill-buffer)))
 	      nil)
 	  ;; Otherwise just call function, it will return annotations.
 	  (funcall to-fn from to orig-buf)))))
@@ -342,8 +341,8 @@ for identifying regular expressions at the beginning of the region."
 FORMAT defaults to `buffer-file-format'.  It is a symbol naming one of the
 formats defined in `format-alist', or a list of such symbols."
   (interactive
-   (list (format-read (format "Translate buffer to format (default %s): "
-			      buffer-file-format))))
+   (list (format-read (format-prompt "Translate buffer to format"
+			             buffer-file-format))))
   (format-encode-region (point-min) (point-max) format))
 
 (defun format-encode-region (beg end &optional format)
@@ -352,8 +351,8 @@ FORMAT defaults to `buffer-file-format'.  It is a symbol naming
 one of the formats defined in `format-alist', or a list of such symbols."
   (interactive
    (list (region-beginning) (region-end)
-	 (format-read (format "Translate region to format (default %s): "
-			      buffer-file-format))))
+	 (format-read (format-prompt "Translate region to format"
+			             buffer-file-format))))
   (if (null format)    (setq format buffer-file-format))
   (if (symbolp format) (setq format (list format)))
   (save-excursion
@@ -420,7 +419,8 @@ If FORMAT is nil then do not do any format conversion."
                                             (file-name-nondirectory file)))))
      (list file fmt)))
   (let ((format-alist nil))
-     (find-file filename))
+    (with-suppressed-warnings ((interactive-only find-file))
+      (find-file filename)))
   (if format
       (format-decode-buffer format)))
 
@@ -747,13 +747,17 @@ to write these unknown annotations back into the file."
 
 	    (if (numberp val)	; add to ambient value if numeric
 		(format-property-increment-region from to prop val 0)
-	      (put-text-property
-	       from to prop
-	       (cond ((get prop 'format-list-valued) ; value gets consed onto
-						     ; list-valued properties
-		      (let ((prev (get-text-property from prop)))
-			(cons val (if (listp prev) prev (list prev)))))
-		     (t val))))) ; normally, just set to val.
+              ;; Kludge alert: ignore items with reversed order of
+              ;; FROM and TO.  They seem to be redundant anyway, and
+              ;; in one case I've seen them refer to EOB.
+              (when (<= from to)
+	        (put-text-property
+	         from to prop
+	         (cond ((get prop 'format-list-valued) ; value gets consed onto
+						       ; list-valued properties
+		        (let ((prev (get-text-property from prop)))
+			  (cons val (if (listp prev) prev (list prev)))))
+		       (t val)))))) ; normally, just set to val.
 	  (setq todo (cdr todo)))
 
 	(if unknown-ans

@@ -1,4 +1,4 @@
-;;; gnus-srvr.el --- virtual server support for Gnus
+;;; gnus-srvr.el --- virtual server support for Gnus  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1995-2021 Free Software Foundation, Inc.
 
@@ -34,7 +34,7 @@
 (require 'gnus-range)
 (require 'gnus-cloud)
 
-(autoload 'gnus-group-make-nnir-group "nnir")
+(autoload 'gnus-group-read-ephemeral-search-group "nnselect")
 
 (defcustom gnus-server-exit-hook nil
   "Hook run when exiting the server buffer."
@@ -176,7 +176,7 @@ If nil, a faster, but more primitive, buffer is used instead."
 
     "g" gnus-server-regenerate-server
 
-    "G" gnus-group-make-nnir-group
+    "G" gnus-group-read-ephemeral-search-group
 
     "z" gnus-server-compact-server
 
@@ -262,8 +262,7 @@ The following commands are available:
   (setq mode-line-process nil)
   (buffer-disable-undo)
   (setq truncate-lines t)
-  (set (make-local-variable 'font-lock-defaults)
-       '(gnus-server-font-lock-keywords t)))
+  (setq-local font-lock-defaults '(gnus-server-font-lock-keywords t)))
 
 
 (defun gnus-server-insert-server-line (name method)
@@ -298,7 +297,7 @@ The following commands are available:
      (point)
      (prog1 (1+ (point))
        ;; Insert the text.
-       (eval gnus-server-line-format-spec))
+       (eval gnus-server-line-format-spec t))
      (list 'gnus-server (intern gnus-tmp-name)
            'gnus-named-server (intern (gnus-method-to-server method t))))))
 
@@ -309,7 +308,7 @@ The following commands are available:
   ;; `gnus-server-buffer' selected as the current buffer, but not always (I
   ;; bumped into it when starting from a dedicated *Group* frame, and
   ;; gnus-configure-windows opened *Server* into its own dedicated frame).
-  (with-current-buffer (get-buffer-create gnus-server-buffer)
+  (with-current-buffer (gnus-get-buffer-create gnus-server-buffer)
     (gnus-server-mode)
     (gnus-server-prepare)))
 
@@ -410,7 +409,7 @@ The following commands are available:
 
 (defun gnus-server-kill-server (server)
   "Kill the server on the current line."
-  (interactive (list (gnus-server-server-name)))
+  (interactive (list (gnus-server-server-name)) gnus-server-mode)
   (unless (gnus-server-goto-server server)
     (if server (error "No such server: %s" server)
       (error "No server on the current line")))
@@ -439,7 +438,7 @@ The following commands are available:
 
 (defun gnus-server-yank-server ()
   "Yank the previously killed server."
-  (interactive)
+  (interactive nil gnus-server-mode)
   (unless gnus-server-killed-servers
     (error "No killed servers to be yanked"))
   (let ((alist gnus-server-alist)
@@ -461,14 +460,14 @@ The following commands are available:
 
 (defun gnus-server-exit ()
   "Return to the group buffer."
-  (interactive)
+  (interactive nil gnus-server-mode)
   (gnus-run-hooks 'gnus-server-exit-hook)
   (gnus-kill-buffer (current-buffer))
   (gnus-configure-windows 'group t))
 
 (defun gnus-server-list-servers ()
   "List all available servers."
-  (interactive)
+  (interactive nil gnus-server-mode)
   (let ((cur (gnus-server-server-name)))
     (gnus-server-prepare)
     (if cur (gnus-server-goto-server cur)
@@ -490,7 +489,7 @@ The following commands are available:
 
 (defun gnus-server-open-server (server)
   "Force an open of SERVER."
-  (interactive (list (gnus-server-server-name)))
+  (interactive (list (gnus-server-server-name)) gnus-server-mode)
   (let ((method (gnus-server-to-method server)))
     (unless method
       (error "No such server: %s" server))
@@ -502,13 +501,13 @@ The following commands are available:
 
 (defun gnus-server-open-all-servers ()
   "Open all servers."
-  (interactive)
+  (interactive nil gnus-server-mode)
   (dolist (server gnus-inserted-opened-servers)
     (gnus-server-open-server (car server))))
 
 (defun gnus-server-close-server (server)
   "Close SERVER."
-  (interactive (list (gnus-server-server-name)))
+  (interactive (list (gnus-server-server-name)) gnus-server-mode)
   (let ((method (gnus-server-to-method server)))
     (unless method
       (error "No such server: %s" server))
@@ -520,7 +519,7 @@ The following commands are available:
 
 (defun gnus-server-offline-server (server)
   "Set SERVER to offline."
-  (interactive (list (gnus-server-server-name)))
+  (interactive (list (gnus-server-server-name)) gnus-server-mode)
   (let ((method (gnus-server-to-method server)))
     (unless method
       (error "No such server: %s" server))
@@ -532,7 +531,7 @@ The following commands are available:
 
 (defun gnus-server-close-all-servers ()
   "Close all servers."
-  (interactive)
+  (interactive nil gnus-server-mode)
   (dolist (server gnus-inserted-opened-servers)
     (gnus-server-close-server (car server)))
   (dolist (server gnus-server-alist)
@@ -540,7 +539,7 @@ The following commands are available:
 
 (defun gnus-server-deny-server (server)
   "Make sure SERVER will never be attempted opened."
-  (interactive (list (gnus-server-server-name)))
+  (interactive (list (gnus-server-server-name)) gnus-server-mode)
   (let ((method (gnus-server-to-method server)))
     (unless method
       (error "No such server: %s" server))
@@ -551,7 +550,7 @@ The following commands are available:
 
 (defun gnus-server-remove-denials ()
   "Make all denied servers into closed servers."
-  (interactive)
+  (interactive nil gnus-server-mode)
   (dolist (server gnus-opened-servers)
     (when (eq (nth 1 server) 'denied)
       (setcar (nthcdr 1 server) 'closed)))
@@ -559,11 +558,11 @@ The following commands are available:
 
 (defun gnus-server-copy-server (from to)
   "Copy a server definition to a new name."
-  (interactive
-   (list
-    (or (gnus-server-server-name)
-	(error "No server on the current line"))
-    (read-string "Copy to: ")))
+  (interactive (list
+		(or (gnus-server-server-name)
+		    (error "No server on the current line"))
+		(read-string "Copy to: "))
+	       gnus-server-mode)
   (unless from
     (error "No server on current line"))
   (unless (and to (not (string= to "")))
@@ -582,9 +581,10 @@ The following commands are available:
 (defun gnus-server-add-server (how where)
   (interactive
    (list (intern (gnus-completing-read "Server method"
-                                       (mapcar 'car gnus-valid-select-methods)
+                                       (mapcar #'car gnus-valid-select-methods)
                                        t))
-	 (read-string "Server name: ")))
+	 (read-string "Server name: "))
+   gnus-server-mode)
   (when (assq where gnus-server-alist)
     (error "Server with that name already defined"))
   (push (list where how where) gnus-server-killed-servers)
@@ -593,7 +593,9 @@ The following commands are available:
 (defun gnus-server-goto-server (server)
   "Jump to a server line."
   (interactive
-   (list (gnus-completing-read "Goto server" (mapcar 'car gnus-server-alist) t)))
+   (list (gnus-completing-read "Goto server"
+                               (mapcar #'car gnus-server-alist) t))
+   gnus-server-mode)
   (let ((to (text-property-any (point-min) (point-max)
 			       'gnus-server (intern server))))
     (when to
@@ -602,7 +604,7 @@ The following commands are available:
 
 (defun gnus-server-edit-server (server)
   "Edit the server on the current line."
-  (interactive (list (gnus-server-server-name)))
+  (interactive (list (gnus-server-server-name)) gnus-server-mode)
   (unless server
     (error "No server on current line"))
   (unless (assoc server gnus-server-alist)
@@ -612,27 +614,27 @@ The following commands are available:
     (gnus-close-server info)
     (gnus-edit-form
      info "Editing the server."
-     `(lambda (form)
-	(gnus-server-set-info ,server form)
-	(gnus-server-list-servers)
-	(gnus-server-position-point))
+     (lambda (form)
+       (gnus-server-set-info server form)
+       (gnus-server-list-servers)
+       (gnus-server-position-point))
      'edit-server)))
 
 (defun gnus-server-show-server (server)
   "Show the definition of the server on the current line."
-  (interactive (list (gnus-server-server-name)))
+  (interactive (list (gnus-server-server-name)) gnus-server-mode)
   (unless server
     (error "No server on current line"))
   (let ((info (gnus-server-to-method server)))
     (gnus-edit-form
      info "Showing the server."
-     (lambda (form)
+     (lambda (_form)
        (gnus-server-position-point))
      'edit-server)))
 
 (defun gnus-server-scan-server (server)
   "Request a scan from the current server."
-  (interactive (list (gnus-server-server-name)))
+  (interactive (list (gnus-server-server-name)) gnus-server-mode)
   (let ((method (gnus-server-to-method server)))
     (if (not (gnus-get-function method 'request-scan))
 	(error "Server %s can't scan" (car method))
@@ -897,7 +899,7 @@ buffer.
 (defun gnus-browse-read-group (&optional no-article number)
   "Enter the group at the current line.
 If NUMBER, fetch this number of articles."
-  (interactive "P")
+  (interactive "P" gnus-browse-mode)
   (let* ((full-name (gnus-browse-group-name))
 	 (group (if (gnus-native-method-p
 		     (gnus-find-method-for-group full-name))
@@ -916,26 +918,26 @@ If NUMBER, fetch this number of articles."
 (defun gnus-browse-select-group (&optional number)
   "Select the current group.
 If NUMBER, fetch this number of articles."
-  (interactive "P")
+  (interactive "P" gnus-browse-mode)
   (gnus-browse-read-group 'no number))
 
 (defun gnus-browse-next-group (n)
   "Go to the next group."
-  (interactive "p")
+  (interactive "p" gnus-browse-mode)
   (prog1
       (forward-line n)
     (gnus-group-position-point)))
 
 (defun gnus-browse-prev-group (n)
   "Go to the next group."
-  (interactive "p")
+  (interactive "p" gnus-browse-mode)
   (gnus-browse-next-group (- n)))
 
 (defun gnus-browse-unsubscribe-current-group (arg)
   "(Un)subscribe to the next ARG groups.
 The variable `gnus-browse-subscribe-newsgroup-method' determines
 how new groups will be entered into the group buffer."
-  (interactive "p")
+  (interactive "p" gnus-browse-mode)
   (when (eobp)
     (error "No group at current line"))
   (let ((ward (if (< arg 0) -1 1))
@@ -961,7 +963,7 @@ how new groups will be entered into the group buffer."
 
 (defun gnus-browse-describe-group (group)
   "Describe the current group."
-  (interactive (list (gnus-browse-group-name)))
+  (interactive (list (gnus-browse-group-name)) gnus-browse-mode)
   (gnus-group-describe-group nil group))
 
 (defun gnus-browse-delete-group (group force)
@@ -970,8 +972,8 @@ If FORCE (the prefix) is non-nil, all the articles in the group will
 be deleted.  This is \"deleted\" as in \"removed forever from the face
 of the Earth\".  There is no undo.  The user will be prompted before
 doing the deletion."
-  (interactive (list (gnus-browse-group-name)
-		     current-prefix-arg))
+  (interactive (list (gnus-browse-group-name) current-prefix-arg)
+	       gnus-browse-mode)
   (gnus-group-delete-group group force))
 
 (defun gnus-browse-unsubscribe-group ()
@@ -1020,7 +1022,7 @@ doing the deletion."
 
 (defun gnus-browse-exit ()
   "Quit browsing and return to the group buffer."
-  (interactive)
+  (interactive nil gnus-browse-mode)
   (when (derived-mode-p 'gnus-browse-mode)
     (gnus-kill-buffer (current-buffer)))
   ;; Insert the newly subscribed groups in the group buffer.
@@ -1032,7 +1034,7 @@ doing the deletion."
 
 (defun gnus-browse-describe-briefly ()
   "Give a one line description of the group mode commands."
-  (interactive)
+  (interactive nil gnus-browse-mode)
   (gnus-message 6 "%s"
 		(substitute-command-keys "\\<gnus-browse-mode-map>\\[gnus-group-next-group]:Forward  \\[gnus-group-prev-group]:Backward  \\[gnus-browse-exit]:Exit  \\[gnus-info-find-node]:Run Info  \\[gnus-browse-describe-briefly]:This help")))
 
@@ -1089,7 +1091,7 @@ Requesting compaction of %s... (this may take a long time)"
 
 (defun gnus-server-toggle-cloud-server ()
   "Toggle whether the server under point is replicated in the Emacs Cloud."
-  (interactive)
+  (interactive nil gnus-server-mode)
   (let ((server (gnus-server-server-name)))
     (unless server
       (error "No server on the current line"))
@@ -1110,7 +1112,7 @@ Requesting compaction of %s... (this may take a long time)"
 
 (defun gnus-server-set-cloud-method-server ()
   "Set the server under point to host the Emacs Cloud."
-  (interactive)
+  (interactive nil gnus-server-mode)
   (let ((server (gnus-server-server-name)))
     (unless server
       (error "No server on the current line"))

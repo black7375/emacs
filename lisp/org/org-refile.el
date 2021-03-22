@@ -7,18 +7,18 @@
 ;;
 ;; This file is part of GNU Emacs.
 
-;; This program is free software; you can redistribute it and/or modify
+;; GNU Emacs is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
 ;; (at your option) any later version.
 
-;; This program is distributed in the hope that it will be useful,
+;; GNU Emacs is distributed in the hope that it will be useful,
 ;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ;; GNU General Public License for more details.
 
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -373,7 +373,7 @@ the *old* location.")
 (defvar org-refile-keep nil
   "Non-nil means `org-refile' will copy instead of refile.")
 
-(define-obsolete-function-alias 'org-copy 'org-refile-copy)
+(define-obsolete-function-alias 'org-copy 'org-refile-copy "Org 9.4")
 
 ;;;###autoload
 (defun org-refile-copy ()

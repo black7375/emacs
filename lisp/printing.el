@@ -5,7 +5,7 @@
 ;; Author: Vinicius Jose Latorre <viniciusjl.gnu@gmail.com>
 ;; Keywords: wp, print, PostScript
 ;; Version: 6.9.3
-;; X-URL: http://www.emacswiki.org/cgi-bin/wiki/ViniciusJoseLatorre
+;; X-URL: https://www.emacswiki.org/cgi-bin/wiki/ViniciusJoseLatorre
 
 (defconst pr-version "6.9.3"
   "printing.el, v 6.9.3 <2007/12/09 vinicius>
@@ -64,7 +64,7 @@ Please send all bug fixes and enhancements to
 ;; interface to ps-print package and it also provides some extra stuff.
 ;;
 ;; To download the latest ps-print package see
-;; `http://www.emacswiki.org/cgi-bin/wiki/PsPrintPackage'.
+;; `https://www.emacswiki.org/cgi-bin/wiki/PsPrintPackage'.
 ;; Please, see README file for ps-print installation instructions.
 ;;
 ;; `printing' was inspired by:
@@ -103,14 +103,14 @@ Please send all bug fixes and enhancements to
 ;; For example, after previewing a PostScript file, *Printing Command Output*
 ;; will have the following entry:
 ;;
-;;    /usr/X11R6/bin/gv ("/home/user/example/file.ps")
+;;    /usr/bin/gv ("/home/user/example/file.ps")
 ;;    Exit status: 0
 ;;
 ;; In the example above, the previewing was successful.  If during previewing,
 ;; you quit gv execution (by typing C-g during Emacs session), the log entry
 ;; would be:
 ;;
-;;    /usr/X11R6/bin/gv ("/home/user/example/file.ps")
+;;    /usr/bin/gv ("/home/user/example/file.ps")
 ;;    Exit status: Quit
 ;;
 ;; So, if something goes wrong, a good place to take a look is the buffer
@@ -944,8 +944,8 @@ Please send all bug fixes and enhancements to
 ;;
 ;; * For `printing' package:
 ;;
-;;    printing	`http://www.emacswiki.org/cgi-bin/emacs/download/printing.el'
-;;    ps-print	`http://www.emacswiki.org/cgi-bin/wiki/PsPrintPackage'
+;;    printing	`https://www.emacswiki.org/cgi-bin/emacs/download/printing.el'
+;;    ps-print	`https://www.emacswiki.org/cgi-bin/wiki/PsPrintPackage'
 ;;
 ;; * For GNU or Unix system:
 ;;
@@ -1014,7 +1014,6 @@ Please send all bug fixes and enhancements to
 
 (require 'lpr)
 (require 'ps-print)
-(require 'easymenu)
 
 (and (string< ps-print-version "6.6.4")
      (error "`printing' requires `ps-print' package version 6.6.4 or later"))
@@ -5284,22 +5283,18 @@ If menu binding was not done, calls `pr-menu-bind'."
 
 
 (defun pr-interactive-n-up (mess)
-  (or (stringp mess) (setq mess "*"))
-  (save-match-data
-    (let* ((fmt-prompt "%s[%s] N-up printing (default 1): ")
-	   (prompt "")
-	   (str (read-string (format fmt-prompt prompt mess) nil nil "1"))
-	   int)
-      (while (if (string-match "^\\s *[0-9]+$" str)
-		 (setq int (string-to-number str)
-		       prompt (cond ((< int 1)   "Integer below 1; ")
-				    ((> int 100) "Integer above 100; ")
-				    (t           nil)))
-	       (setq prompt "Invalid integer syntax; "))
-	(ding)
-	(setq str
-	      (read-string (format fmt-prompt prompt mess) str nil "1")))
-      int)))
+  (unless (stringp mess)
+    (setq mess "*"))
+  (let (int)
+    (while (or (< (setq int (read-number (format "[%s] N-up printing:" mess) 1))
+                  0)
+               (> int 100))
+      (if (< int 0)
+	  (message "Integer below 1")
+	(message "Integer above 100"))
+      (sit-for 1)
+      (ding))
+    int))
 
 
 (defun pr-interactive-dir (mess)
@@ -5323,7 +5318,7 @@ If menu binding was not done, calls `pr-menu-bind'."
 
 
 (defun pr-interactive-regexp (mess)
-  (read-string (format "[%s] File regexp to print: " mess) nil nil ""))
+  (read-string (format "[%s] File regexp to print: " mess)))
 
 
 (defun pr-interactive-dir-args (mess)
@@ -5622,8 +5617,6 @@ COMMAND.exe, COMMAND.bat and COMMAND.com in this order."
   ;; header
   (let ((versions (concat "printing v" pr-version
 			  "    ps-print v" ps-print-version)))
-    ;; to keep compatibility with Emacs 20 & 21:
-    ;; DO NOT REPLACE `?\ ' BY `?\s'
     (widget-insert (make-string (- 79 (length versions)) ?\ ) versions))
   (pr-insert-italic "\nCurrent Directory : " 1)
   (pr-insert-italic default-directory)

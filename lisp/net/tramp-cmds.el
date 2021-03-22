@@ -74,11 +74,13 @@ SYNTAX can be one of the symbols `default' (default),
 Each function is called with the current vector as argument.")
 
 ;;;###tramp-autoload
-(defun tramp-cleanup-connection (vec &optional keep-debug keep-password)
+(defun tramp-cleanup-connection
+    (vec &optional keep-debug keep-password keep-processes)
   "Flush all connection related objects.
 This includes password cache, file cache, connection cache,
-buffers.  KEEP-DEBUG non-nil preserves the debug buffer.
-KEEP-PASSWORD non-nil preserves the password cache.
+buffers, processes.  KEEP-DEBUG non-nil preserves the debug
+buffer.  KEEP-PASSWORD non-nil preserves the password cache.
+KEEP-PROCESSES non-nil preserves the asynchronous processes.
 When called interactively, a Tramp connection has to be selected."
   (interactive
    ;; When interactive, select the Tramp remote identification.
@@ -107,20 +109,20 @@ When called interactively, a Tramp connection has to be selected."
     ;; suppressed.
     (setq tramp-current-connection nil)
 
-    ;; Flush file cache.
-    (tramp-flush-directory-properties vec "")
-
-    ;; Flush connection cache.
-    (when (processp (tramp-get-connection-process vec))
-      (tramp-flush-connection-properties (tramp-get-connection-process vec))
-      (delete-process (tramp-get-connection-process vec)))
-    (tramp-flush-connection-properties vec)
-
     ;; Cancel timer.
     (dolist (timer timer-list)
       (when (and (eq (timer--function timer) 'tramp-timeout-session)
 		 (tramp-file-name-equal-p vec (car (timer--args timer))))
 	(cancel-timer timer)))
+
+    ;; Delete processes.
+    (dolist (key (hash-table-keys tramp-cache-data))
+      (when (and (processp key)
+		 (tramp-file-name-equal-p (process-get key 'vector) vec)
+		 (or (not keep-processes)
+		     (eq key (tramp-get-process vec))))
+	(tramp-flush-connection-properties key)
+	(delete-process key)))
 
     ;; Remove buffers.
     (dolist
@@ -130,16 +132,29 @@ When called interactively, a Tramp connection has to be selected."
 		   (tramp-get-connection-property vec "process-buffer" nil)))
       (when (bufferp buf) (kill-buffer buf)))
 
+    ;; Flush file cache.
+    (tramp-flush-directory-properties vec "")
+
+    ;; Flush connection cache.
+    (tramp-flush-connection-properties vec)
+
     ;; The end.
     (run-hook-with-args 'tramp-cleanup-connection-hook vec)))
 
 ;;;###tramp-autoload
 (defun tramp-cleanup-this-connection ()
   "Flush all connection related objects of the current buffer's connection."
+  ;; (declare (completion tramp-command-completion-p)))
   (interactive)
   (and (tramp-tramp-file-p default-directory)
        (tramp-cleanup-connection
 	(tramp-dissect-file-name default-directory 'noexpand))))
+
+;; Starting with Emacs 28.1, this can be replaced by the "(declare ...)" form.
+;;;###tramp-autoload
+(function-put
+ #'tramp-cleanup-this-connection 'completion-predicate
+ #'tramp-command-completion-p)
 
 ;;;###tramp-autoload
 (defvar tramp-cleanup-all-connections-hook nil
@@ -150,9 +165,6 @@ When called interactively, a Tramp connection has to be selected."
   "Flush all Tramp internal objects.
 This includes password cache, file cache, connection cache, buffers."
   (interactive)
-
-  ;; Unlock Tramp.
-  (setq tramp-locked nil)
 
   ;; Flush password cache.
   (password-reset)
@@ -176,8 +188,9 @@ This includes password cache, file cache, connection cache, buffers."
   ;; Cancel timers.
   (cancel-function-timers 'tramp-timeout-session)
 
-  ;; Remove buffers.
+  ;; Remove processes and buffers.
   (dolist (name (tramp-list-tramp-buffers))
+    (when (processp (get-buffer-process name)) (delete-process name))
     (when (bufferp (get-buffer name)) (kill-buffer name)))
 
   ;; The end.
@@ -195,7 +208,6 @@ This includes password cache, file cache, connection cache, buffers."
   (dolist (name (tramp-list-remote-buffers))
     (when (bufferp (get-buffer name)) (kill-buffer name))))
 
-;;;###tramp-autoload
 (defcustom tramp-default-rename-alist nil
   "Default target for renaming remote buffer file names.
 This is an alist of cons cells (SOURCE . TARGET).  The first
@@ -218,7 +230,6 @@ expression which always matches."
   :type '(repeat (cons (choice :tag "Source regexp" regexp sexp)
 		       (choice :tag "Target   name" string (const nil)))))
 
-;;;###tramp-autoload
 (defcustom tramp-confirm-rename-file-names t
   "Whether renaming a buffer file name must be confirmed."
   :group 'tramp
@@ -237,7 +248,7 @@ function returns nil"
 	  (host (or (file-remote-p string 'host) ""))
 	  item result)
       (while (setq item (pop tdra))
-	(when (string-match-p (or (eval (car item)) "") string)
+	(when (string-match-p (or (eval (car item) t) "") string)
 	  (setq tdra nil
 		result
 		(format-spec
@@ -350,9 +361,8 @@ The remote connection identified by SOURCE is flushed by
     (or (setq target (tramp-default-rename-file source))
 	(tramp-user-error
 	 nil
-	 (eval-when-compile
-	   (concat "There is no target specified.  "
-		   "Check `tramp-default-rename-alist' for a proper entry.")))))
+	 (concat "There is no target specified.  "
+		 "Check `tramp-default-rename-alist' for a proper entry."))))
   (when (tramp-equal-remote source target)
     (tramp-user-error nil "Source and target must have different remote."))
 
@@ -379,8 +389,7 @@ ESC or `q' to quit without changing further buffers,
           (switch-to-buffer buffer)
 	  (let* ((bfn (buffer-file-name))
 		 (new-bfn (and (stringp bfn)
-			       (replace-regexp-in-string
-				(regexp-quote source) target bfn)))
+			       (tramp-compat-string-replace source target bfn)))
 		 (prompt (format-message
 			  "Set visited file name to `%s' [Type yn!eq or %s] "
 			  new-bfn (key-description (vector help-char)))))
@@ -427,6 +436,7 @@ Interactively, TARGET is selected from `tramp-default-rename-alist'
 without confirmation if the prefix argument is non-nil.
 
 For details, see `tramp-rename-files'."
+  ;; (declare (completion tramp-command-completion-p))
   (interactive
    (let ((source default-directory)
 	 target
@@ -457,11 +467,16 @@ For details, see `tramp-rename-files'."
 
   (tramp-rename-files default-directory target))
 
+;; Starting with Emacs 28.1, this can be replaced by the "(declare ...)" form.
+;;;###tramp-autoload
+(function-put
+ #'tramp-rename-these-files 'completion-predicate #'tramp-command-completion-p)
+
 ;; Tramp version is useful in a number of situations.
 
 ;;;###tramp-autoload
 (defun tramp-version (arg)
-  "Print version number of tramp.el in minibuffer or current buffer."
+  "Print version number of tramp.el in echo area or current buffer."
   (interactive "P")
   (if arg (insert tramp-version) (message tramp-version)))
 
@@ -474,9 +489,7 @@ For details, see `tramp-rename-files'."
 (defun tramp-bug ()
   "Submit a bug report to the Tramp developers."
   (interactive)
-  (let ((reporter-prompt-for-summary-p t)
-	;; In rare cases, it could contain the password.  So we make it nil.
-	tramp-password-save-function)
+  (let ((reporter-prompt-for-summary-p t))
     (reporter-submit-bug-report
      tramp-bug-report-address	  ; to-address
      (format "tramp (%s %s/%s)" ; package name and version
@@ -484,10 +497,11 @@ For details, see `tramp-rename-files'."
      (sort
       (delq nil (mapcar
 	(lambda (x)
-	  (and x (boundp x) (cons x 'tramp-reporter-dump-variable)))
+	  (and x (boundp x) (not (get x 'tramp-suppress-trace))
+	       (cons x 'tramp-reporter-dump-variable)))
 	(append
 	 (mapcar #'intern (all-completions "tramp-" obarray #'boundp))
-	 ;; Non-tramp variables of interest.
+	 ;; Non-Tramp variables of interest.
 	 '(shell-prompt-pattern
 	   backup-by-copying
 	   backup-by-copying-when-linked
@@ -544,11 +558,11 @@ buffer in your bug report.
 		 (string-match-p
 		  (concat "[^" (bound-and-true-p mm-7bit-chars) "]") val))
 	(with-current-buffer reporter-eval-buffer
-	  (set
-	   varsym
-	   (format
-	    "(decode-coding-string (base64-decode-string \"%s\") 'raw-text)"
-	    (base64-encode-string (encode-coding-string val 'raw-text)))))))
+	  (set varsym
+	       `(decode-coding-string
+		 (base64-decode-string
+		  ,(base64-encode-string (encode-coding-string val 'raw-text)))
+		 'raw-text)))))
 
     ;; Dump variable.
     (reporter-dump-variable varsym mailbuf)
@@ -557,11 +571,10 @@ buffer in your bug report.
       ;; Remove string quotation.
       (forward-line -1)
       (when (looking-at
-	     (eval-when-compile
-	       (concat "\\(^.*\\)" "\""                       ;; \1 "
-		       "\\((base64-decode-string \\)" "\\\\"  ;; \2 \
-		       "\\(\".*\\)" "\\\\"                    ;; \3 \
-		       "\\(\")\\)" "\"$")))                   ;; \4 "
+	     (concat "\\(^.*\\)" "\""                       ;; \1 "
+		     "\\((base64-decode-string \\)" "\\\\"  ;; \2 \
+		     "\\(\".*\\)" "\\\\"                    ;; \3 \
+		     "\\(\")\\)" "\"$"))                    ;; \4 "
 	(replace-match "\\1\\2\\3\\4")
 	(beginning-of-line)
 	(insert " ;; Variable encoded due to non-printable characters.\n"))

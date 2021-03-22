@@ -233,7 +233,7 @@ This method is obsolete."
 
        ,@(when eieio-backward-compatibility
            (let ((f (intern (format "%s-child-p" name))))
-             `((defalias ',f ',testsym2)
+             `((defalias ',f #',testsym2)
                (make-obsolete
                 ',f ,(format "use (cl-typep ... \\='%s) instead" name)
                 "25.1"))))
@@ -269,7 +269,7 @@ This method is obsolete."
                        (lambda (whole)
                          (if (not (stringp (car slots)))
                              whole
-                           (macroexp--warn-and-return
+                           (macroexp-warn-and-return
                             (format "Obsolete name arg %S to constructor %S"
                                     (car slots) (car whole))
                             ;; Keep the name arg, for backward compatibility,
@@ -288,8 +288,8 @@ created by the :initarg tag."
   (declare (debug (form symbolp)))
   `(eieio-oref ,obj (quote ,slot)))
 
-(defalias 'slot-value 'eieio-oref)
-(defalias 'set-slot-value 'eieio-oset)
+(defalias 'slot-value #'eieio-oref)
+(defalias 'set-slot-value #'eieio-oset)
 (make-obsolete 'set-slot-value "use (setf (slot-value ..) ..) instead" "25.1")
 
 (defmacro oref-default (obj slot)
@@ -351,24 +351,20 @@ Elements of FIELDS can be of the form (NAME PAT) in which case the
 contents of field NAME is matched against PAT, or they can be of
  the form NAME which is a shorthand for (NAME NAME)."
   (declare (debug (&rest [&or (sexp pcase-PAT) sexp])))
-  (let ((is (make-symbol "table")))
-    ;; FIXME: This generates a horrendous mess of redundant let bindings.
-    ;; `pcase' needs to be improved somehow to introduce let-bindings more
-    ;; sparingly, or the byte-compiler needs to be taught to optimize
-    ;; them away.
-    ;; FIXME: `pcase' does not do a good job here of sharing tests&code among
-    ;; various branches.
-    `(and (pred eieio-object-p)
-          (app eieio-pcase-slot-index-table ,is)
-          ,@(mapcar (lambda (field)
-                      (let* ((name (if (consp field) (car field) field))
-                             (pat (if (consp field) (cadr field) field))
-                             (i (make-symbol "index")))
-                        `(and (let (and ,i (pred natnump))
-                                (eieio-pcase-slot-index-from-index-table
-                                 ,is ',name))
-                              (app (pcase--flip aref ,i) ,pat))))
-                    fields))))
+  ;; FIXME: This generates a horrendous mess of redundant let bindings.
+  ;; `pcase' needs to be improved somehow to introduce let-bindings more
+  ;; sparingly, or the byte-compiler needs to be taught to optimize
+  ;; them away.
+  ;; FIXME: `pcase' does not do a good job here of sharing tests&code among
+  ;; various branches.
+  `(and (pred eieio-object-p)
+        ,@(mapcar (lambda (field)
+                    (pcase-exhaustive field
+                      (`(,name ,pat)
+                       `(app (pcase--flip eieio-oref ',name) ,pat))
+                      ((pred symbolp)
+                       `(app (pcase--flip eieio-oref ',field) ,field))))
+                  fields)))
 
 ;;; Simple generators, and query functions.  None of these would do
 ;;  well embedded into an object.
@@ -422,7 +418,7 @@ If EXTRA, include that in the string returned to represent the symbol."
   (cl-check-type obj eieio-object)
   (eieio-class-name (eieio--object-class obj)))
 (define-obsolete-function-alias
-  'object-class-name 'eieio-object-class-name "24.4")
+  'object-class-name #'eieio-object-class-name "24.4")
 
 (defun eieio-class-parents (class)
   ;; FIXME: What does "(overload of variable)" mean here?
@@ -450,7 +446,7 @@ The CLOS function `class-direct-subclasses' is aliased to this function."
 (defmacro eieio-class-parent (class)
   "Return first parent class to CLASS.  (overload of variable)."
   `(car (eieio-class-parents ,class)))
-(define-obsolete-function-alias 'class-parent 'eieio-class-parent "24.4")
+(define-obsolete-function-alias 'class-parent #'eieio-class-parent "24.4")
 
 (defun same-class-p (obj class)
   "Return t if OBJ is of class-type CLASS."
@@ -465,7 +461,7 @@ The CLOS function `class-direct-subclasses' is aliased to this function."
   ;; class will be checked one layer down
   (child-of-class-p (eieio--object-class obj) class))
 ;; Backwards compatibility
-(defalias 'obj-of-class-p 'object-of-class-p)
+(defalias 'obj-of-class-p #'object-of-class-p)
 
 (defun child-of-class-p (child class)
   "Return non-nil if CHILD class is a subclass of CLASS."
@@ -649,14 +645,6 @@ If SLOT is unbound, do nothing."
       nil
     (eieio-oset object slot (delete item (eieio-oref object slot)))))
 
-;;; Here are some CLOS items that need the CL package
-;;
-
-;; FIXME: Shouldn't this be a more complex gv-expander which extracts the
-;; common code between oref and oset, so as to reduce the redundant work done
-;; in (push foo (oref bar baz)), like we do for the `nth' expander?
-(gv-define-simple-setter eieio-oref eieio-oset)
-
 
 ;;;
 ;; We want all objects created by EIEIO to have some default set of
@@ -677,7 +665,7 @@ This class is not stored in the `parent' slot of a class vector."
 (setq eieio-default-superclass (cl--find-class 'eieio-default-superclass))
 
 (define-obsolete-function-alias 'standard-class
-  'eieio-default-superclass "26.1")
+  #'eieio-default-superclass "26.1")
 
 (cl-defgeneric make-instance (class &rest initargs)
   "Make a new instance of CLASS based on INITARGS.
@@ -887,7 +875,7 @@ this object."
     ;; Now output readable lisp to recreate this object
     ;; It should look like this:
     ;; (<constructor> <name> <slot> <slot> ... )
-    ;; Each slot's slot is writen using its :writer.
+    ;; Each slot's slot is written using its :writer.
     (when eieio-print-indentation
       (princ (make-string (* eieio-print-depth 2) ? )))
     (princ "(")
@@ -984,12 +972,12 @@ this object."
 This may create or delete slots, but does not affect the return value
 of `eq'."
   (error "EIEIO: `change-class' is unimplemented"))
-(define-obsolete-function-alias 'change-class 'eieio-change-class "26.1")
+(define-obsolete-function-alias 'change-class #'eieio-change-class "26.1")
 
 ;; Hook ourselves into help system for describing classes and methods.
 ;; FIXME: This is not actually needed any more since we can click on the
 ;; hyperlink from the constructor's docstring to see the type definition.
-(add-hook 'help-fns-describe-function-functions 'eieio-help-constructor)
+(add-hook 'help-fns-describe-function-functions #'eieio-help-constructor)
 
 (provide 'eieio)
 

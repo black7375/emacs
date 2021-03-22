@@ -160,13 +160,7 @@ Where and how to get Gnus?
 
 @subsubheading Answer
 
-Gnus is released independent from releases of Emacs.  Therefore, the
-version bundled with Emacs might not be up to date (e.g., Gnus 5.9
-bundled with Emacs 21 is outdated).
-You can get the latest released version of Gnus from
-@uref{https://www.gnus.org/dist/gnus.tar.gz}
-or from
-@uref{https://ftp.gnus.org/pub/gnus/gnus.tar.gz}.
+Gnus is bundled with Emacs.
 
 @node FAQ 1-4
 @subsubheading Question 1.4
@@ -1523,10 +1517,10 @@ Now you only have to tell Gnus to include the X-face in your postings by saying
 
 @example
 (setq message-default-headers
-        (with-temp-buffer
-          (insert "X-Face: ")
-          (insert-file-contents "~/.xface")
-          (buffer-string)))
+      (with-temp-buffer
+        (insert "X-Face: ")
+        (insert-file-contents "~/.xface")
+        (buffer-string)))
 @end example
 @noindent
 
@@ -1757,7 +1751,7 @@ more then one article."
   (let ((archive-name
          (format
           "nnml:1.%s"
-          (replace-in-string gnus-newsgroup-name "^.*:" ""))))
+          (replace-regexp-in-string "^.*:" "" gnus-newsgroup-name))))
     (gnus-summary-copy-article n archive-name)))
 @end example
 @noindent
@@ -2144,7 +2138,7 @@ I need real-time help, where to find it?
 
 @subsubheading Answer
 
-Point your IRC client to irc.freenode.net, channel #gnus.
+Point your IRC client to chat.freenode.net, channel #gnus.
 
 @node FAQ 9 - Tuning Gnus
 @subsection Tuning Gnus

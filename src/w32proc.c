@@ -1918,7 +1918,8 @@ sys_spawnve (int mode, char *cmdname, char **argv, char **envp)
     {
       program = build_string (cmdname);
       full = Qnil;
-      openp (Vexec_path, program, Vexec_suffixes, &full, make_fixnum (X_OK), 0);
+      openp (Vexec_path, program, Vexec_suffixes, &full, make_fixnum (X_OK),
+	     0, 0);
       if (NILP (full))
 	{
 	  errno = EINVAL;
@@ -2007,9 +2008,9 @@ sys_spawnve (int mode, char *cmdname, char **argv, char **envp)
     }
 
   /* we have to do some conjuring here to put argv and envp into the
-     form CreateProcess wants...  argv needs to be a space separated/NUL
-     terminated list of parameters, and envp is a NUL
-     separated/double-NUL terminated list of parameters.
+     form CreateProcess wants...  argv needs to be a space separated/null
+     terminated list of parameters, and envp is a null
+     separated/double-null terminated list of parameters.
 
      Additionally, zero-length args and args containing whitespace or
      quote chars need to be wrapped in double quotes - for this to work,
@@ -3019,9 +3020,9 @@ reset_standard_handles (int in, int out, int err, HANDLE handles[3])
 }
 
 void
-set_process_dir (char * dir)
+set_process_dir (const char * dir)
 {
-  process_dir = dir;
+  process_dir = (char *) dir;
 }
 
 /* To avoid problems with winsock implementations that work over dial-up
@@ -3231,7 +3232,7 @@ such programs cannot be invoked by Emacs anyway.  */)
   char *progname, progname_a[MAX_PATH];
 
   program = Fexpand_file_name (program, Qnil);
-  encoded_progname = ENCODE_FILE (program);
+  encoded_progname = Fcopy_sequence (ENCODE_FILE (program));
   progname = SSDATA (encoded_progname);
   unixtodos_filename (progname);
   filename_to_ansi (progname, progname_a);
@@ -3398,10 +3399,10 @@ If LCID (a 16-bit number) is not a valid locale, the result is nil.  */)
       got_full = GetLocaleInfo (XFIXNUM (lcid),
 				XFIXNUM (longform),
 				full_name, sizeof (full_name));
-      /* GetLocaleInfo's return value includes the terminating NUL
+      /* GetLocaleInfo's return value includes the terminating null
 	 character, when the returned information is a string, whereas
 	 make_unibyte_string needs the string length without the
-	 terminating NUL.  */
+	 terminating null.  */
       if (got_full)
 	return make_unibyte_string (full_name, got_full - 1);
     }
@@ -3877,6 +3878,14 @@ w32_compare_strings (const char *s1, const char *s2, char *locname,
   return val - 2;
 }
 
+DEFUN ("w32-get-nproc", Fw32_get_nproc,
+       Sw32_get_nproc, 0, 0, 0,
+       doc: /* Return the number of system's processor execution units.  */)
+  (void)
+{
+  return make_fixnum (w32_get_nproc ());
+}
+
 
 void
 syms_of_ntproc (void)
@@ -3910,6 +3919,8 @@ syms_of_ntproc (void)
   defsubr (&Sw32_get_valid_keyboard_layouts);
   defsubr (&Sw32_get_keyboard_layout);
   defsubr (&Sw32_set_keyboard_layout);
+
+  defsubr (&Sw32_get_nproc);
 
   DEFVAR_LISP ("w32-quote-process-args", Vw32_quote_process_args,
 	       doc: /* Non-nil enables quoting of process arguments to ensure correct parsing.

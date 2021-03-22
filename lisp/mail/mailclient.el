@@ -1,4 +1,4 @@
-;;; mailclient.el --- mail sending via system's mail client.
+;;; mailclient.el --- mail sending via system's mail client.  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2005-2021 Free Software Foundation, Inc.
 
@@ -134,7 +134,7 @@ The mail client is taken to be the handler of mailto URLs."
 		character-coding
 		;; Use the external browser function to send the
 		;; message.
-		(browse-url-mailto-function nil))
+                (browse-url-default-handlers nil))
 	    ;; initialize limiter
 	    (setq mailclient-delim-static "?")
 	    ;; construct and call up mailto URL

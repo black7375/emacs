@@ -48,6 +48,7 @@
 (cc-bytecomp-defvar filladapt-mode)	; c-fill-paragraph contains a kludge
 					; which looks at this.
 (cc-bytecomp-defun electric-pair-post-self-insert-function)
+(cc-bytecomp-defvar c-indent-to-body-directives)
 
 ;; Indentation / Display syntax functions
 (defvar c-fix-backslashes t)
@@ -512,11 +513,11 @@ function to control that."
 	(let ((src (default-value 'post-self-insert-hook)))
 	  (while src
 	    (unless (memq (car src) c--unsafe-post-self-insert-hook-functions)
-	      (add-hook 'dest (car src) t)) ; Preserve the order of the functions.
+	      (push (car src) dest))
 	    (setq src (cdr src)))))
-       (t (add-hook 'dest (car src) t))) ; Preserve the order of the functions.
+       (t (push (car src) dest)))
       (setq src (cdr src)))
-    (run-hooks 'dest)))
+    (mapc #'funcall (nreverse dest)))) ; Preserve the order of the functions.
 
 (defmacro c--call-post-self-insert-hook-more-safely ()
   ;; Call post-self-insert-hook, if such exists.  See comment for
@@ -906,7 +907,6 @@ settings of `c-cleanup-list' are done."
     (when (and (boundp 'electric-pair-mode)
 	       electric-pair-mode)
       (let ((size (buffer-size))
-	    (c-in-electric-pair-functionality t)
 	    post-self-insert-hook)
 	(electric-pair-post-self-insert-function)
 	(setq got-pair-} (and at-eol
@@ -1441,6 +1441,98 @@ keyword on the line, the keyword is not inserted inside a literal, and
 	  (indent-according-to-mode)
 	(delete-char -2)))))
 
+(defun c-align-cpp-indent-to-body ()
+  "Align a \"#pragma\" line under the previous line.
+This function is intented for use as a member of `c-special-indent-hook'."
+  (when (assq 'cpp-macro c-syntactic-context)
+    (when
+	(save-excursion
+	  (save-match-data
+	    (back-to-indentation)
+	    (and
+	     (looking-at (concat c-opt-cpp-symbol "[ \t]*\\([a-zA-Z0-9_]+\\)"))
+	     (member (match-string-no-properties 1)
+		     c-cpp-indent-to-body-directives))))
+      (c-indent-line (delete '(cpp-macro) c-syntactic-context)))))
+
+(defvar c-cpp-indent-to-body-flag nil)
+;; Non-nil when CPP directives such as "#pragma" should be indented to under
+;; the preceding statement.
+(make-variable-buffer-local 'c-cpp-indent-to-body-flag)
+
+(defun c-electric-pragma ()
+  "Reindent the current line if appropriate.
+
+This function is used to reindent a preprocessor line when the
+symbol for the directive, typically \"pragma\", triggers this
+function as a hook function of an abbreviation.
+
+The \"#\" of the preprocessor construct is aligned under the
+first anchor point of the line's syntactic context.
+
+The line is reindented if the construct is not in a string or
+comment, there is exactly one \"#\" contained in optional
+whitespace before it on the current line, and `c-electric-flag'
+and `c-syntactic-indentation' are both non-nil."
+  (save-excursion
+    (save-match-data
+      (when
+	  (and
+	   c-cpp-indent-to-body-flag
+	   c-electric-flag
+	   c-syntactic-indentation
+	   last-abbrev-location
+	   c-opt-cpp-symbol		; "#" or nil.
+	   (progn (back-to-indentation)
+		  (looking-at (concat c-opt-cpp-symbol "[ \t]*")))
+	   (>= (match-end 0) last-abbrev-location)
+	   (not (c-literal-limits)))
+	(c-indent-line (delete '(cpp-macro) (c-guess-basic-syntax)))))))
+
+(defun c-add-indent-to-body-to-abbrev-table (d)
+  ;; Create an abbreviation table entry for the directive D, and add it to the
+  ;; current abbreviation table.  Existing abbreviation (e.g. for "else") do
+  ;; not get overwritten.
+  (when (and c-buffer-is-cc-mode
+	     local-abbrev-table
+	     (not (abbrev-symbol d local-abbrev-table)))
+    (condition-case nil
+	(define-abbrev local-abbrev-table d d 'c-electric-pragma 0 t)
+      (wrong-number-of-arguments
+       (define-abbrev local-abbrev-table d d 'c-electric-pragma)))))
+
+(defun c-clear-stale-indent-to-body-abbrevs ()
+  ;; Fill in this comment.  FIXME!!!
+  (when (fboundp 'abbrev-get)
+    (mapatoms (lambda (a)
+		(when (and (abbrev-get a ':system) ; Preserve a user's abbrev!
+			   (not (member (symbol-name a) c-std-abbrev-keywords))
+			   (not (member (symbol-name a)
+					c-cpp-indent-to-body-directives)))
+		  (unintern a local-abbrev-table)))
+	      local-abbrev-table)))
+
+(defun c-toggle-cpp-indent-to-body (&optional arg)
+  "Toggle the C preprocessor indent-to-body feature.
+When enabled, preprocessor directives which are words in
+`c-indent-to-body-directives' are indented as if they were statements.
+
+Optional numeric ARG, if supplied, turns on the feature when positive,
+turns it off when negative, and just toggles it when zero or
+left out."
+  (interactive "P")
+  (setq c-cpp-indent-to-body-flag
+	(c-calculate-state arg c-cpp-indent-to-body-flag))
+  (if c-cpp-indent-to-body-flag
+      (progn
+	(c-clear-stale-indent-to-body-abbrevs)
+	(mapc 'c-add-indent-to-body-to-abbrev-table
+	      c-cpp-indent-to-body-directives)
+	(add-hook 'c-special-indent-hook 'c-align-cpp-indent-to-body nil t))
+    (remove-hook 'c-special-indent-hook 'c-align-cpp-indent-to-body t))
+  (message "c-cpp-indent-to-body %sabled"
+	   (if c-cpp-indent-to-body-flag "en" "dis")))
+
 
 
 (declare-function subword-forward "subword" (&optional arg))
@@ -1461,19 +1553,6 @@ keyword on the line, the keyword is not inserted inside a literal, and
 (declare-function c-backward-subword "ext:cc-subword" (&optional arg))
 
 ;; "nomenclature" functions + c-scope-operator.
-(defun c-forward-into-nomenclature (&optional arg)
-  "Compatibility alias for `c-forward-subword'."
-  (interactive "p")
-  (if (fboundp 'subword-mode)
-      (progn
-        (require 'subword)
-        (subword-forward arg))
-    (require 'cc-subword)
-    (c-forward-subword arg)))
-(make-obsolete 'c-forward-into-nomenclature
-               (if (fboundp 'subword-mode) 'subword-forward 'c-forward-subword)
-               "23.2")
-
 (defun c-backward-into-nomenclature (&optional arg)
   "Compatibility alias for `c-backward-subword'."
   (interactive "p")
@@ -1560,7 +1639,7 @@ No indentation or other \"electric\" behavior is performed."
   ;;
   ;; This function might do hidden buffer changes.
   (save-excursion
-    (let* (kluge-start
+    (let* (knr-start knr-res
 	   decl-result brace-decl-p
 	   (start (point))
 	   (paren-state (c-parse-state))
@@ -1591,63 +1670,39 @@ No indentation or other \"electric\" behavior is performed."
 		    (not (looking-at c-defun-type-name-decl-key))))))
 	'at-function-end)
        (t
-	;; Find the start of the current declaration.  NOTE: If we're in the
-	;; variables after a "struct/eval" type block, we don't get to the
-	;; real declaration here - we detect and correct for this later.
-
-	;;If we're in the parameters' parens, move back out of them.
-	(if least-enclosing (goto-char least-enclosing))
-	;; Kluge so that c-beginning-of-decl-1 won't go back if we're already
-	;; at a declaration.
-	(if (or (and (eolp) (not (eobp))) ; EOL is matched by "\\s>"
-		(not (looking-at
-"\\([;#]\\|\\'\\|\\s(\\|\\s)\\|\\s\"\\|\\s\\\\|\\s$\\|\\s<\\|\\s>\\|\\s!\\)")))
-	    (forward-char))
-	(setq kluge-start (point))
-	;; First approximation as to whether the current "header" we're in is
-	;; one followed by braces.
-	(setq brace-decl-p
-	      (save-excursion
-		(and (c-syntactic-re-search-forward "[;{]" nil t t)
-		     (or (eq (char-before) ?\{)
-			 (and c-recognize-knr-p
-			      ;; Might have stopped on the
-			      ;; ';' in a K&R argdecl.  In
-			      ;; that case the declaration
-			      ;; should contain a block.
-			      (c-in-knr-argdecl))))))
-	(setq decl-result
-	      (car (c-beginning-of-decl-1
-		    ;; NOTE: If we're in a K&R region, this might be the start
-		    ;; of a parameter declaration, not the actual function.
-		    ;; It might also leave us at a label or "label" like
-		    ;; "private:".
-		    (and least-enclosing ; LIMIT for c-b-of-decl-1
-			 (c-safe-position least-enclosing paren-state)))))
-
-	;; Has the declaration we've gone back to got braces?
-	(if (or (eq decl-result 'label)
-		(looking-at c-protection-key))
-	    (setq brace-decl-p nil))
-
-	(cond
-	 ((or (eq decl-result 'label)	; e.g. "private:" or invalid syntax.
-	      (= (point) kluge-start))	; might be BOB or unbalanced parens.
-	  'outwith-function)
-	 ((eq decl-result 'same)
-	  (if brace-decl-p
-	      (if (eq (point) start)
-		  'at-header
+	(if (and least-enclosing
+		 (eq (char-after least-enclosing) ?\())
+	    (c-go-list-forward least-enclosing))
+	(c-forward-syntactic-ws)
+	(setq knr-start (point))
+	(if (c-syntactic-re-search-forward "{" nil t t)
+	    (progn
+	      (backward-char)
+	      (cond
+	       ((or (progn
+		      (c-backward-syntactic-ws)
+		      (<= (point) start))
+		    (and c-recognize-knr-p
+			 (and (setq knr-res (c-in-knr-argdecl))
+			      (<= knr-res knr-start))))
 		'in-header)
-	    'outwith-function))
-	 ((eq decl-result 'previous)
-	  (if (and (not brace-decl-p)
-		   (c-in-function-trailer-p))
-	      'at-function-end
-	    'outwith-function))
-	 (t (error
-	     "c-where-wrt-brace-construct: c-beginning-of-decl-1 returned %s"
-	     decl-result))))))))
+	       ((and knr-res
+		     (goto-char knr-res)
+		     (c-backward-syntactic-ws))) ; Always returns nil.
+	       ((and (eq (char-before) ?\))
+		     (c-go-list-backward))
+		(c-syntactic-skip-backward "^;" start t)
+		(if (eq (point) start)
+		    (if (progn (c-backward-syntactic-ws)
+			       (memq (char-before) '(?\; ?} nil)))
+			(if (progn (c-forward-syntactic-ws)
+				   (eq (point) start))
+			    'at-header
+			  'outwith-function)
+		      'in-header)
+		  'outwith-function))
+	       (t 'outwith-function)))
+	  'outwith-function))))))
 
 (defun c-backward-to-nth-BOF-{ (n where)
   ;; Skip to the opening brace of the Nth function before point.  If
@@ -1670,9 +1725,11 @@ No indentation or other \"electric\" behavior is performed."
     (goto-char (c-least-enclosing-brace (c-parse-state)))
     (setq n (1- n)))
    ((eq where 'in-header)
-    (c-syntactic-re-search-forward "{")
-    (backward-char)
-    (setq n (1- n)))
+    (let ((encl-paren (c-least-enclosing-brace (c-parse-state))))
+      (if encl-paren (goto-char encl-paren))
+      (c-syntactic-re-search-forward "{" nil t t)
+      (backward-char)
+      (setq n (1- n))))
    ((memq where '(at-header outwith-function at-function-end in-trailer))
     (c-syntactic-skip-backward "^}")
     (when (eq (char-before) ?\})
@@ -1886,14 +1943,14 @@ defun."
     ;; The actual movement is done below.
     (setq n (1- n)))
    ((memq where '(at-function-end outwith-function at-header in-header))
-    (when (c-syntactic-re-search-forward "{" nil 'eob)
+    (if (eq where 'in-header)
+	(let ((pos (c-least-enclosing-brace (c-parse-state))))
+	  (if pos (c-go-list-forward pos))))
+    (when (c-syntactic-re-search-forward "{" nil 'eob t)
       (backward-char)
       (forward-sexp)
       (setq n (1- n))))
    (t (error "c-forward-to-nth-EOF-\\;-or-}: `where' is %s" where)))
-
-  (when (c-in-function-trailer-p)
-    (c-syntactic-re-search-forward ";" nil 'eob t))
 
   ;; Each time round the loop, go forward to a "}" at the outermost level.
   (while (and (> n 0) (not (eobp)))
@@ -1901,6 +1958,9 @@ defun."
       (backward-char)
       (forward-sexp)
       (setq n (1- n))))
+
+  (when (c-in-function-trailer-p)
+    (c-syntactic-re-search-forward ";" nil 'eob t))
   n)
 
 (defun c-end-of-defun (&optional arg)
@@ -2023,6 +2083,23 @@ other top level construct with a brace block."
 	     (c-forward-token-2)
 	     (c-backward-syntactic-ws)
 	     (point))))
+
+	 ((and (c-major-mode-is 'objc-mode) (looking-at "[-+]\\s-*("))     ; Objective-C method
+	  ;; Move to the beginning of the method name.
+	  (c-forward-token-2 2 t)
+	  (let* ((class
+		  (save-excursion
+		    (when (re-search-backward
+			   "^\\s-*@\\(implementation\\|class\\|interface\\)\\s-+\\(\\sw+\\)" nil t)
+		      (match-string-no-properties 2))))
+		 (limit (save-excursion (re-search-forward "[;{]" nil t)))
+		 (method (when (re-search-forward "\\(\\sw+:?\\)" limit t)
+			   (match-string-no-properties 1))))
+	    (when (and class method)
+	      ;; Add the parameter labels onto name.  They always end in ':'.
+	      (while (re-search-forward "\\(\\sw+:\\)" limit 1)
+		(setq method (concat method (match-string-no-properties 1))))
+	      (concat "[" class " " method "]"))))
 
 	 (t				; Normal function or initializer.
 	  (when (looking-at c-defun-type-name-decl-key) ; struct, etc.
@@ -2230,7 +2307,7 @@ with a brace block, at the outermost level of nesting."
 	(c-save-buffer-state ((paren-state (c-parse-state))
 			      (orig-point-min (point-min))
 			      (orig-point-max (point-max))
-			      lim name where limits fdoc)
+			      lim name limits where)
 	  (setq lim (c-widen-to-enclosing-decl-scope
 		     paren-state orig-point-min orig-point-max))
 	  (and lim (setq lim (1- lim)))
@@ -2261,7 +2338,7 @@ With a prefix arg, push the name onto the kill ring too."
 (put 'c-display-defun-name 'isearch-scroll t)
 
 (defun c-mark-function ()
-  "Put mark at end of the current top-level declaration or macro, point at beginning.
+  "Put mark at end of current top-level declaration or macro, point at beginning.
 If point is not inside any then the closest following one is
 chosen.  Each successive call of this command extends the marked
 region by one function.

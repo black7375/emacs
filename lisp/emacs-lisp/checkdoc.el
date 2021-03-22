@@ -3,7 +3,7 @@
 ;; Copyright (C) 1997-1998, 2001-2021 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
-;; Version: 0.6.2
+;; Old-Version: 0.6.2
 ;; Keywords: docs, maint, lisp
 
 ;; This file is part of GNU Emacs.
@@ -37,7 +37,6 @@
 ;;      documentation whenever you evaluate Lisp code with C-M-x
 ;;      or [menu-bar emacs-lisp eval-buffer].  Additional key-bindings
 ;;      are also provided under C-c ? KEY
-;;        (require 'checkdoc)
 ;;        (add-hook 'emacs-lisp-mode-hook 'checkdoc-minor-mode)
 ;;
 ;; Using `checkdoc':
@@ -148,13 +147,6 @@
 ;;
 ;;   See the above section "Checking Parameters" for details about
 ;; parameter checking.
-;;
-;; Dependencies:
-;;
-;;   This file requires lisp-mnt (Lisp maintenance routines) for the
-;;   comment checkers.
-;;
-;;   Requires custom for Emacs v20.
 
 ;;; TO DO:
 ;;   Hook into the byte compiler on a defun/defvar level to generate
@@ -170,6 +162,7 @@
 ;;; Code:
 (defvar checkdoc-version "0.6.2"
   "Release version of checkdoc you are currently running.")
+(make-obsolete-variable 'checkdoc-version nil "28.1")
 
 (require 'cl-lib)
 (require 'help-mode) ;; for help-xref-info-regexp
@@ -241,7 +234,12 @@ system.  Possible values are:
   defun       - Spell-check when style checking a single defun.
   buffer      - Spell-check when style checking the whole buffer.
   interactive - Spell-check during any interactive check.
-  t           - Always spell-check."
+  t           - Always spell-check.
+
+There is a list of Lisp-specific words which checkdoc will
+install into Ispell on the fly, but only if Ispell is not already
+running.  Use `ispell-kill-ispell' to make checkdoc restart it
+with these words enabled."
   :type '(choice (const nil)
           (const defun)
           (const buffer)
@@ -933,16 +931,20 @@ don't move point."
                            ;; Don't bug out if the file is empty (or a
                            ;; definition ends prematurely.
                            (end-of-file)))
-    (`(,(or 'defun 'defvar 'defcustom 'defmacro 'defconst 'defsubst 'defadvice
-            'cl-defun 'cl-defgeneric 'cl-defmethod 'cl-defmacro)
+    (`(,(and (pred symbolp) def
+             (let (and doc (guard doc)) (function-get def 'doc-string-elt)))
        ,(pred symbolp)
        ;; Require an initializer, i.e. ignore single-argument `defvar'
        ;; forms, which never have a doc string.
        ,_ . ,_)
      (down-list)
-     ;; Skip over function or macro name, symbol to be defined, and
-     ;; initializer or argument list.
-     (forward-sexp 3)
+     ;; Skip over function or macro name.
+     (forward-sexp 1)
+     ;; And now skip until the docstring.
+     (forward-sexp (1- ; We already skipped the function or macro name.
+                    (cond
+                     ((numberp doc) doc)
+                     ((functionp doc) (funcall doc)))))
      (skip-chars-forward " \n\t")
      t)))
 
@@ -1248,13 +1250,8 @@ checking of documentation strings.
 
 ;;; Subst utils
 ;;
-(defsubst checkdoc-run-hooks (hookvar &rest args)
-  "Run hooks in HOOKVAR with ARGS."
-  (if (fboundp 'run-hook-with-args-until-success)
-      (apply #'run-hook-with-args-until-success hookvar args)
-    ;; This method was similar to above.  We ignore the warning
-    ;; since we will use the above for future Emacs versions
-    (apply #'run-hook-with-args hookvar args)))
+(define-obsolete-function-alias 'checkdoc-run-hooks
+  #'run-hook-with-args-until-success "28.1")
 
 (defsubst checkdoc-create-common-verbs-regexp ()
   "Rebuild the contents of `checkdoc-common-verbs-regexp'."
@@ -1577,7 +1574,8 @@ mouse-[0-3]\\)\\)\\>"))
 		     ;; a prefix.
 		     (let ((disambiguate
 			    (completing-read
-			     "Disambiguating Keyword (default variable): "
+			     (format-prompt "Disambiguating Keyword"
+                                            "variable")
 			     '(("function") ("command") ("variable")
 			       ("option") ("symbol"))
 			     nil t nil nil "variable")))
@@ -1872,7 +1870,7 @@ Replace with \"%s\"? " original replace)
      ;; and reliance on the Ispell program.
      (checkdoc-ispell-docstring-engine e take-notes)
      ;; User supplied checks
-     (save-excursion (checkdoc-run-hooks 'checkdoc-style-functions fp e))
+     (save-excursion (run-hook-with-args-until-success 'checkdoc-style-functions fp e))
      ;; Done!
      )))
 
@@ -2136,8 +2134,8 @@ buffer, otherwise stop after the first error."
       (user-error "No spellchecker installed: check the variable `ispell-program-name'"))
     (save-excursion
       (skip-chars-forward "^a-zA-Z")
-      (let (word sym case-fold-search err word-beginning word-end)
-        (while (and (not err) (< (point) end))
+      (let (word sym case-fold-search word-beginning word-end) ;; err
+        (while (and (< (point) end)) ;; (not err)
           (if (save-excursion (forward-char -1) (looking-at "[('`]"))
               ;; Skip lists describing meta-syntax, or bound variables
               (forward-sexp 1)
@@ -2169,7 +2167,7 @@ buffer, otherwise stop after the first error."
                           (sit-for 0)
                           (message "Continuing..."))))))))
           (skip-chars-forward "^a-zA-Z"))
-        err))))
+        nil)))) ;; err
 
 ;;; Rogue space checking engine
 ;;
@@ -2361,7 +2359,9 @@ Code:, and others referenced in the style guide."
 		(checkdoc-create-error
 		 (format "The footer should be: (provide '%s)\\n;;; %s%s ends here"
 			 fn fn fe)
-		 (1- (point-max)) (point-max)))))
+                 ;; The buffer may be empty.
+		 (max (point-min) (1- (point-max)))
+                 (point-max)))))
 	err))
       ;; The below checks will not return errors if the user says NO
 
@@ -2383,7 +2383,7 @@ Code:, and others referenced in the style guide."
        err
        (or
 	;; Generic Full-file checks (should be comment related)
-	(checkdoc-run-hooks 'checkdoc-comment-style-functions)
+	(run-hook-with-args-until-success 'checkdoc-comment-style-functions)
 	err))
       ;; Done with full file comment checks
       err)))
@@ -2592,7 +2592,7 @@ This function will not modify `match-data'."
 		    ;; going on.
 		    (if checkdoc-bouncy-flag (message "%s -> done" question))
 		    (delete-region start end)
-		    (insert replacewith)
+		    (insert-before-markers replacewith)
 		    (if checkdoc-bouncy-flag (sit-for 0))
 		    (setq ret t)))
 	      (delete-overlay o)
@@ -2642,7 +2642,7 @@ function called to create the messages."
       (goto-char (point-max))
       (let ((inhibit-read-only t))
         (insert "\n\n\C-l\n*** " label ": "
-                check-type " V " checkdoc-version)))))
+                check-type)))))
 
 (defun checkdoc-error (point msg)
   "Store POINT and MSG as errors in the checkdoc diagnostic buffer."

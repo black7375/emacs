@@ -140,7 +140,7 @@ to an element already in the list stored in PLACE.
 \n(fn X PLACE [KEYWORD VALUE]...)"
   (declare (debug
             (form place &rest
-                  &or [[&or ":test" ":test-not" ":key"] function-form]
+                  &or [[&or ":test" ":test-not" ":key"] form]
                   [keywordp form])))
   (if (symbolp place)
       (if (null keys)
@@ -232,13 +232,8 @@ one value.
 
 ;;; Declarations.
 
-(defvar cl--compiling-file nil)
-(defun cl--compiling-file ()
-  (or cl--compiling-file
-      (and (boundp 'byte-compile--outbuffer)
-           (bufferp (symbol-value 'byte-compile--outbuffer))
-	   (equal (buffer-name (symbol-value 'byte-compile--outbuffer))
-		  " *Compiler Output*"))))
+(define-obsolete-function-alias 'cl--compiling-file
+  #'macroexp-compiling-p "28.1")
 
 (defvar cl--proclaims-deferred nil)
 
@@ -253,7 +248,7 @@ one value.
 Puts `(cl-eval-when (compile load eval) ...)' around the declarations
 so that they are registered at compile-time as well as run-time."
   (let ((body (mapcar (lambda (x) `(cl-proclaim ',x)) specs)))
-    (if (cl--compiling-file) `(cl-eval-when (compile load eval) ,@body)
+    (if (macroexp-compiling-p) `(cl-eval-when (compile load eval) ,@body)
       `(progn ,@body))))           ; Avoid loading cl-macs.el for cl-eval-when.
 
 
@@ -619,8 +614,11 @@ If ALIST is non-nil, the new pairs are prepended to it."
       (macroexp-let2* nil ((start from) (end to))
         (funcall do `(substring ,getter ,start ,end)
                  (lambda (v)
-                   (funcall setter `(cl--set-substring
-                                     ,getter ,start ,end ,v))))))))
+                   (macroexp-let2 nil v v
+                     `(progn
+                        ,(funcall setter `(cl--set-substring
+                                           ,getter ,start ,end ,v))
+                        ,v))))))))
 
 ;;; Miscellaneous.
 
@@ -660,6 +658,7 @@ This can be needed when using code byte-compiled using the old
 macro-expansion of `cl-defstruct' that used vectors objects instead
 of record objects."
   :global t
+  :group 'tools
   (cond
    (cl-old-struct-compat-mode
     (advice-add 'type-of :around #'cl--old-struct-type-of))

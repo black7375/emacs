@@ -123,107 +123,106 @@ to invocation.")
   (setq ediff-mode-map (make-sparse-keymap))
   (suppress-keymap ediff-mode-map)
 
-  (define-key ediff-mode-map [mouse-2] 'ediff-help-for-quick-help)
-  (define-key ediff-mode-map "\C-m"  'ediff-help-for-quick-help)
+  (define-key ediff-mode-map [mouse-2] #'ediff-help-for-quick-help)
+  (define-key ediff-mode-map "\C-m"  #'ediff-help-for-quick-help)
 
-  (define-key ediff-mode-map "p" 'ediff-previous-difference)
-  (define-key ediff-mode-map "\C-?" 'ediff-previous-difference)
-  (define-key ediff-mode-map [delete] 'ediff-previous-difference)
+  (define-key ediff-mode-map "p" #'ediff-previous-difference)
+  (define-key ediff-mode-map "\C-?" #'ediff-previous-difference)
+  (define-key ediff-mode-map [delete] #'ediff-previous-difference)
   (define-key ediff-mode-map "\C-h" (if ediff-no-emacs-help-in-control-buffer
-					'ediff-previous-difference nil))
-  ;; must come after C-h, or else C-h wipes out backspace's binding in XEmacs
-  (define-key ediff-mode-map [backspace] 'ediff-previous-difference)
-  (define-key ediff-mode-map [?\S-\ ] 'ediff-previous-difference)
-  (define-key ediff-mode-map "n" 'ediff-next-difference)
-  (define-key ediff-mode-map " " 'ediff-next-difference)
-  (define-key ediff-mode-map "j" 'ediff-jump-to-difference)
+					#'ediff-previous-difference nil))
+  (define-key ediff-mode-map [backspace] #'ediff-previous-difference)
+  (define-key ediff-mode-map [?\S-\ ] #'ediff-previous-difference)
+  (define-key ediff-mode-map "n" #'ediff-next-difference)
+  (define-key ediff-mode-map " " #'ediff-next-difference)
+  (define-key ediff-mode-map "j" #'ediff-jump-to-difference)
   (define-key ediff-mode-map "g"  nil)
-  (define-key ediff-mode-map "ga" 'ediff-jump-to-difference-at-point)
-  (define-key ediff-mode-map "gb" 'ediff-jump-to-difference-at-point)
-  (define-key ediff-mode-map "q" 'ediff-quit)
-  (define-key ediff-mode-map "D" 'ediff-show-diff-output)
-  (define-key ediff-mode-map "z" 'ediff-suspend)
-  (define-key ediff-mode-map "\C-l" 'ediff-recenter)
-  (define-key ediff-mode-map "|" 'ediff-toggle-split)
-  (define-key ediff-mode-map "h" 'ediff-toggle-hilit)
+  (define-key ediff-mode-map "ga" #'ediff-jump-to-difference-at-point)
+  (define-key ediff-mode-map "gb" #'ediff-jump-to-difference-at-point)
+  (define-key ediff-mode-map "q" #'ediff-quit)
+  (define-key ediff-mode-map "D" #'ediff-show-diff-output)
+  (define-key ediff-mode-map "z" #'ediff-suspend)
+  (define-key ediff-mode-map "\C-l" #'ediff-recenter)
+  (define-key ediff-mode-map "|" #'ediff-toggle-split)
+  (define-key ediff-mode-map "h" #'ediff-toggle-hilit)
   (or ediff-word-mode
-      (define-key ediff-mode-map "@" 'ediff-toggle-autorefine))
+      (define-key ediff-mode-map "@" #'ediff-toggle-autorefine))
   (if ediff-narrow-job
-      (define-key ediff-mode-map "%" 'ediff-toggle-narrow-region))
-  (define-key ediff-mode-map "~" 'ediff-swap-buffers)
-  (define-key ediff-mode-map "v" 'ediff-scroll-vertically)
-  (define-key ediff-mode-map "\C-v" 'ediff-scroll-vertically)
-  (define-key ediff-mode-map "^" 'ediff-scroll-vertically)
-  (define-key ediff-mode-map "\M-v" 'ediff-scroll-vertically)
-  (define-key ediff-mode-map "V" 'ediff-scroll-vertically)
-  (define-key ediff-mode-map "<" 'ediff-scroll-horizontally)
-  (define-key ediff-mode-map ">" 'ediff-scroll-horizontally)
-  (define-key ediff-mode-map "i" 'ediff-status-info)
-  (define-key ediff-mode-map "E" 'ediff-documentation)
-  (define-key ediff-mode-map "?" 'ediff-toggle-help)
-  (define-key ediff-mode-map "!" 'ediff-update-diffs)
-  (define-key ediff-mode-map "M" 'ediff-show-current-session-meta-buffer)
-  (define-key ediff-mode-map "R" 'ediff-show-registry)
+      (define-key ediff-mode-map "%" #'ediff-toggle-narrow-region))
+  (define-key ediff-mode-map "~" #'ediff-swap-buffers)
+  (define-key ediff-mode-map "v" #'ediff-scroll-vertically)
+  (define-key ediff-mode-map "\C-v" #'ediff-scroll-vertically)
+  (define-key ediff-mode-map "^" #'ediff-scroll-vertically)
+  (define-key ediff-mode-map "\M-v" #'ediff-scroll-vertically)
+  (define-key ediff-mode-map "V" #'ediff-scroll-vertically)
+  (define-key ediff-mode-map "<" #'ediff-scroll-horizontally)
+  (define-key ediff-mode-map ">" #'ediff-scroll-horizontally)
+  (define-key ediff-mode-map "i" #'ediff-status-info)
+  (define-key ediff-mode-map "E" #'ediff-documentation)
+  (define-key ediff-mode-map "?" #'ediff-toggle-help)
+  (define-key ediff-mode-map "!" #'ediff-update-diffs)
+  (define-key ediff-mode-map "M" #'ediff-show-current-session-meta-buffer)
+  (define-key ediff-mode-map "R" #'ediff-show-registry)
   (or ediff-word-mode
-      (define-key ediff-mode-map "*" 'ediff-make-or-kill-fine-diffs))
+      (define-key ediff-mode-map "*" #'ediff-make-or-kill-fine-diffs))
   (define-key ediff-mode-map "a"  nil)
   (define-key ediff-mode-map "b"  nil)
   (define-key ediff-mode-map "r"  nil)
   (cond (ediff-merge-job
 	 ;; Will barf if no ancestor
-	 (define-key ediff-mode-map "/" 'ediff-toggle-show-ancestor)
+	 (define-key ediff-mode-map "/" #'ediff-toggle-show-ancestor)
 	 ;; In merging, we allow only A->C and B->C copying.
-	 (define-key ediff-mode-map "a" 'ediff-copy-A-to-C)
-	 (define-key ediff-mode-map "b" 'ediff-copy-B-to-C)
-	 (define-key ediff-mode-map "r" 'ediff-restore-diff-in-merge-buffer)
-	 (define-key ediff-mode-map "s" 'ediff-shrink-window-C)
-	 (define-key ediff-mode-map "+" 'ediff-combine-diffs)
+	 (define-key ediff-mode-map "a" #'ediff-copy-A-to-C)
+	 (define-key ediff-mode-map "b" #'ediff-copy-B-to-C)
+	 (define-key ediff-mode-map "r" #'ediff-restore-diff-in-merge-buffer)
+	 (define-key ediff-mode-map "s" #'ediff-shrink-window-C)
+	 (define-key ediff-mode-map "+" #'ediff-combine-diffs)
 	 (define-key ediff-mode-map "$"  nil)
-	 (define-key ediff-mode-map "$$" 'ediff-toggle-show-clashes-only)
-	 (define-key ediff-mode-map "$*" 'ediff-toggle-skip-changed-regions)
-	 (define-key ediff-mode-map "&" 'ediff-re-merge))
+	 (define-key ediff-mode-map "$$" #'ediff-toggle-show-clashes-only)
+	 (define-key ediff-mode-map "$*" #'ediff-toggle-skip-changed-regions)
+	 (define-key ediff-mode-map "&"  #'ediff-re-merge))
 	(ediff-3way-comparison-job
-	 (define-key ediff-mode-map "ab" 'ediff-copy-A-to-B)
-	 (define-key ediff-mode-map "ba" 'ediff-copy-B-to-A)
-	 (define-key ediff-mode-map "ac" 'ediff-copy-A-to-C)
-	 (define-key ediff-mode-map "bc" 'ediff-copy-B-to-C)
+	 (define-key ediff-mode-map "ab" #'ediff-copy-A-to-B)
+	 (define-key ediff-mode-map "ba" #'ediff-copy-B-to-A)
+	 (define-key ediff-mode-map "ac" #'ediff-copy-A-to-C)
+	 (define-key ediff-mode-map "bc" #'ediff-copy-B-to-C)
 	 (define-key ediff-mode-map "c" nil)
-	 (define-key ediff-mode-map "ca" 'ediff-copy-C-to-A)
-	 (define-key ediff-mode-map "cb" 'ediff-copy-C-to-B)
-	 (define-key ediff-mode-map "ra" 'ediff-restore-diff)
-	 (define-key ediff-mode-map "rb" 'ediff-restore-diff)
-	 (define-key ediff-mode-map "rc" 'ediff-restore-diff)
-	 (define-key ediff-mode-map "C"  'ediff-toggle-read-only))
+	 (define-key ediff-mode-map "ca" #'ediff-copy-C-to-A)
+	 (define-key ediff-mode-map "cb" #'ediff-copy-C-to-B)
+	 (define-key ediff-mode-map "ra" #'ediff-restore-diff)
+	 (define-key ediff-mode-map "rb" #'ediff-restore-diff)
+	 (define-key ediff-mode-map "rc" #'ediff-restore-diff)
+	 (define-key ediff-mode-map "C"  #'ediff-toggle-read-only))
 	(t ; 2-way comparison
-	 (define-key ediff-mode-map "a"  'ediff-copy-A-to-B)
-	 (define-key ediff-mode-map "b"  'ediff-copy-B-to-A)
-	 (define-key ediff-mode-map "ra" 'ediff-restore-diff)
-	 (define-key ediff-mode-map "rb" 'ediff-restore-diff))
+	 (define-key ediff-mode-map "a"  #'ediff-copy-A-to-B)
+	 (define-key ediff-mode-map "b"  #'ediff-copy-B-to-A)
+	 (define-key ediff-mode-map "ra" #'ediff-restore-diff)
+	 (define-key ediff-mode-map "rb" #'ediff-restore-diff))
 	) ; cond
-  (define-key ediff-mode-map "G" 'ediff-submit-report)
+  (define-key ediff-mode-map "G" #'ediff-submit-report)
   (define-key ediff-mode-map "#"  nil)
-  (define-key ediff-mode-map "#h"  'ediff-toggle-regexp-match)
-  (define-key ediff-mode-map "#f"  'ediff-toggle-regexp-match)
-  (define-key ediff-mode-map "#c"  'ediff-toggle-ignore-case)
+  (define-key ediff-mode-map "#h"  #'ediff-toggle-regexp-match)
+  (define-key ediff-mode-map "#f"  #'ediff-toggle-regexp-match)
+  (define-key ediff-mode-map "#c"  #'ediff-toggle-ignore-case)
   (or ediff-word-mode
-      (define-key ediff-mode-map "##"  'ediff-toggle-skip-similar))
+      (define-key ediff-mode-map "##"  #'ediff-toggle-skip-similar))
   (define-key ediff-mode-map "o"   nil)
-  (define-key ediff-mode-map "A"  'ediff-toggle-read-only)
-  (define-key ediff-mode-map "B"  'ediff-toggle-read-only)
+  (define-key ediff-mode-map "A"  #'ediff-toggle-read-only)
+  (define-key ediff-mode-map "B"  #'ediff-toggle-read-only)
   (define-key ediff-mode-map "w"   nil)
-  (define-key ediff-mode-map "wa"  'ediff-save-buffer)
-  (define-key ediff-mode-map "wb"  'ediff-save-buffer)
-  (define-key ediff-mode-map "wd"  'ediff-save-buffer)
-  (define-key ediff-mode-map "="   'ediff-inferior-compare-regions)
+  (define-key ediff-mode-map "wa"  #'ediff-save-buffer)
+  (define-key ediff-mode-map "wb"  #'ediff-save-buffer)
+  (define-key ediff-mode-map "wd"  #'ediff-save-buffer)
+  (define-key ediff-mode-map "="   #'ediff-inferior-compare-regions)
   (if (and (fboundp 'ediff-show-patch-diagnostics) (ediff-patch-job))
-      (define-key ediff-mode-map "P"  'ediff-show-patch-diagnostics))
+      (define-key ediff-mode-map "P"  #'ediff-show-patch-diagnostics))
   (if ediff-3way-job
       (progn
-	(define-key ediff-mode-map "wc" 'ediff-save-buffer)
-	(define-key ediff-mode-map "gc" 'ediff-jump-to-difference-at-point)
+	(define-key ediff-mode-map "wc" #'ediff-save-buffer)
+	(define-key ediff-mode-map "gc" #'ediff-jump-to-difference-at-point)
 	))
 
-  (define-key ediff-mode-map "m" 'ediff-toggle-wide-display)
+  (define-key ediff-mode-map "m" #'ediff-toggle-wide-display)
 
   ;; Allow ediff-mode-map to be referenced indirectly
   (fset 'ediff-mode-map ediff-mode-map)
@@ -241,18 +240,16 @@ to invocation.")
 			     startup-hooks setup-parameters
 			     &optional merge-buffer-file)
   (run-hooks 'ediff-before-setup-hook)
-  ;; ediff-convert-standard-filename puts file names in the form appropriate
+  ;; convert-standard-filename puts file names in the form appropriate
   ;; for the OS at hand.
-  (setq file-A (ediff-convert-standard-filename (expand-file-name file-A)))
-  (setq file-B (ediff-convert-standard-filename (expand-file-name file-B)))
+  (setq file-A (convert-standard-filename (expand-file-name file-A)))
+  (setq file-B (convert-standard-filename (expand-file-name file-B)))
   (if (stringp file-C)
-      (setq file-C
-	    (ediff-convert-standard-filename (expand-file-name file-C))))
+      (setq file-C (convert-standard-filename (expand-file-name file-C))))
   (if (stringp merge-buffer-file)
       (progn
 	(setq merge-buffer-file
-	      (ediff-convert-standard-filename
-	       (expand-file-name merge-buffer-file)))
+	      (convert-standard-filename (expand-file-name merge-buffer-file)))
 	;; check the directory exists
 	(or (file-exists-p (file-name-directory merge-buffer-file))
 	    (error "Directory %s given as place to save the merge doesn't exist"
@@ -278,8 +275,7 @@ to invocation.")
       (make-local-variable 'ediff-window-setup-function)
       (make-local-variable 'ediff-keep-variants)
 
-      (make-local-variable 'window-min-height)
-      (setq window-min-height 2)
+      (setq-local window-min-height 2)
 
       ;; unwrap set up parameters passed as argument
       (while setup-parameters
@@ -1540,10 +1536,10 @@ the width of the A/B/C windows."
    ;; hscrolling.
    (if (= last-command-event ?<)
        (lambda (arg)
-	 (let ((prefix-arg arg))
+	 (let ((current-prefix-arg arg))
 	   (call-interactively #'scroll-left)))
      (lambda (arg)
-       (let ((prefix-arg arg))
+       (let ((current-prefix-arg arg))
 	 (call-interactively #'scroll-right))))
    ;; calculate argument to scroll-left/right
    ;; if there is an explicit argument
@@ -2184,19 +2180,18 @@ a regular expression typed in by the user."
       (setq ediff-skip-diff-region-function ediff-hide-regexp-matches-function
 	    regexp-A
 	    (read-string
-	     (format
-	      "Ignore A-regions matching this regexp (default %s): "
-	      ediff-regexp-hide-A))
+	     (format-prompt
+	      "Ignore A-regions matching this regexp" ediff-regexp-hide-A))
 	    regexp-B
 	    (read-string
-	     (format
-	      "Ignore B-regions matching this regexp (default %s): "
+	     (format-prompt
+	      "Ignore B-regions matching this regexp"
 	      ediff-regexp-hide-B)))
       (if ediff-3way-comparison-job
 	  (setq regexp-C
 		(read-string
-		 (format
-		  "Ignore C-regions matching this regexp (default %s): "
+		 (format-prompt
+		  "Ignore C-regions matching this regexp"
 		  ediff-regexp-hide-C))))
       (if (eq ediff-hide-regexp-connective 'and)
 	  (setq msg-connective "BOTH"
@@ -2223,20 +2218,18 @@ a regular expression typed in by the user."
 	    ediff-focus-on-regexp-matches-function
 	    regexp-A
 	    (read-string
-	     (format
-	      "Focus on A-regions matching this regexp (default %s): "
-	      ediff-regexp-focus-A))
+	     (format-prompt
+	      "Focus on A-regions matching this regexp" ediff-regexp-focus-A))
 	    regexp-B
 	    (read-string
-	     (format
-	      "Focus on B-regions matching this regexp (default %s): "
-	      ediff-regexp-focus-B)))
+	     (format-prompt
+	      "Focus on B-regions matching this regexp" ediff-regexp-focus-B)))
       (if ediff-3way-comparison-job
 	  (setq regexp-C
 		(read-string
-		 (format
-		  "Focus on C-regions matching this regexp (default %s): "
-		  ediff-regexp-focus-C))))
+		 (format-prompt
+		  "Focus on C-regions matching this regexp"
+                  ediff-regexp-focus-C))))
       (if (eq ediff-focus-regexp-connective 'and)
 	  (setq msg-connective "BOTH"
 		alt-msg-connective "ONE OF"
@@ -3070,10 +3063,8 @@ Hit \\[ediff-recenter] to reset the windows afterward."
 
 
 ;; for compatibility
-(defmacro ediff-minibuffer-with-setup-hook (fun &rest body)
-  `(if (fboundp 'minibuffer-with-setup-hook)
-       (minibuffer-with-setup-hook ,fun ,@body)
-     ,@body))
+(define-obsolete-function-alias 'ediff-minibuffer-with-setup-hook
+  #'minibuffer-with-setup-hook "28.1")
 
 ;; This is adapted from a similar function in `emerge.el'.
 ;; PROMPT should not have a trailing ': ', so that it can be modified
@@ -3102,7 +3093,7 @@ Hit \\[ediff-recenter] to reset the windows afterward."
 			(and default-file (list default-file))
 			default-dir)))
 	f)
-    (setq f (ediff-minibuffer-with-setup-hook
+    (setq f (minibuffer-with-setup-hook
 		(lambda () (when defaults
 			     (setq minibuffer-default defaults)))
 	      (read-file-name
@@ -3135,7 +3126,7 @@ Hit \\[ediff-recenter] to reset the windows afterward."
 ;; Also, save buffer from START to END in the file.
 ;; START defaults to (point-min), END to (point-max)
 (defun ediff-make-temp-file (buff &optional prefix given-file start end)
-  (let* ((p (ediff-convert-standard-filename (or prefix "ediff")))
+  (let* ((p (convert-standard-filename (or prefix "ediff")))
 	 (short-p p)
 	 (coding-system-for-write ediff-coding-system-for-write)
 	 f short-f)
@@ -3144,8 +3135,8 @@ Hit \\[ediff-recenter] to reset the windows afterward."
 	     (> (length p) 2))
 	(setq short-p (substring p 0 2)))
 
-    (setq f (concat ediff-temp-file-prefix p)
-	  short-f (concat ediff-temp-file-prefix short-p)
+    (setq f (concat temporary-file-directory p)
+          short-f (concat temporary-file-directory short-p)
   	  f (cond (given-file)
 		  ((find-file-name-handler f 'insert-file-contents)
 		   ;; to thwart file name handlers in write-region,
@@ -3449,19 +3440,17 @@ Without an argument, it saves customized diff argument, if available
 (declare-function ediff-regions-internal "ediff"
 		  (buffer-a beg-a end-a buffer-b beg-b end-b
 			    startup-hooks job-name word-mode setup-parameters))
-(defvar zmacs-regions) ;;XEmacs'ism.
 
 (defun ediff-inferior-compare-regions ()
   "Compare regions in an active Ediff session.
-Like `ediff-regions-linewise' but is called from under an active Ediff session on
-the files that belong to that session.
+Like `ediff-regions-linewise' but is called from under an active Ediff session
+on the files that belong to that session.
 
 After quitting the session invoked via this function, type C-l to the parent
 Ediff Control Panel to restore highlighting."
   (interactive)
   (let ((answer "")
 	(possibilities (list ?A ?B ?C))
-	(zmacs-regions t)
 	use-current-diff-p
 	begA begB endA endB bufA bufB)
 
@@ -4009,8 +3998,8 @@ Mail anyway? (y or n) ")
 (define-obsolete-function-alias 'ediff-deactivate-mark #'deactivate-mark "27.1")
 
 (defun ediff-activate-mark ()
-  (make-local-variable 'transient-mark-mode)
-  (setq mark-active 'ediff-util transient-mark-mode t))
+  (setq mark-active 'ediff-util)
+  (setq-local transient-mark-mode t))
 
 (define-obsolete-function-alias 'ediff-nuke-selective-display #'ignore "27.1")
 
@@ -4139,10 +4128,10 @@ Mail anyway? (y or n) ")
     (ediff-with-current-buffer standard-output
       (fundamental-mode))
     (princ (format "\nCtl buffer: %S\n" ediff-control-buffer))
-    (ediff-print-diff-vector (intern "ediff-difference-vector-A"))
-    (ediff-print-diff-vector (intern "ediff-difference-vector-B"))
-    (ediff-print-diff-vector (intern "ediff-difference-vector-C"))
-    (ediff-print-diff-vector (intern "ediff-difference-vector-Ancestor"))
+    (ediff-print-diff-vector 'ediff-difference-vector-A)
+    (ediff-print-diff-vector 'ediff-difference-vector-B)
+    (ediff-print-diff-vector 'ediff-difference-vector-C)
+    (ediff-print-diff-vector 'ediff-difference-vector-Ancestor)
     ))
 
 

@@ -1,4 +1,4 @@
-;;; picture.el --- "Picture mode" -- editing using quarter-plane screen model
+;;; picture.el --- "Picture mode" -- editing using quarter-plane screen model -*- lexical-binding: t -*-
 
 ;; Copyright (C) 1985, 1994, 2001-2021 Free Software Foundation, Inc.
 
@@ -37,28 +37,22 @@
 
 (defcustom picture-rectangle-ctl ?+
   "Character `picture-draw-rectangle' uses for top left corners."
-  :type 'character
-  :group 'picture)
+  :type 'character)
 (defcustom picture-rectangle-ctr ?+
   "Character `picture-draw-rectangle' uses for top right corners."
-  :type 'character
-  :group 'picture)
+  :type 'character)
 (defcustom picture-rectangle-cbr ?+
   "Character `picture-draw-rectangle' uses for bottom right corners."
-  :type 'character
-  :group 'picture)
+  :type 'character)
 (defcustom picture-rectangle-cbl ?+
   "Character `picture-draw-rectangle' uses for bottom left corners."
-  :type 'character
-  :group 'picture)
+  :type 'character)
 (defcustom picture-rectangle-v   ?|
   "Character `picture-draw-rectangle' uses for vertical lines."
-  :type 'character
-  :group 'picture)
+  :type 'character)
 (defcustom picture-rectangle-h   ?-
   "Character `picture-draw-rectangle' uses for horizontal lines."
-  :type 'character
-  :group 'picture)
+  :type 'character)
 
 
 ;; Picture Movement Commands
@@ -409,8 +403,7 @@ character `\\' in the set it must be preceded by itself: \"\\\\\".
 
 The command \\[picture-tab-search] is defined to move beneath (or to) a
 character belonging to this set independent of the tab stops list."
-  :type 'string
-  :group 'picture)
+  :type 'string)
 
 (defun picture-set-tab-stops (&optional arg)
   "Set value of `tab-stop-list' according to context of this line.
@@ -682,8 +675,7 @@ Leaves the region surrounding the rectangle."
 (defcustom picture-mode-hook nil
   "If non-nil, its value is called on entry to Picture mode.
 Picture mode is invoked by the command \\[picture-mode]."
-  :type 'hook
-  :group 'picture)
+  :type 'hook)
 
 (defvar picture-mode-old-local-map)
 (defvar picture-mode-old-mode-name)
@@ -764,18 +756,17 @@ they are not by default assigned to keys."
   (interactive)
   (if (eq major-mode 'picture-mode)
       (error "You are already editing a picture")
-    (set (make-local-variable 'picture-mode-old-local-map) (current-local-map))
+    (setq-local picture-mode-old-local-map (current-local-map))
     (use-local-map picture-mode-map)
-    (set (make-local-variable 'picture-mode-old-mode-name) mode-name)
-    (set (make-local-variable 'picture-mode-old-major-mode) major-mode)
+    (setq-local picture-mode-old-mode-name mode-name)
+    (setq-local picture-mode-old-major-mode major-mode)
     (setq major-mode 'picture-mode)
-    (set (make-local-variable 'picture-killed-rectangle) nil)
-    (set (make-local-variable 'tab-stop-list) (default-value 'tab-stop-list))
-    (set (make-local-variable 'picture-tab-chars)
-	 (default-value 'picture-tab-chars))
+    (setq-local picture-killed-rectangle nil)
+    (setq-local tab-stop-list (default-value 'tab-stop-list))
+    (setq-local picture-tab-chars (default-value 'picture-tab-chars))
     (make-local-variable 'picture-vertical-step)
     (make-local-variable 'picture-horizontal-step)
-    (set (make-local-variable 'picture-mode-old-truncate-lines) truncate-lines)
+    (setq-local picture-mode-old-truncate-lines truncate-lines)
     (setq truncate-lines t)
     (picture-set-motion 0 1)
 

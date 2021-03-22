@@ -1,4 +1,4 @@
-;;; help-mode.el --- `help-mode' used by *Help* buffers
+;;; help-mode.el --- `help-mode' used by *Help* buffers  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1985-1986, 1993-1994, 1998-2021 Free Software
 ;; Foundation, Inc.
@@ -29,9 +29,7 @@
 
 ;;; Code:
 
-(require 'button)
 (require 'cl-lib)
-(eval-when-compile (require 'easymenu))
 
 (defvar help-mode-map
   (let ((map (make-sparse-keymap)))
@@ -47,49 +45,61 @@
     (define-key map "\C-c\C-c" 'help-follow-symbol)
     (define-key map "\r" 'help-follow)
     map)
-  "Keymap for help mode.")
+  "Keymap for Help mode.")
 
 (easy-menu-define help-mode-menu help-mode-map
-  "Menu for Help Mode."
+  "Menu for Help mode."
   '("Help-Mode"
     ["Show Help for Symbol" help-follow-symbol
      :help "Show the docs for the symbol at point"]
     ["Previous Topic" help-go-back
-     :help "Go back to previous topic in this help buffer"]
+     :help "Go back to previous topic in this help buffer"
+     :active help-xref-stack]
     ["Next Topic" help-go-forward
-     :help "Go back to next topic in this help buffer"]
+     :help "Go back to next topic in this help buffer"
+     :active help-xref-forward-stack]
     ["Move to Previous Button" backward-button
      :help "Move to the Previous Button in the help buffer"]
     ["Move to Next Button" forward-button
       :help "Move to the Next Button in the help buffer"]))
 
-(defvar help-xref-stack nil
+(defvar help-mode-tool-bar-map
+  (let ((map (make-sparse-keymap)))
+    (tool-bar-local-item "close" 'quit-window 'quit map
+                         :help "Quit help"
+                         :vert-only t)
+    (define-key-after map [separator-1] menu-bar-separator)
+    (tool-bar-local-item "search" 'isearch-forward 'search map
+                         :help "Search" :vert-only t)
+    (tool-bar-local-item-from-menu 'help-go-back "left-arrow" map help-mode-map
+                                   :rtl "right-arrow" :vert-only t)
+    (tool-bar-local-item-from-menu 'help-go-forward "right-arrow" map help-mode-map
+                                   :rtl "left-arrow" :vert-only t)
+    map))
+
+(defvar-local help-xref-stack nil
   "A stack of ways by which to return to help buffers after following xrefs.
 Used by `help-follow' and `help-xref-go-back'.
 An element looks like (POSITION FUNCTION ARGS...).
 To use the element, do (apply FUNCTION ARGS) then goto the point.")
 (put 'help-xref-stack 'permanent-local t)
-(make-variable-buffer-local 'help-xref-stack)
 
-(defvar help-xref-forward-stack nil
+(defvar-local help-xref-forward-stack nil
   "A stack used to navigate help forwards after using the back button.
 Used by `help-follow' and `help-xref-go-forward'.
 An element looks like (POSITION FUNCTION ARGS...).
 To use the element, do (apply FUNCTION ARGS) then goto the point.")
 (put 'help-xref-forward-stack 'permanent-local t)
-(make-variable-buffer-local 'help-xref-forward-stack)
 
-(defvar help-xref-stack-item nil
+(defvar-local help-xref-stack-item nil
   "An item for `help-follow' in this buffer to push onto `help-xref-stack'.
 The format is (FUNCTION ARGS...).")
 (put 'help-xref-stack-item 'permanent-local t)
-(make-variable-buffer-local 'help-xref-stack-item)
 
-(defvar help-xref-stack-forward-item nil
+(defvar-local help-xref-stack-forward-item nil
   "An item for `help-go-back' to push onto `help-xref-forward-stack'.
 The format is (FUNCTION ARGS...).")
 (put 'help-xref-stack-forward-item 'permanent-local t)
-(make-variable-buffer-local 'help-xref-stack-forward-item)
 
 (setq-default help-xref-stack nil help-xref-stack-item nil)
 (setq-default help-xref-forward-stack nil help-xref-forward-stack-item nil)
@@ -308,7 +318,7 @@ The format is (FUNCTION ARGS...).")
   :supertype 'help-xref
   'help-function
   (lambda (file pos)
-    (pop-to-buffer (find-file-noselect file))
+    (view-buffer-other-window (find-file-noselect file))
     (goto-char pos))
   'help-echo (purecopy "mouse-2, RET: show corresponding NEWS announcement"))
 
@@ -320,20 +330,22 @@ The format is (FUNCTION ARGS...).")
 Entry to this mode runs the normal hook `help-mode-hook'.
 Commands:
 \\{help-mode-map}"
-  (set (make-local-variable 'revert-buffer-function)
-       'help-mode-revert-buffer)
-  (set (make-local-variable 'bookmark-make-record-function)
-       'help-bookmark-make-record))
+  (setq-local revert-buffer-function
+              #'help-mode-revert-buffer)
+  (setq-local tool-bar-map
+              help-mode-tool-bar-map)
+  (setq-local bookmark-make-record-function
+              #'help-bookmark-make-record))
 
 ;;;###autoload
 (defun help-mode-setup ()
-  "Enter Help Mode in the current buffer."
+  "Enter Help mode in the current buffer."
   (help-mode)
   (setq buffer-read-only nil))
 
 ;;;###autoload
 (defun help-mode-finish ()
-  "Finalize Help Mode setup in current buffer."
+  "Finalize Help mode setup in current buffer."
   (when (derived-mode-p 'help-mode)
     (setq buffer-read-only t)
     (help-make-xrefs (current-buffer))))
@@ -358,8 +370,7 @@ Commands:
  		    "\\(symbol\\|program\\|property\\)\\|" ; Don't link
 		    "\\(source \\(?:code \\)?\\(?:of\\|for\\)\\)\\)"
 		    "[ \t\n]+\\)?"
-		    ;; Note starting with word-syntax character:
-		    "['`‘]\\(\\sw\\(\\sw\\|\\s_\\)+\\|`\\)['’]"))
+                    "['`‘]\\(\\(?:\\sw\\|\\s_\\)+\\|`\\)['’]"))
   "Regexp matching doc string references to symbols.
 
 The words preceding the quoted symbol can be used in doc strings to
@@ -464,8 +475,7 @@ that."
   (with-current-buffer (or buffer (current-buffer))
     (save-excursion
       (goto-char (point-min))
-      ;; Skip the header-type info, though it might be useful to parse
-      ;; it at some stage (e.g. "function in `library'").
+      ;; Skip the first bit, which has already been buttonized.
       (forward-paragraph)
       (let ((old-modified (buffer-modified-p)))
         (let ((stab (syntax-table))
@@ -719,7 +729,8 @@ a proper [back] button."
   ;; There is a reference at point.  Follow it.
   (let ((help-xref-following t))
     (apply function (if (eq function 'info)
-			(append args (list (generate-new-buffer-name "*info*"))) args))))
+                        (append args (list (generate-new-buffer-name "*info*")))
+                      args))))
 
 ;; The doc string is meant to explain what buttons do.
 (defun help-follow-mouse ()
@@ -755,16 +766,15 @@ Show all docs for that symbol as either a variable, function or face."
         (help-do-xref pos #'describe-symbol (list sym))
       (user-error "No symbol here"))))
 
-(defun help-mode-revert-buffer (_ignore-auto noconfirm)
-  (when (or noconfirm (yes-or-no-p "Revert help buffer? "))
-    (let ((pos (point))
-	  (item help-xref-stack-item)
-	  ;; Pretend there is no current item to add to the history.
-	  (help-xref-stack-item nil)
-	  ;; Use the current buffer.
-	  (help-xref-following t))
-      (apply (car item) (cdr item))
-      (goto-char pos))))
+(defun help-mode-revert-buffer (_ignore-auto _noconfirm)
+  (let ((pos (point))
+	(item help-xref-stack-item)
+	;; Pretend there is no current item to add to the history.
+	(help-xref-stack-item nil)
+	;; Use the current buffer.
+	(help-xref-following t))
+    (apply (car item) (cdr item))
+    (goto-char pos)))
 
 (defun help-insert-string (string)
   "Insert STRING to the help buffer and install xref info for it.
@@ -784,8 +794,8 @@ help buffer by other means."
                   (&optional no-file no-context posn))
 
 (defun help-bookmark-make-record ()
-  "Create and return a help-mode bookmark record.
-Implements `bookmark-make-record-function' for help-mode buffers."
+  "Create and return a `help-mode' bookmark record.
+Implements `bookmark-make-record-function' for `help-mode' buffers."
   (unless (car help-xref-stack-item)
     (error "Cannot create bookmark - help command not known"))
   `(,@(bookmark-make-record-default 'NO-FILE 'NO-CONTEXT)
@@ -798,7 +808,7 @@ Implements `bookmark-make-record-function' for help-mode buffers."
 
 ;;;###autoload
 (defun help-bookmark-jump (bookmark)
-  "Jump to help-mode bookmark BOOKMARK.
+  "Jump to `help-mode' bookmark BOOKMARK.
 Handler function for record returned by `help-bookmark-make-record'.
 BOOKMARK is a bookmark name or a bookmark record."
   (let ((help-fn    (bookmark-prop-get bookmark 'help-fn))

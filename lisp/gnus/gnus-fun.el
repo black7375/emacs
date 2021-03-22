@@ -1,4 +1,4 @@
-;;; gnus-fun.el --- various frivolous extension functions to Gnus
+;;; gnus-fun.el --- various frivolous extension functions to Gnus  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2002-2021 Free Software Foundation, Inc.
 
@@ -40,7 +40,7 @@
   "Regexp to match faces in `gnus-x-face-directory' to be omitted."
   :version "25.1"
   :group 'gnus-fun
-  :type '(choice (const nil) string))
+  :type '(choice (const nil) regexp))
 
 (defcustom gnus-face-directory (expand-file-name "faces" gnus-directory)
   "Directory where Face PNG files are stored."
@@ -52,7 +52,7 @@
   "Regexp to match faces in `gnus-face-directory' to be omitted."
   :version "25.1"
   :group 'gnus-fun
-  :type '(choice (const nil) string))
+  :type '(choice (const nil) regexp))
 
 (defcustom gnus-convert-pbm-to-x-face-command "pbmtoxbm %s | compface"
   "Command for converting a PBM to an X-Face."
@@ -132,11 +132,12 @@ For instance, to insert an X-Face use `gnus-random-x-face' as FUN
 
 Files matching `gnus-x-face-omit-files' are not considered."
   (interactive)
-  (gnus--random-face-with-type gnus-x-face-directory "\\.pbm$" gnus-x-face-omit-files
-                         (lambda (file)
-                           (gnus-shell-command-to-string
-                            (format gnus-convert-pbm-to-x-face-command
-                                    (shell-quote-argument file))))))
+  (gnus--random-face-with-type
+   gnus-x-face-directory "\\.pbm$" gnus-x-face-omit-files
+   (lambda (file)
+     (gnus-shell-command-to-string
+      (format gnus-convert-pbm-to-x-face-command
+	      (shell-quote-argument file))))))
 
 ;;;###autoload
 (defun gnus-insert-random-x-face-header ()
@@ -205,11 +206,12 @@ different input formats."
 (defun gnus-convert-face-to-png (face)
   "Convert FACE (which is base64-encoded) to a PNG.
 The PNG is returned as a string."
-  (mm-with-unibyte-buffer
-    (insert face)
-    (ignore-errors
-      (base64-decode-region (point-min) (point-max)))
-    (buffer-string)))
+  (let ((face (gnus-base64-repad face nil nil t)))
+    (mm-with-unibyte-buffer
+      (insert face)
+      (ignore-errors
+	(base64-decode-region (point-min) (point-max)))
+      (buffer-string))))
 
 ;;;###autoload
 (defun gnus-convert-png-to-face (file)
@@ -230,8 +232,8 @@ FILE should be a PNG file that's 48x48 and smaller than or equal to
 Files matching `gnus-face-omit-files' are not considered."
   (interactive)
   (gnus--random-face-with-type gnus-face-directory "\\.png$"
-                         gnus-face-omit-files
-                         'gnus-convert-png-to-face))
+                               gnus-face-omit-files
+                               'gnus-convert-png-to-face))
 
 ;;;###autoload
 (defun gnus-insert-random-face-header ()
@@ -267,16 +269,15 @@ colors of the displayed X-Faces."
 	   'xface
 	   (gnus-put-image
 	    (if (gnus-image-type-available-p 'xface)
-		(apply 'gnus-create-image (concat "X-Face: " data) 'xface t
+		(apply #'gnus-create-image (concat "X-Face: " data) 'xface t
 		       (cdr (assq 'xface gnus-face-properties-alist)))
-	      (apply 'gnus-create-image pbm 'pbm t
+	      (apply #'gnus-create-image pbm 'pbm t
 		     (cdr (assq 'pbm gnus-face-properties-alist))))
 	    nil 'xface))
 	  (gnus-add-wash-type 'xface))))))
 
 (defun gnus-grab-cam-x-face ()
   "Grab a picture off the camera and make it into an X-Face."
-  (interactive)
   (shell-command "xawtv-remote snap ppm")
   (let ((file nil))
     (while (null (setq file (directory-files "/tftpboot/sparky/tmp"
@@ -285,16 +286,14 @@ colors of the displayed X-Faces."
     (setq file (car file))
     (with-temp-buffer
       (shell-command
-       (format "pnmcut -left 110 -top 30 -width 144 -height 144 '%s' | ppmnorm 2>/dev/null | pnmscale -width 48 | ppmtopgm | pgmtopbm -threshold -value 0.92 | pbmtoxbm | compface"
-	       file)
+       (format "pnmcut -left 110 -top 30 -width 144 -height 144 '%s' | ppmnorm 2>%s | pnmscale -width 48 | ppmtopgm | pgmtopbm -threshold -value 0.92 | pbmtoxbm | compface"
+	       file null-device)
        (current-buffer))
-      ;;(sleep-for 3)
       (delete-file file)
       (buffer-string))))
 
 (defun gnus-grab-cam-face ()
   "Grab a picture off the camera and make it into an X-Face."
-  (interactive)
   (shell-command "xawtv-remote snap ppm")
   (let ((file nil)
 	(tempfile (make-temp-file "gnus-face-" nil ".ppm"))
@@ -311,7 +310,6 @@ colors of the displayed X-Faces."
 		   (gnus-fun-ppm-change-string))))
       (setq result (gnus-face-from-file tempfile)))
     (delete-file file)
-    ;;(delete-file tempfile)    ; FIXME why are we not deleting it?!
     result))
 
 (defun gnus-fun-ppm-change-string ()
@@ -324,7 +322,7 @@ colors of the displayed X-Faces."
   (dotimes (i 255)
     (push (format format i i i i i i)
 	  values))
-  (mapconcat 'identity values " ")))
+  (mapconcat #'identity values " ")))
 
 (defun gnus-funcall-no-warning (function &rest args)
   (when (fboundp function)

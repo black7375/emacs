@@ -4,18 +4,18 @@
 
 ;; This file is part of GNU Emacs.
 
-;; This program is free software: you can redistribute it and/or
-;; modify it under the terms of the GNU General Public License as
-;; published by the Free Software Foundation, either version 3 of the
-;; License, or (at your option) any later version.
-;;
-;; This program is distributed in the hope that it will be useful, but
-;; WITHOUT ANY WARRANTY; without even the implied warranty of
-;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-;; General Public License for more details.
-;;
+;; GNU Emacs is free software: you can redistribute it and/or modify
+;; it under the terms of the GNU General Public License as published by
+;; the Free Software Foundation, either version 3 of the License, or
+;; (at your option) any later version.
+
+;; GNU Emacs is distributed in the hope that it will be useful,
+;; but WITHOUT ANY WARRANTY; without even the implied warranty of
+;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+;; GNU General Public License for more details.
+
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see `https://www.gnu.org/licenses/'.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -241,6 +241,22 @@
   (let ((side-effect 0))
     (should (= (cl-the integer (cl-incf side-effect)) 1))
     (should (= side-effect 1))))
+
+(ert-deftest cl-lib-test-incf ()
+  (let ((var 0))
+    (should (= (cl-incf var) 1))
+    (should (= var 1)))
+  (let ((alist))
+    (should (= (cl-incf (alist-get 'a alist 0)) 1))
+    (should (= (alist-get 'a alist 0) 1))))
+
+(ert-deftest cl-lib-test-decf ()
+  (let ((var 1))
+    (should (= (cl-decf var) 0))
+    (should (= var 0)))
+  (let ((alist))
+    (should (= (cl-decf (alist-get 'a alist 0)) -1))
+    (should (= (alist-get 'a alist 0) -1))))
 
 (ert-deftest cl-lib-test-plusp ()
   (should-not (cl-plusp -1.0e+INF))
@@ -527,15 +543,7 @@
                            (apply (lambda (x) (+ x 1)) (list 8)))))
                  '(5 (6 5) (6 6) 9))))
 
-(defun cl-lib-tests--dummy-function ()
-  ;; Dummy function to see if the file is compiled.
-  t)
-
 (ert-deftest cl-lib-defstruct-record ()
-  ;; This test fails when compiled, see Bug#24402/27718.
-  :expected-result (if (byte-code-function-p
-                        (symbol-function 'cl-lib-tests--dummy-function))
-                       :failed :passed)
   (cl-defstruct foo x)
   (let ((x (make-foo :x 42)))
     (should (recordp x))
@@ -550,6 +558,7 @@
     (should (eq (type-of x) 'vector))
 
     (cl-old-struct-compat-mode 1)
+    (defvar cl-struct-foo)
     (let ((cl-struct-foo (cl--struct-get-class 'foo)))
       (setf (symbol-function 'cl-struct-foo) :quick-object-witness-check)
       (should (eq (type-of x) 'foo))
