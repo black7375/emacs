@@ -754,7 +754,12 @@ context.  See the individual commands for more information."
                 (gui-get-selection value 'STRING)
                 (gui-get-selection value 'TEXT)))))
         ((and (eq window-system 'w32) (fboundp 'w32-get-clipboard-data))
-         (w32-get-clipboard-data))))
+         (w32-get-clipboard-data))
+        ((and (eq window-system 'mac)
+              (fboundp 'gui-get-selection)) ;Silence byte-compiler.
+	 (org-no-properties
+	  (ignore-errors
+            (gui-get-selection 'CLIPBOARD 'NSStringPboardType))))))
 
 ;; `set-transient-map' is only in Emacs >= 24.4
 (defalias 'org-set-transient-map

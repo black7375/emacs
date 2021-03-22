@@ -171,7 +171,7 @@ static uintmax_t heap_bss_diff;
    We mark being in the exec'd process by a daemon name argument of
    form "--daemon=\nFD0,FD1\nNAME" where FD are the pipe file descriptors,
    NAME is the original daemon name, if any. */
-#if defined NS_IMPL_COCOA || defined CYGWIN
+#if defined NS_IMPL_COCOA || (defined HAVE_NTGUI && defined CYGWIN) || defined HAVE_MACGUI
 # define DAEMON_MUST_EXEC
 #endif
 
@@ -500,6 +500,22 @@ init_cmdargs (int argc, char **argv, int skip_args, char const *original_pwd)
 		dir = call1 (file_truename, dir);
 	    }
 	  dir = Fexpand_file_name (build_string ("../.."), dir);
+	}
+#elif defined HAVE_MACGUI
+      /* If we are running from the build directory, set DIR to the
+	 src subdirectory of the Emacs tree.  */
+      if (SBYTES (dir) > sizeof ("/mac/Emacs.app/Contents/MacOS/") - 1
+	  && 0 == strcmp ((SSDATA (dir) + SBYTES (dir)
+			   - sizeof ("/mac/Emacs.app/Contents/MacOS/") + 1),
+			  "/mac/Emacs.app/Contents/MacOS/"))
+	{
+	  if (NILP (Vpurify_flag))
+	    {
+	      Lisp_Object file_truename = intern ("file-truename");
+	      if (!NILP (Ffboundp (file_truename)))
+		dir = call1 (file_truename, dir);
+	    }
+	  dir = Fexpand_file_name (build_string ("../../../../src"), dir);
 	}
 #endif
       name = Fexpand_file_name (Vinvocation_name, dir);
@@ -933,7 +949,11 @@ load_pdump (int argc, char **argv)
 #endif /* HAVE_PDUMPER */
 
 int
+#ifndef HAVE_MACGUI
 main (int argc, char **argv)
+#else
+emacs_main (int argc, char **argv)
+#endif
 {
   /* Variable near the bottom of the stack, and aligned appropriately
      for pointers.  */
@@ -1664,6 +1684,20 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
     }
 #endif /* HAVE_NS */
 
+#ifdef HAVE_MACGUI
+  if (!noninteractive)
+    {
+      /* Started from GUI? */
+      /* FIXME: Do the right thing if get_homedir returns "", or if
+         chdir fails.  */
+      if (! inhibit_window_system && ! isatty (STDIN_FILENO) && ! ch_to_dir)
+	{
+	  chdir (get_homedir ());
+	  emacs_wd = emacs_get_current_dir_name ();
+	}
+    }
+#endif
+
 #ifdef HAVE_X_WINDOWS
   /* Stupid kludge to catch command-line display spec.  We can't
      handle this argument entirely in window system dependent code
@@ -1746,6 +1780,11 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 
 #ifdef HAVE_GFILENOTIFY
   globals_of_gfilenotify ();
+#endif
+
+#ifdef HAVE_MACGUI
+  if (initialized)
+    init_mac_osx_environment ();
 #endif
 
 #ifdef HAVE_NS
@@ -1919,6 +1958,15 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #if defined WINDOWSNT || defined HAVE_NTGUI
       syms_of_w32select ();
 #endif
+
+#ifdef HAVE_MACGUI
+      syms_of_mac ();
+      syms_of_macterm ();
+      syms_of_macfns ();
+      syms_of_macmenu ();
+      syms_of_macselect ();
+      syms_of_fontset ();
+#endif /* HAVE_MACGUI */
 
 #ifdef MSDOS
       syms_of_xmenu ();

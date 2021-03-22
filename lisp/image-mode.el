@@ -816,9 +816,16 @@ was inserted."
 		      (- (nth 2 edges) (nth 0 edges))))
 	 (max-height (when edges
 		       (- (nth 3 edges) (nth 1 edges))))
-	 (type (if (image--imagemagick-wanted-p filename)
-		   'imagemagick
-		 (image-type file-or-data nil data-p)))
+	 (type (if (featurep 'mac)
+                   (let ((image-type (image-type file-or-data nil data-p)))
+                     (if (and (image--imagemagick-wanted-p filename)
+                              (memq (intern (upcase (symbol-name image-type)))
+                                    (imagemagick-types)))
+                         'imagemagick
+                       image-type))
+	         (if (image--imagemagick-wanted-p filename)
+		     'imagemagick
+		   (image-type file-or-data nil data-p))))
 	 (inhibit-read-only t)
 	 (buffer-undo-list t)
 	 (modified (buffer-modified-p))

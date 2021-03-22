@@ -52,7 +52,7 @@
   (when (bound-and-true-p mouse-wheel-mode) (mouse-wheel-mode 1)))
 
 (defcustom mouse-wheel-down-event
-  (if (or (featurep 'w32-win) (featurep 'ns-win))
+  (if (or (featurep 'w32-win) (featurep 'mac-win) (featurep 'ns-win))
       'wheel-up
     'mouse-4)
   "Event used for scrolling down."
@@ -61,7 +61,7 @@
   :set 'mouse-wheel-change-button)
 
 (defcustom mouse-wheel-up-event
-  (if (or (featurep 'w32-win) (featurep 'ns-win))
+  (if (or (featurep 'w32-win) (featurep 'mac-win) (featurep 'ns-win))
       'wheel-down
     'mouse-5)
   "Event used for scrolling up."
@@ -206,13 +206,13 @@ Also see `mouse-wheel-tilt-scroll'."
   "Function that does the job of scrolling right.")
 
 (defvar mouse-wheel-left-event
-  (if (or (featurep 'w32-win) (featurep 'ns-win))
+  (if (or (featurep 'w32-win) (featurep 'mac-win) (featurep 'ns-win))
       'wheel-left
     (intern "mouse-6"))
   "Event used for scrolling left.")
 
 (defvar mouse-wheel-right-event
-  (if (or (featurep 'w32-win) (featurep 'ns-win))
+  (if (or (featurep 'w32-win) (featurep 'mac-win) (featurep 'ns-win))
       'wheel-right
     (intern "mouse-7"))
   "Event used for scrolling right.")

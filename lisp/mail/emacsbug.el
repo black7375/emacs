@@ -43,6 +43,11 @@
 (define-obsolete-variable-alias 'report-emacs-bug-pretest-address
   'report-emacs-bug-address "24.1")
 
+(defcustom report-emacs-bug-mac-address "mituharu+bug-gnu-emacs-mac@math.s.chiba-u.ac.jp"
+  "Address for reporting GNU Emacs Mac port specific bugs."
+  :group 'emacsbug
+  :type 'string)
+
 (defcustom report-emacs-bug-no-confirmation nil
   "If non-nil, suppress the confirmations asked for the sake of novice users."
   :group 'emacsbug
@@ -214,10 +219,14 @@ Prompts for bug subject.  Leaves you in a mail buffer."
   ;; The syntax `version;' is preferred to `[version]' because the
   ;; latter could be mistakenly stripped by mailing software.
   (setq topic (concat emacs-version "; " topic))
-  (let ((from-buffer (current-buffer))
-	(can-insert-mail (or (report-emacs-bug-can-use-xdg-email)
-			     (report-emacs-bug-can-use-osx-open)))
-        user-point message-end-point)
+  (let* ((mac-port-p (featurep 'mac))
+	 (reporting-address (if mac-port-p
+				report-emacs-bug-mac-address
+			      report-emacs-bug-address))
+         (from-buffer (current-buffer))
+         (can-insert-mail (or (report-emacs-bug-can-use-xdg-email)
+                              (report-emacs-bug-can-use-osx-open)))
+         user-point message-end-point)
     (setq message-end-point
 	  (with-current-buffer (messages-buffer)
 	    (point-max-marker)))
@@ -229,7 +238,7 @@ Prompts for bug subject.  Leaves you in a mail buffer."
           (set-window-dedicated-p nil nil)
           (set-frame-parameter nil 'unsplittable nil))
       (error nil))
-    (compose-mail report-emacs-bug-address topic)
+    (compose-mail reporting-address topic)
     ;; The rest of this does not execute if the user was asked to
     ;; confirm and said no.
     (when (eq major-mode 'message-mode)
@@ -253,9 +262,17 @@ Prompts for bug subject.  Leaves you in a mail buffer."
       (backward-char (length signature)))
     (unless report-emacs-bug-no-explanations
       ;; Insert warnings for novice users.
-      (if (not (equal "bug-gnu-emacs@gnu.org" report-emacs-bug-address))
-	  (insert (format "The report will be sent to %s.\n\n"
-			  report-emacs-bug-address))
+      (if (not (equal "bug-gnu-emacs@gnu.org" reporting-address))
+	  (progn
+	    (insert (format "The report will be sent to %s.\n\n"
+			    reporting-address))
+	    (when mac-port-p
+	      (insert "Please make sure that the bug is ")
+	      (let ((pos (point)))
+		(insert "specific to the Mac port")
+		(put-text-property pos (point) 'face 'highlight))
+	      (insert ".\nOther bugs should be sent to the place you are guided with\n"
+		      "M-x report-emacs-bug on some official ports such as X11 or NS.\n\n")))
 	(insert "This bug report will be sent to the ")
 	(insert-text-button
 	 "Bug-GNU-Emacs"

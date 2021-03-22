@@ -807,6 +807,7 @@
   ;; Unicode fonts.  We exclude the latter because users don't like us
   ;; invading on their font setups where they have good support from
   ;; other fonts.
+  (unless (featurep 'mac)
   (dolist (symbol-subgroup
            '((#x2000 . #x2012)	;; General Punctuation
              (#x2015 . #x2017)
@@ -872,7 +873,7 @@
              (#x1F900 . #x1F9FF)	;; Supplemental Symbols and Pictographs
              (#x1FA00 . #x1FA6F)))	;; Chess Symbols
     (set-fontset-font "fontset-default" symbol-subgroup
-                      '("Symbola" . "iso10646-1") nil 'prepend))
+                      '("Symbola" . "iso10646-1") nil 'prepend)))
   ;; Box Drawing and Block Elements
   (set-fontset-font "fontset-default" '(#x2500 . #x259F)
                     '("FreeMono" . "iso10646-1") nil 'prepend)

@@ -50,7 +50,7 @@ extern AppendMenuW_Proc unicode_append_menu;
 static bool
 have_boxes (void)
 {
-#if defined (USE_X_TOOLKIT) || defined (USE_GTK) || defined (HAVE_NTGUI) || defined(HAVE_NS)
+#if defined USE_X_TOOLKIT || defined USE_GTK || defined HAVE_NTGUI || defined HAVE_MACGUI || defined HAVE_NS
   if (FRAME_WINDOW_P (XFRAME (Vmenu_updating_frame)))
     return 1;
 #endif
@@ -422,7 +422,7 @@ single_menu_item (Lisp_Object key, Lisp_Object item, Lisp_Object dummy, void *sk
 		  AREF (item_properties, ITEM_PROPERTY_SELECTED),
 		  AREF (item_properties, ITEM_PROPERTY_HELP));
 
-#if defined (USE_X_TOOLKIT) || defined (USE_GTK) || defined (HAVE_NS) || defined (HAVE_NTGUI)
+#if defined USE_X_TOOLKIT || defined USE_GTK || defined HAVE_MACGUI || defined HAVE_NS || defined HAVE_NTGUI
   /* Display a submenu using the toolkit.  */
   if (FRAME_WINDOW_P (XFRAME (Vmenu_updating_frame))
       && ! (NILP (map) || NILP (enabled)))
@@ -564,7 +564,7 @@ parse_single_submenu (Lisp_Object item_key, Lisp_Object item_name,
 }
 
 
-#if defined (USE_X_TOOLKIT) || defined (USE_GTK) || defined (HAVE_NS) || defined (HAVE_NTGUI)
+#if defined USE_X_TOOLKIT || defined USE_GTK || defined HAVE_MACGUI || defined HAVE_NS || defined HAVE_NTGUI
 
 /* Allocate and basically initialize widget_value, blocking input.  */
 
@@ -959,7 +959,7 @@ find_and_call_menu_selection (struct frame *f, int menu_bar_items_used,
   SAFE_FREE ();
 }
 
-#endif /* USE_X_TOOLKIT || USE_GTK || HAVE_NS || HAVE_NTGUI */
+#endif /* USE_X_TOOLKIT || USE_GTK || HAVE_MACGUI || HAVE_NS || HAVE_NTGUI */
 
 #ifdef HAVE_NS
 /* As above, but return the menu selection instead of storing in kb buffer.
@@ -1131,7 +1131,11 @@ x_popup_menu_1 (Lisp_Object position, Lisp_Object menu)
     if (EQ (position, Qt)
 	|| (CONSP (position) && (EQ (XCAR (position), Qmenu_bar)
 				 || EQ (XCAR (position), Qtab_bar)
-				 || EQ (XCAR (position), Qtool_bar))))
+				 || EQ (XCAR (position), Qtool_bar)
+#ifdef HAVE_MACGUI
+				 || EQ (XCAR (position), Qmac_apple_event)
+#endif
+				 )))
       {
 	get_current_pos_p = 1;
       }
@@ -1508,7 +1512,12 @@ for instance using the window manager, then this produces a quit and
   if (EQ (position, Qt)
       || (CONSP (position) && (EQ (XCAR (position), Qmenu_bar)
 			       || EQ (XCAR (position), Qtab_bar)
-			       || EQ (XCAR (position), Qtool_bar))))
+			       || EQ (XCAR (position), Qtool_bar)
+#ifdef HAVE_MACGUI
+			       || EQ (XCAR (position), Qmac_apple_event)
+#endif
+
+			       )))
     window = selected_window;
   else if (CONSP (position))
     {

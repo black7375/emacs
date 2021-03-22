@@ -28,6 +28,9 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "lisp.h"
 #include "blockinput.h"
 #include "systime.h"
+#ifdef HAVE_MACGUI
+#include "macterm.h"
+#endif
 
 /* `xg_select' is a `pselect' replacement.  Why do we need a separate function?
    1. Timeouts.  Glib and Gtk rely on timer events.  If we did pselect
@@ -114,7 +117,13 @@ xg_select (int fds_lim, fd_set *rfds, fd_set *wfds, fd_set *efds,
     }
 
   fds_lim = max_fds + 1;
-  nfds = thread_select (pselect, fds_lim,
+  nfds =
+#ifdef HAVE_MACGUI
+	 mac_select (
+#else
+	 thread_select (pselect,
+#endif
+			fds_lim,
 			&all_rfds, have_wfds ? &all_wfds : NULL, efds,
 			tmop, sigmask);
   if (nfds < 0)

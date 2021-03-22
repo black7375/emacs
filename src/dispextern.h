@@ -56,6 +56,7 @@ typedef struct
 /* Accommodate X's usage of None as a null resource ID.  */
 #define No_Cursor (NULL)
 
+#ifndef HAVE_MACGUI
 /* XRectangle-like struct used by non-X GUI code.  */
 typedef struct
 {
@@ -75,7 +76,7 @@ typedef struct
    need these.  */
 #define GCForeground 0x01
 #define GCBackground 0x02
-
+#endif /* !HAVE_MACGUI */
 #endif /* HAVE_X_WINDOWS */
 
 #ifdef MSDOS
@@ -101,7 +102,7 @@ typedef XImage *Emacs_Pix_Context;
 #define NativeRectangle XRectangle
 #endif
 
-#ifdef USE_CAIRO
+#if defined USE_CAIRO || defined HAVE_MACGUI
 /* Mininal version of XImage.  */
 typedef struct
 {
@@ -119,6 +120,13 @@ typedef Emacs_Pix_Container Emacs_Pix_Context;
 typedef struct w32_display_info Display_Info;
 typedef XImage *Emacs_Pix_Container;
 typedef HDC Emacs_Pix_Context;
+#endif
+
+#ifdef HAVE_MACGUI
+#include "macgui.h"
+typedef struct mac_display_info Display_Info;
+typedef XGCValues Emacs_GC;
+typedef SignedRectangle Emacs_Rectangle;
 #endif
 
 #ifdef HAVE_NS
@@ -1386,7 +1394,7 @@ struct glyph_string
   bool_bf padding_p : 1;
 
   /* The GC to use for drawing this glyph string.  */
-#if defined (HAVE_X_WINDOWS)
+#if defined HAVE_X_WINDOWS || defined HAVE_MACGUI
   GC gc;
 #endif
 #if defined (HAVE_NTGUI)
@@ -1661,7 +1669,7 @@ struct face
 
   /* If non-zero, this is a GC that we can use without modification for
      drawing the characters in this face.  */
-# ifdef HAVE_X_WINDOWS
+# if defined HAVE_X_WINDOWS || defined HAVE_MACGUI
   GC gc;
 # else
   Emacs_GC *gc;
@@ -3016,7 +3024,7 @@ struct redisplay_interface
 
 #ifdef HAVE_WINDOW_SYSTEM
 
-# if (defined USE_CAIRO || defined HAVE_XRENDER \
+# if (defined USE_CAIRO || defined HAVE_XRENDER || defined HAVE_MACGUI \
       || defined HAVE_NS || defined HAVE_NTGUI)
 #  define HAVE_NATIVE_TRANSFORMS
 # endif
@@ -3081,6 +3089,12 @@ struct image
      valid, respectively. */
   bool_bf background_valid : 1, background_transparent_valid : 1;
 
+#ifdef HAVE_MACGUI
+  /* Target backing scale factor (<= 2) that this image is dedicated
+     to.  0 means it is not dedicated to any particular one.  */
+  unsigned target_backing_scale : 2;
+#endif
+
   /* Width and height of the image.  */
   int width, height;
 
@@ -3128,6 +3142,14 @@ struct image
   /* A place for image types to store additional data.  It is marked
      during GC.  */
   Lisp_Object lisp_data;
+
+#ifdef HAVE_MACGUI
+  /* A place for image types to store Core Graphics image data.  */
+  CGImageRef cg_image;
+
+  /* Pointer to affine transformation matrix for image display.  */
+  CGAffineTransform *cg_transform;
+#endif
 
   /* Hash value of image specification to speed up comparisons.  */
   EMACS_UINT hash;
@@ -3480,6 +3502,16 @@ extern ptrdiff_t image_bitmap_pixmap (struct frame *, ptrdiff_t);
 extern void image_reference_bitmap (struct frame *, ptrdiff_t);
 extern ptrdiff_t image_create_bitmap_from_data (struct frame *, char *,
                                                 unsigned int, unsigned int);
+#ifdef HAVE_MACGUI
+extern Emacs_Pix_Container image_create_pix_container (struct frame *,
+						       unsigned int,
+						       unsigned int,
+						       unsigned int);
+void image_free_pix_container (struct frame *, Emacs_Pix_Container);
+extern CFArrayRef mac_bitmap_stipple (struct frame *, ptrdiff_t);
+extern ptrdiff_t mac_create_bitmap_from_data (struct frame *, char *, char *,
+					      unsigned int, unsigned int);
+#endif
 extern ptrdiff_t image_create_bitmap_from_file (struct frame *, Lisp_Object);
 #if defined HAVE_XPM && defined HAVE_X_WINDOWS && !defined USE_GTK
 extern ptrdiff_t x_create_bitmap_from_xpm_data (struct frame *, const char **);
@@ -3504,7 +3536,7 @@ bool valid_image_p (Lisp_Object);
 void prepare_image_for_display (struct frame *, struct image *);
 ptrdiff_t lookup_image (struct frame *, Lisp_Object);
 
-#if defined HAVE_X_WINDOWS || defined USE_CAIRO || defined HAVE_NS
+#if defined HAVE_X_WINDOWS || defined USE_CAIRO || defined HAVE_MACGUI || defined HAVE_NS
 #define RGB_PIXEL_COLOR unsigned long
 #endif
 
@@ -3579,6 +3611,9 @@ void gamma_correct (struct frame *, XColor *);
 #endif
 #ifdef HAVE_NTGUI
 void gamma_correct (struct frame *, COLORREF *);
+#endif
+#ifdef HAVE_MACGUI
+void gamma_correct (struct frame *, unsigned long *);
 #endif
 
 #ifdef HAVE_WINDOW_SYSTEM

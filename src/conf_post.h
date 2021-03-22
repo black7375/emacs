@@ -98,6 +98,11 @@ typedef bool bool_bf;
 # define malloc unexec_malloc
 # define realloc unexec_realloc
 # define free unexec_free
+/* Name of the segment whose VM protection is the default (read/write)
+   for temacs but read-only for the dumped executable.  */
+#define EMACS_READ_ONLY_SEGMENT "EMACS_READ_ONLY"
+/* Name of the section to place the pure space.  */
+//#define PURE_SECTION EMACS_READ_ONLY_SEGMENT ",pure"
 #endif
 
 /* If HYBRID_MALLOC is defined (e.g., on Cygwin), emacs will use

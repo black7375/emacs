@@ -110,6 +110,12 @@ am__v_at_1 =
 
 # ==================== Where To Install Things ====================
 
+# Location to install Emacs.app on macOS
+mac_appdir=@mac_appdir@
+mac_appbindir=@mac_appbindir@
+mac_appresdir=@mac_appresdir@
+mac_self_contained=@mac_self_contained@
+
 # Location to install Emacs.app under GNUstep / macOS.
 # Later values may use these.
 ns_appbindir=@ns_appbindir@
@@ -317,6 +323,9 @@ SUBDIR = $(NTDIR) lib lib-src src lisp
 SUBDIR_MAKEFILES_IN = @SUBDIR_MAKEFILES_IN@
 SUBDIR_MAKEFILES = $(patsubst ${srcdir}/%,%,${SUBDIR_MAKEFILES_IN:.in=})
 
+# Mac template files from which config.status generates config files.
+MAC_TEMPLATE_FILES = @MAC_TEMPLATE_FILES@
+
 # Non-makefile files created by config.status.
 CONFIG_STATUS_FILES_IN = \
  ${srcdir}/nt/emacs.rc.in ${srcdir}/nt/emacsclient.rc.in \
@@ -442,7 +451,7 @@ blessmail: Makefile src
 MAKEFILE_NAME = Makefile
 $(MAKEFILE_NAME): config.status $(srcdir)/configure \
 	 $(srcdir)/lib/gnulib.mk.in \
-         $(srcdir)/Makefile.in $(SUBDIR_MAKEFILES_IN) $(CONFIG_STATUS_FILES_IN)
+         $(srcdir)/Makefile.in $(SUBDIR_MAKEFILES_IN) $(CONFIG_STATUS_FILES_IN)  $(MAC_TEMPLATE_FILES)
 	MAKE='$(MAKE)' ./config.status
 
 # Don't erase these files if make is interrupted while refreshing them.
@@ -492,6 +501,13 @@ write_subdir=if [ -f "$${subdir}/subdirs.el" ]; \
 install-arch-dep: src install-arch-indep install-etcdoc install-$(NTDIR)
 	umask 022; ${MKDIR_P} "$(DESTDIR)${bindir}"
 	$(MAKE) -C lib-src install
+	if test "${mac_appdir}" != ""; then \
+	  umask 022; mkdir -p $(DESTDIR)${mac_appdir}/Emacs.app; \
+	  (cd mac/Emacs.app; (tar -chf - . | \
+		(cd $(DESTDIR)${mac_appdir}/Emacs.app; umask 022; tar -xvf - \
+			&& cat > /dev/null))) || exit 1; \
+	fi
+ifeq (${mac_self_contained},no)
 ifeq (${ns_self_contained},no)
 	${INSTALL_PROGRAM} $(INSTALL_STRIP) src/emacs${EXEEXT} "$(DESTDIR)${bindir}/$(EMACSFULL)"
 ifeq (${DUMPING},pdumper)
@@ -505,6 +521,10 @@ endif
 else
 	subdir=${ns_appresdir}/site-lisp && ${write_subdir}
 	rm -rf ${ns_appresdir}/share
+endif
+else
+	subdir=${mac_appresdir}/site-lisp && ${write_subdir}
+	rm -rf ${mac_appresdir}/share
 endif
 
 ### Windows-specific install target for installing programs produced
@@ -846,7 +866,7 @@ mostlyclean: $(mostlyclean_dirs:=_mostlyclean)
 ###      with them.
 ###
 ###      Delete '.dvi' files here if they are not part of the distribution.
-clean_dirs = $(mostlyclean_dirs) nextstep
+clean_dirs = $(mostlyclean_dirs) mac nextstep
 
 $(foreach dir,$(clean_dirs),$(eval $(call submake_template,$(dir),clean)))
 

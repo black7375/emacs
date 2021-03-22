@@ -1462,16 +1462,18 @@ init_fringe_bitmap (int which, struct fringe_bitmap *fb, int once_p)
 #endif /* not USE_CAIRO */
 #endif /* HAVE_X_WINDOWS */
 
-#ifdef HAVE_NTGUI
+#if defined HAVE_NTGUI || defined HAVE_MACGUI
       unsigned short *bits = fb->bits;
       int j;
       for (j = 0; j < fb->height; j++)
 	{
 	  unsigned short b = *bits;
 	  b <<= (16 - fb->width);
+#ifndef WORDS_BIGENDIAN
 	  /* Windows is little-endian, so the next line is always
 	     needed.  */
 	  b = ((b >> 8) | (b << 8));
+#endif
 	  *bits++ = b;
 	}
 #endif

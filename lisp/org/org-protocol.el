@@ -589,7 +589,7 @@ The location for a browser's bookmark should look like this:
 
 ;;; Core functions:
 
-(defun org-protocol-check-filename-for-protocol (fname restoffiles _client)
+(defun org-protocol-check-filename-for-protocol (fname restoffiles client)
   "Check if `org-protocol-the-protocol' and a valid protocol are used in FNAME.
 Sub-protocols are registered in `org-protocol-protocol-alist' and
 `org-protocol-protocol-alist-default'.  This is how the matching is done:
@@ -629,8 +629,11 @@ CLIENT is ignored."
                        (greedy (plist-get (cdr prolist) :greedy))
                        (split (split-string fname proto))
                        (result (if greedy restoffiles (cadr split)))
-		       (new-style (string-match "/*?" (match-string 1 fname))))
-                  (when (plist-get (cdr prolist) :kill-client)
+		       (new-style (string= (match-string 1 fname) "?")))
+		  ;; Emacs Mac port directly handles `org-protocol'
+		  ;; URLs without the help of external commands or
+		  ;; apps.  In this case, `client' is set to nil.
+                  (when (and client (plist-get (cdr prolist) :kill-client))
 		    (message "Greedy org-protocol handler.  Killing client.")
 		    (server-edit))
                   (when (fboundp func)

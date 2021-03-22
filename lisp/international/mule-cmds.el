@@ -87,7 +87,7 @@
     (bindings--define-key map [separator-3] menu-bar-separator)
     (bindings--define-key map [set-terminal-coding-system]
       '(menu-item "For Terminal" set-terminal-coding-system
-        :enable (null (memq initial-window-system '(x w32 ns)))
+        :enable (null (memq initial-window-system '(x w32 mac ns)))
         :help "How to encode terminal output"))
     (bindings--define-key map [set-keyboard-coding-system]
       '(menu-item "For Keyboard" set-keyboard-coding-system
@@ -2627,6 +2627,18 @@ See also `locale-charset-language-names', `locale-language-names',
 	(while (and vars
 		    (= 0 (length locale))) ; nil or empty string
 	  (setq locale (getenv (pop vars) frame)))))
+
+    (unless locale
+      ;; The two tests are kept separate so the byte-compiler sees
+      ;; that mac-get-preference is only called after checking its existence.
+      (when (fboundp 'mac-get-preference)
+        (setq locale (mac-get-preference "AppleLocale"))
+        (unless locale
+          (let ((languages (mac-get-preference "AppleLanguages")))
+            (unless (= (length languages) 0) ; nil or empty vector
+              (setq locale (aref languages 0)))))
+	(if locale
+	    (setq locale (concat locale ".UTF-8")))))
 
     (when locale
       (setq locale (locale-translate locale))

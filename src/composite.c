@@ -865,11 +865,12 @@ fill_gstring_body (Lisp_Object gstring)
 
 
 /* Try to compose the characters at CHARPOS according to composition
-   rule RULE ([PATTERN PREV-CHARS FUNC]).  LIMIT limits the characters
-   to compose.  STRING, if not nil, is a target string.  WIN is a
-   window where the characters are being displayed.  If characters are
-   successfully composed, return the composition as a glyph-string
-   object.  Otherwise return nil.  */
+   rule RULE (either [PATTERN PREV-CHARS FUNC] or [PATTERN PREV-CHARS
+   FUNC FONT-POS]).  LIMIT limits the characters to compose.  STRING,
+   if not nil, is a target string.  WIN is a window where the
+   characters are being displayed.  If characters are successfully
+   composed, return the composition as a glyph-string object.
+   Otherwise return nil.  */
 
 static Lisp_Object
 autocmp_chars (Lisp_Object rule, ptrdiff_t charpos, ptrdiff_t bytepos,
@@ -905,12 +906,32 @@ autocmp_chars (Lisp_Object rule, ptrdiff_t charpos, ptrdiff_t bytepos,
   struct frame *f = XFRAME (font_object);
   if (FRAME_WINDOW_P (f))
     {
+      bool use_font_pos_p = false;
+
+      if (ASIZE (rule) == 4 && INTEGERP (AREF (rule, 3)))
+	{
+	  ptrdiff_t offset = XFIXNUM (AREF (rule, 1)) + XFIXNUM (AREF (rule, 3));
+
+	  if (offset >= 0 && offset < len)
+	    {
+	      charpos += offset;
+	      if (STRINGP (string))
+		bytepos = string_char_to_byte (string, charpos);
+	      else
+		bytepos = CHAR_TO_BYTE (charpos);
+	      to = charpos + 1;
+	      use_font_pos_p = true;
+	    }
+	}
       font_object = font_range (charpos, bytepos, &to, win, face, string);
       if (! FONT_OBJECT_P (font_object)
-	  || (! NILP (re)
+	  || (! use_font_pos_p
+	      && ! NILP (re)
 	      && to < limit
 	      && (fast_looking_at (re, charpos, bytepos, to, -1, string) <= 0)))
 	return unbind_to (count, Qnil);
+      if (use_font_pos_p)
+	to = limit;
     }
 #endif
   lgstring = Fcomposition_get_gstring (pos, make_fixnum (to), font_object,
@@ -1027,7 +1048,7 @@ composition_compute_stop_pos (struct composition_it *cmp_it, ptrdiff_t charpos, 
 	      for (EMACS_INT ridx = 0; CONSP (val); val = XCDR (val), ridx++)
 		{
 		  Lisp_Object elt = XCAR (val);
-		  if (VECTORP (elt) && ASIZE (elt) == 3
+		  if (VECTORP (elt) && ASIZE (elt) >= 3 && ASIZE (elt) <= 4
 		      && FIXNATP (AREF (elt, 1))
 		      && charpos - 1 - XFIXNAT (AREF (elt, 1)) >= start)
 		    {
@@ -1078,7 +1099,7 @@ composition_compute_stop_pos (struct composition_it *cmp_it, ptrdiff_t charpos, 
 	  for (EMACS_INT ridx = 0; CONSP (val); val = XCDR (val), ridx++)
 	    {
 	      Lisp_Object elt = XCAR (val);
-	      if (VECTORP (elt) && ASIZE (elt) == 3
+	      if (VECTORP (elt) && ASIZE (elt) >= 3 && ASIZE (elt) <= 4
 		  && FIXNATP (AREF (elt, 1))
 		  && charpos - XFIXNAT (AREF (elt, 1)) > endpos)
 		{
@@ -1228,7 +1249,7 @@ composition_reseat_it (struct composition_it *cmp_it, ptrdiff_t charpos,
 	  for (; CONSP (val); val = XCDR (val))
 	    {
 	      elt = XCAR (val);
-	      if (! VECTORP (elt) || ASIZE (elt) != 3
+	      if (! VECTORP (elt) || ASIZE (elt) < 3 || ASIZE (elt) > 4
 		  || ! FIXNUMP (AREF (elt, 1)))
 		continue;
 	      if (XFIXNAT (AREF (elt, 1)) != cmp_it->lookback)
@@ -1580,7 +1601,8 @@ find_automatic_composition (ptrdiff_t pos, ptrdiff_t limit,
 	    {
 	      Lisp_Object elt = XCAR (val);
 
-	      if (VECTORP (elt) && ASIZE (elt) == 3 && FIXNATP (AREF (elt, 1)))
+	      if (VECTORP (elt) && ASIZE (elt) >= 3 && ASIZE (elt) <= 4
+		  && FIXNATP (AREF (elt, 1)))
 		{
 		  EMACS_INT check_pos = cur.pos - XFIXNAT (AREF (elt, 1));
 		  struct position_record check;
@@ -1757,20 +1779,44 @@ should be ignored.  */)
 
   if (NILP (string))
     {
-      if (NILP (BVAR (current_buffer, enable_multibyte_characters)))
-	error ("Attempt to shape unibyte text");
       validate_region (&from, &to);
       frompos = XFIXNAT (from);
       topos = XFIXNAT (to);
-      frombyte = CHAR_TO_BYTE (frompos);
+      if (!NILP (BVAR (current_buffer, enable_multibyte_characters)))
+	frombyte = CHAR_TO_BYTE (frompos);
+      else
+	{
+	  ptrdiff_t pos;
+
+	  /* fill_gstring_header below uses
+	     FETCH_CHAR_ADVANCE_NO_CHECK that assumes the current
+	     buffer is multibyte, but it is safe as long as it only
+	     fetches ASCII chars.  */
+	  for (pos = frompos; pos < topos; pos++)
+	    if (!ASCII_CHAR_P (*(BYTE_POS_ADDR (pos))))
+	      error ("Attempt to shape non-ASCII part of unibyte text");
+	  frombyte = frompos;
+	}
     }
   else
     {
       CHECK_STRING (string);
       validate_subarray (string, from, to, SCHARS (string), &frompos, &topos);
-      if (! STRING_MULTIBYTE (string))
-	error ("Attempt to shape unibyte text");
-      frombyte = string_char_to_byte (string, frompos);
+      if (STRING_MULTIBYTE (string))
+	frombyte = string_char_to_byte (string, frompos);
+      else
+	{
+	  ptrdiff_t pos;
+
+	  /* fill_gstring_header below uses
+	     FETCH_STRING_CHAR_ADVANCE_NO_CHECK that assumes the
+	     string is multibyte, but it is safe as long as it only
+	     fetches ASCII chars.  */
+	  for (pos = frompos; pos < topos; pos++)
+	    if (!ASCII_CHAR_P (SREF (string, pos)))
+	      error ("Attempt to shape non-ASCII part of unibyte text");
+	  frombyte = frompos;
+	}
     }
 
   header = fill_gstring_header (frompos, frombyte,
@@ -1996,7 +2042,8 @@ preceding and/or following characters, this char-table contains
 a function to call to compose that character.
 
 The element at index C in the table, if non-nil, is a list of
-composition rules of this form: ([PATTERN PREV-CHARS FUNC] ...)
+composition rules where each rule is a vector of the form [PATTERN
+PREV-CHARS FUNC] or [PATTERN PREV-CHARS FUNC FONT-POS].
 
 PATTERN is a regular expression which C and the surrounding
 characters must match.
@@ -2012,6 +2059,10 @@ single character C should be composed.
 FUNC is a function to return a glyph-string representing a
 composition of the characters that match PATTERN.  It is
 called with one argument GSTRING.
+
+FONT-POS is an integer specifying the position of the character from
+which the font object passed to FUNC as a part of GSTRING is obtained.
+The value is relative to the position of C.
 
 GSTRING is a template of a glyph-string to return.  It is already
 filled with a proper header for the characters to compose, and

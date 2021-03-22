@@ -882,13 +882,16 @@ This handles splitting the command if it would be bigger than
     ;; does not understand and throws an error.
     ;; It may also be a valid X display, but if Emacs is compiled for ns, it
     ;; can not make X frames.
-    (if (featurep 'ns-win)
-	(setq w 'ns display "ns")
+    (cond ((featurep 'ns-win)
+	   (setq w 'ns display "ns"))
+	  ((eq window-system 'mac)
+	   (setq w 'mac display "Mac"))
+          (t
       ;; FIXME! Not sure what this was for, and not sure how it should work
       ;; in the cl-defmethod new world!
       ;;(unless (assq w window-system-initialization-alist)
       ;;  (setq w nil))
-      )
+      ))
 
     (cond (w
            ;; Flag frame as client-created, but use a dummy client.
@@ -1179,9 +1182,10 @@ The following commands are accepted by the client:
                  ;; choice there.)  In daemon mode on Windows, we can't
                  ;; make tty frames, so force the frame type to GUI
                  ;; there too.
-                 (when (and (eq system-type 'windows-nt)
-                            (or (daemonp)
-                                (eq window-system 'w32)))
+                 (when (or (and (eq system-type 'windows-nt)
+                                (or (daemonp)
+                                    (eq window-system 'w32)))
+                           (eq window-system 'mac))
                    (push "-window-system" args-left)))
 
                 ;; -position +LINE[:COLUMN]:  Set point to the given

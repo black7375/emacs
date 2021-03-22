@@ -67,8 +67,25 @@ enum {
 };
 #endif
 
-#if USE_CT_GLYPH_INFO
+#if MAC_OS_X_VERSION_MAX_ALLOWED < 101300
+enum {
+  kCTFontTableSVG = 'SVG '
+};
+#endif
+
+/* Values for `dir' argument to shaper functions.  */
+enum lgstring_direction
+  {
+    DIR_R2L = -1, DIR_UNKNOWN = 0, DIR_L2R = 1,
+  };
+
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101000
 #define mac_font_get_glyph_for_cid mac_ctfont_get_glyph_for_cid
+#elif !defined (HAVE_NS)
+extern CGGlyph mac_ctfont_get_glyph_for_cid (CTFontRef, CTCharacterCollection,
+					     CGFontIndex);
+extern CGGlyph mac_font_get_glyph_for_cid (CTFontRef, CTCharacterCollection,
+					   CGFontIndex);
 #endif
 
 #ifndef kCTVersionNumber10_9
@@ -79,6 +96,18 @@ enum {
 
 typedef const struct _EmacsScreenFont *ScreenFontRef; /* opaque */
 
+#ifndef HAVE_NS
+extern CFIndex mac_font_get_weight (CTFontRef);
+extern ScreenFontRef mac_screen_font_create_with_name (CFStringRef,
+						       CGFloat);
+extern CGFloat mac_screen_font_get_advance_width_for_glyph (ScreenFontRef,
+							    CGGlyph);
+Boolean mac_screen_font_get_metrics (ScreenFontRef, CGFloat *,
+				     CGFloat *, CGFloat *);
+CFIndex mac_screen_font_shape (ScreenFontRef, CFStringRef,
+			       struct mac_glyph_layout *, CFIndex,
+			       enum lgstring_direction);
+#else  /* HAVE_NS */
 extern void mac_register_font_driver (struct frame *f);
 extern void *macfont_get_nsctfont (struct font *font);
 extern void macfont_update_antialias_threshold (void);
@@ -86,3 +115,4 @@ extern void macfont_update_antialias_threshold (void);
 /* This is an undocumented function. */
 extern void CGContextSetFontSmoothingStyle(CGContextRef, int)
   __attribute__((weak_import));
+#endif  /* HAVE_NS */

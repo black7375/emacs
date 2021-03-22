@@ -23,6 +23,9 @@ Original author: YAMAMOTO Mitsuharu
 
 #include "lisp.h"
 #include "dispextern.h"
+#ifdef HAVE_MACGUI
+#include "macterm.h"
+#endif
 #include "frame.h"
 #include "blockinput.h"
 #include "character.h"
@@ -30,20 +33,16 @@ Original author: YAMAMOTO Mitsuharu
 #include "composite.h"
 #include "fontset.h"
 #include "font.h"
+#ifdef HAVE_NS
 #include "termchar.h"
 #include "nsgui.h"
 #include "nsterm.h"
+#endif
 #include "macfont.h"
 #include "macuvs.h"
 #include "pdumper.h"
 
 #include <libkern/OSByteOrder.h>
-
-/* Values for `dir' argument to shaper functions.  */
-enum lgstring_direction
-  {
-    DIR_R2L = -1, DIR_UNKNOWN = 0, DIR_L2R = 1,
-  };
 
 static double mac_font_get_advance_width_for_glyph (CTFontRef, CGGlyph);
 static CGRect mac_font_get_bounding_rect_for_glyph (CTFontRef, CGGlyph);
@@ -59,7 +58,7 @@ static CFIndex mac_font_shape (CTFontRef, CFStringRef,
 			       enum lgstring_direction);
 static CFArrayRef mac_font_copy_default_descriptors_for_language (CFStringRef);
 static CFStringRef mac_font_copy_default_name_for_charset_and_languages (CFCharacterSetRef, CFArrayRef);
-#if USE_CT_GLYPH_INFO
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101000
 static CGGlyph mac_ctfont_get_glyph_for_cid (CTFontRef, CTCharacterCollection,
                                              CGFontIndex);
 #endif
@@ -82,6 +81,7 @@ struct macfont_info
   unsigned spacing : 2;
   unsigned antialias : 2;
   bool_bf color_bitmap_p : 1;
+  bool_bf svg_p : 1;
 };
 
 /* Values for the `spacing' member in `struct macfont_info'.  */
@@ -129,6 +129,8 @@ static CFDataRef mac_font_copy_uvs_table (CTFontRef);
 static void mac_font_get_glyphs_for_variants (CFDataRef, UTF32Char,
                                               const UTF32Char [],
                                               CGGlyph [], CFIndex);
+
+#ifdef HAVE_NS
 
 /* From CFData to a lisp string.  Always returns a unibyte string.  */
 
@@ -212,9 +214,9 @@ mac_screen_font_get_advance_width_for_glyph (ScreenFontRef font, CGGlyph glyph)
   return advancement.width;
 }
 
-#if !USE_CT_GLYPH_INFO
+#if MAC_OS_X_VERSION_MIN_REQUIRED < 101000
 static CGGlyph
-mac_font_get_glyph_for_cid (CTFontRef font, NSCharacterCollection collection,
+mac_font_get_glyph_for_cid (CTFontRef font, CTCharacterCollection collection,
                             CGFontIndex cid)
 {
   CGGlyph result = kCGFontIndexInvalid;
@@ -632,6 +634,7 @@ get_cgcolor(unsigned long idx, struct frame *f)
     CGColorRelease (refcol_);                                           \
   } while (0)
 
+#endif	/* HAVE_NS */
 
 
 /* Mac font driver.  */
@@ -1120,7 +1123,10 @@ struct macfont_metrics
      glyph width.  The `width_int' member is an integer that is
      closest to the width.  The `width_frac' member is the fractional
      adjustment representing a value in [-.5, .5], multiplied by
-     WIDTH_FRAC_SCALE.  For synthetic monospace fonts, they represent
+     WIDTH_FRAC_SCALE.  For monospace fonts, non-zero `width_frac'
+     means `width_int' is further adjusted to a multiple of the
+     (rounded) font width, and `width_frac' represents adjustment per
+     unit character.  For synthetic monospace fonts, they represent
      the advance delta for centering instead of the glyph width.  */
   signed width_frac : WIDTH_FRAC_BITS, width_int : 16 - WIDTH_FRAC_BITS;
 };
@@ -1146,6 +1152,27 @@ enum metrics_status
 #define METRICS_NCOLS_PER_ROW	(128)
 #define LCD_FONT_SMOOTHING_LEFT_MARGIN	(0.396f)
 #define LCD_FONT_SMOOTHING_RIGHT_MARGIN	(0.396f)
+
+/* If FONT is monospace and WIDTH can be regarded as a multiple of its
+   width where the multiplier is greater than 1, then return the
+   multiplier.  Otherwise return 0.  */
+static int
+macfont_monospace_width_multiplier (struct font *font, CGFloat width)
+{
+  struct macfont_info *macfont_info = (struct macfont_info *) font;
+  int multiplier = 0;
+
+  if (macfont_info->spacing == MACFONT_SPACING_MONO
+      && font->space_width != 0)
+    {
+      multiplier = lround (width / font->space_width);
+      if (multiplier == 1
+	  || lround (width / multiplier) != font->space_width)
+	multiplier = 0;
+    }
+
+  return multiplier;
+}
 
 static int
 macfont_glyph_extents (struct font *font, CGGlyph glyph,
@@ -1191,13 +1218,38 @@ macfont_glyph_extents (struct font *font, CGGlyph glyph,
       else
         fwidth = mac_font_get_advance_width_for_glyph (macfont, glyph);
 
-      /* For synthetic mono fonts, cache->width_{int,frac} holds the
-         advance delta value.  */
-      if (macfont_info->spacing == MACFONT_SPACING_SYNTHETIC_MONO)
-        fwidth = (font->pixel_size - fwidth) / 2;
-      cache->width_int = lround (fwidth);
-      cache->width_frac = lround ((fwidth - cache->width_int)
-                                  * WIDTH_FRAC_SCALE);
+      if (macfont_info->spacing == MACFONT_SPACING_MONO)
+	{
+	  /* Some monospace fonts for programming languages contain
+	     wider ligature glyphs consisting of multiple characters.
+	     For such glyphs, simply rounding the combined fractional
+	     width to an integer can result in a value that is not a
+	     multiple of the (rounded) font width.  */
+	  int multiplier = macfont_monospace_width_multiplier (font, fwidth);
+
+	  if (multiplier)
+	    {
+	      cache->width_int = font->space_width * multiplier;
+	      cache->width_frac = lround ((fwidth / multiplier
+					   - font->space_width)
+					  * WIDTH_FRAC_SCALE);
+	    }
+	  else
+	    {
+	      cache->width_int = lround (fwidth);
+	      cache->width_frac = 0;
+	    }
+	}
+      else
+	{
+	  /* For synthetic mono fonts, cache->width_{int,frac} holds
+	     the advance delta value.  */
+	  if (macfont_info->spacing == MACFONT_SPACING_SYNTHETIC_MONO)
+	    fwidth = (font->pixel_size - fwidth) / 2;
+	  cache->width_int = lround (fwidth);
+	  cache->width_frac = lround ((fwidth - cache->width_int)
+				      * WIDTH_FRAC_SCALE);
+	}
       METRICS_SET_STATUS (cache, METRICS_WIDTH_VALID);
     }
   if (macfont_info->spacing == MACFONT_SPACING_SYNTHETIC_MONO)
@@ -1234,6 +1286,10 @@ macfont_glyph_extents (struct font *font, CGGlyph glyph,
                                     / (CGFloat) (WIDTH_FRAC_SCALE * 2));
               break;
             case MACFONT_SPACING_MONO:
+	      if (cache->width_frac)
+		bounds.origin.x += - ((cache->width_frac
+				       / (CGFloat) (WIDTH_FRAC_SCALE * 2))
+				      * (cache->width_int / font->space_width));
               break;
             case MACFONT_SPACING_SYNTHETIC_MONO:
               bounds.origin.x += (cache->width_int
@@ -1270,7 +1326,16 @@ macfont_glyph_extents (struct font *font, CGGlyph glyph,
                                  / (CGFloat) (WIDTH_FRAC_SCALE * 2)));
           break;
         case MACFONT_SPACING_MONO:
-          *advance_delta = 0;
+	  if (cache->width_frac)
+	    *advance_delta = 0;
+	  else
+	    {
+	      CGFloat delta = - ((cache->width_frac
+				  / (CGFloat) (WIDTH_FRAC_SCALE * 2))
+				 * (cache->width_int / font->space_width));
+
+	      *advance_delta = (force_integral_p ? round (delta) : delta);
+	    }
           break;
         case MACFONT_SPACING_SYNTHETIC_MONO:
           *advance_delta = (force_integral_p ? cache->width_int
@@ -1328,8 +1393,8 @@ struct macfont_cache
     /* Character collection specifying the destination of the mapping
        provided by `table' above.  If `table' is obtained from the UVS
        subtable in the font cmap table, then the value of this member
-       should be NSIdentityMappingCharacterCollection.  */
-    NSCharacterCollection collection;
+       should be kCTCharacterCollectionIdentityMapping.  */
+    CTCharacterCollection collection;
   } uvs;
 };
 
@@ -1340,8 +1405,8 @@ static CFCharacterSetRef macfont_get_cf_charset (struct font *);
 static CFCharacterSetRef macfont_get_cf_charset_for_name (CFStringRef);
 static CGGlyph macfont_get_glyph_for_character (struct font *, UTF32Char);
 static CGGlyph macfont_get_glyph_for_cid (struct font *font,
-                                          NSCharacterCollection, CGFontIndex);
-static CFDataRef macfont_get_uvs_table (struct font *, NSCharacterCollection *);
+                                          CTCharacterCollection, CGFontIndex);
+static CFDataRef macfont_get_uvs_table (struct font *, CTCharacterCollection *);
 
 static struct macfont_cache *
 macfont_lookup_cache (CFStringRef key)
@@ -1450,7 +1515,8 @@ macfont_get_glyph_for_character (struct font *font, UTF32Char c)
           CGGlyph *glyphs;
           int i, len;
           int nrows;
-          int nkeys;
+          dispatch_queue_t queue;
+          dispatch_group_t group = NULL;
 
           if (row != 0)
             {
@@ -1487,16 +1553,23 @@ macfont_get_glyph_for_character (struct font *font, UTF32Char c)
                   return glyph;
                 }
 
-              nkeys = nkeys_or_perm;
-              for (key = row * (256 / NGLYPHS_IN_VALUE); ; key++)
-                if (CFDictionaryContainsKey (dictionary,
-                                             (const void *) key))
-                  {
-                    CFDictionaryRemoveValue (dictionary,
-                                             (const void *) key);
-                    if (--nkeys == 0)
-                      break;
-                  }
+              queue =
+                dispatch_get_global_queue (DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
+              group = dispatch_group_create ();
+              dispatch_group_async (group, queue, ^{
+                  int nkeys;
+                  uintptr_t key;
+                  nkeys = nkeys_or_perm;
+                  for (key = row * (256 / NGLYPHS_IN_VALUE); ; key++)
+                    if (CFDictionaryContainsKey (dictionary,
+                                                 (const void *) key))
+                      {
+                        CFDictionaryRemoveValue (dictionary,
+                                                 (const void *) key);
+                        if (--nkeys == 0)
+                          break;
+                      }
+                });
             }
 
           len = 0;
@@ -1536,6 +1609,14 @@ macfont_get_glyph_for_character (struct font *font, UTF32Char c)
                                           sizeof (CGGlyph *) * nrows);
           cache->glyph.matrix[nrows - 1] = glyphs;
           cache->glyph.nrows = nrows;
+
+          if (group)
+            {
+              dispatch_group_wait (group, DISPATCH_TIME_FOREVER);
+#if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
+              dispatch_release (group);
+#endif
+            }
         }
 
       return cache->glyph.matrix[nkeys_or_perm - ROW_PERM_OFFSET][c % 256];
@@ -1575,7 +1656,7 @@ macfont_get_glyph_for_character (struct font *font, UTF32Char c)
 }
 
 static CGGlyph
-macfont_get_glyph_for_cid (struct font *font, NSCharacterCollection collection,
+macfont_get_glyph_for_cid (struct font *font, CTCharacterCollection collection,
                            CGFontIndex cid)
 {
   struct macfont_info *macfont_info = (struct macfont_info *) font;
@@ -1586,7 +1667,7 @@ macfont_get_glyph_for_cid (struct font *font, NSCharacterCollection collection,
 }
 
 static CFDataRef
-macfont_get_uvs_table (struct font *font, NSCharacterCollection *collection)
+macfont_get_uvs_table (struct font *font, CTCharacterCollection *collection)
 {
   struct macfont_info *macfont_info = (struct macfont_info *) font;
   CTFontRef macfont = macfont_info->macfont;
@@ -1596,12 +1677,12 @@ macfont_get_uvs_table (struct font *font, NSCharacterCollection *collection)
   if (cache->uvs.table == NULL)
     {
       CFDataRef uvs_table = mac_font_copy_uvs_table (macfont);
-      NSCharacterCollection uvs_collection =
-        NSIdentityMappingCharacterCollection;
+      CTCharacterCollection uvs_collection =
+        kCTCharacterCollectionIdentityMapping;
 
       if (uvs_table == NULL
           && mac_font_get_glyph_for_cid (macfont,
-                                         NSAdobeJapan1CharacterCollection,
+                                         kCTCharacterCollectionAdobeJapan1,
                                          6480) != kCGFontIndexInvalid)
         {
           /* If the glyph for U+4E55 is accessible via its CID 6480,
@@ -1618,7 +1699,7 @@ macfont_get_uvs_table (struct font *font, NSCharacterCollection *collection)
           if (mac_uvs_table_adobe_japan1)
             {
               uvs_table = CFRetain (mac_uvs_table_adobe_japan1);
-              uvs_collection = NSAdobeJapan1CharacterCollection;
+              uvs_collection = kCTCharacterCollectionAdobeJapan1;
             }
         }
       if (uvs_table == NULL)
@@ -1653,6 +1734,7 @@ static Lisp_Object macfont_shape (Lisp_Object, Lisp_Object);
 static int macfont_variation_glyphs (struct font *, int c,
                                      unsigned variations[256]);
 static void macfont_filter_properties (Lisp_Object, Lisp_Object);
+static Lisp_Object macfont_combining_capability (struct font *);
 
 static struct font_driver macfont_driver =
   {
@@ -1671,6 +1753,7 @@ static struct font_driver macfont_driver =
   .shape = macfont_shape,
   .get_variation_glyphs = macfont_variation_glyphs,
   .filter_properties = macfont_filter_properties,
+  .combining_capability = macfont_combining_capability,
   };
 
 static Lisp_Object
@@ -2546,11 +2629,13 @@ macfont_open (struct frame * f, Lisp_Object entity, int pixel_size)
 
   block_input ();
   macfont = CTFontCreateWithName (font_name, size, NULL);
+#ifdef HAVE_NS
   if (macfont)
     {
       int fontsize = (int) [((NSFont *) macfont) pointSize];
       if (fontsize != size) size = fontsize;
     }
+#endif	/* HAVE_NS */
   unblock_input ();
   if (! macfont)
     return Qnil;
@@ -2561,6 +2646,9 @@ macfont_open (struct frame * f, Lisp_Object entity, int pixel_size)
   font->pixel_size = size;
   font->driver = &macfont_driver;
   font->encoding_charset = font->repertory_charset = -1;
+  /* Clear font->space_width so macfont_monospace_width_multiplier may
+     not be confused by an uninitialized value.  */
+  font->space_width = 0;
 
   block_input ();
 
@@ -2606,6 +2694,16 @@ macfont_open (struct frame * f, Lisp_Object entity, int pixel_size)
   macfont_info->color_bitmap_p = 0;
   if (sym_traits & kCTFontTraitColorGlyphs)
     macfont_info->color_bitmap_p = 1;
+  CFArrayRef tags = CTFontCopyAvailableTables (macfont,
+					       kCTFontTableOptionNoOptions);
+  macfont_info->svg_p = 0;
+  if (tags)
+    {
+      if (CFArrayContainsValue (tags, CFRangeMake (0, CFArrayGetCount (tags)),
+				(const void *) (uintptr_t) kCTFontTableSVG))
+	macfont_info->svg_p = 1;
+      CFRelease (tags);
+    }
 
   glyph = macfont_get_glyph_for_character (font, ' ');
   if (glyph != kCGFontIndexInvalid)
@@ -2781,6 +2879,135 @@ static int
 macfont_draw (struct glyph_string *s, int from, int to, int x, int y,
               bool with_background)
 {
+#ifndef HAVE_NS
+  struct frame *f = s->f;
+  struct macfont_info *macfont_info = (struct macfont_info *) s->font;
+  GC gc = s->gc;
+  CGRect background_rect;
+  CGPoint text_position;
+  CGGlyph *glyphs;
+  CGPoint *positions;
+  CGFloat font_size = CTFontGetSize (macfont_info->macfont);
+  bool no_antialias_p =
+    (macfont_info->antialias == MACFONT_ANTIALIAS_OFF
+     || (macfont_info->antialias == MACFONT_ANTIALIAS_DEFAULT
+	 && font_size <= macfont_antialias_threshold));
+  int len = to - from;
+
+  block_input ();
+
+  if (with_background)
+    background_rect = mac_rect_make (f, x, y - FONT_BASE (s->font),
+				     s->width, FONT_HEIGHT (s->font));
+  else
+    background_rect = CGRectNull;
+
+  text_position = CGPointMake (x, -y);
+  glyphs = xmalloc (sizeof (CGGlyph) * len);
+  {
+    CGFloat advance_delta = 0;
+    int i;
+    CGFloat total_width = 0;
+
+    positions = xmalloc (sizeof (CGPoint) * len);
+    for (i = 0; i < len; i++)
+      {
+	int width;
+
+	glyphs[i] = s->char2b[from + i];
+	width = (s->padding_p ? 1
+		 : macfont_glyph_extents (s->font, glyphs[i],
+					  NULL, &advance_delta,
+					  no_antialias_p));
+	positions[i].x = total_width + advance_delta;
+	positions[i].y = 0;
+	total_width += width;
+      }
+  }
+
+  /* We assume `macfont_info' is pointing to valid data during the
+     execution of the code between MAC_BEGIN_DRAW_TO_FRAME and
+     MAC_END_DRAW_TO_FRAME in a non-main thread, because the thread
+     executions are synchronized at the calls to
+     unset_global_focus_view_frame found in macappkit.m.  */
+  MAC_BEGIN_DRAW_TO_FRAME (f, gc, context);
+
+  if (!CGRectIsNull (background_rect))
+    CG_CONTEXT_FILL_RECT_WITH_GC_BACKGROUND (f, context, background_rect, gc);
+
+  if (macfont_info->cgfont)
+    {
+      CGAffineTransform atfm;
+
+      CGContextScaleCTM (context, 1, -1);
+      CGContextSetFillColorWithColor (context, gc->cg_fore_color);
+      if (macfont_info->synthetic_italic_p)
+	atfm = synthetic_italic_atfm;
+      else
+	atfm = CGAffineTransformIdentity;
+      if (macfont_info->synthetic_bold_p)
+	{
+	  CGFloat bold_factor;
+
+	  CGContextSetTextDrawingMode (context, kCGTextFillStroke);
+	  /* Stroke line width for text drawing is not correctly
+	     scaled on Retina display/HiDPI mode when drawn to screen
+	     (whereas it is correctly scaled when drawn to bitmaps),
+	     and synthetic bold looks thinner on such environments.
+	     Apple says there are no plans to address this issue
+	     (rdar://11644870) currently.  So we add a workaround.  */
+	  if (FRAME_BACKING_SCALE_FACTOR (f) != 1
+	      && !FRAME_SYNTHETIC_BOLD_WORKAROUND_DISABLED_P (f)
+	      && (mac_operating_system_version.major > 10
+		  || mac_operating_system_version.minor >= 7))
+	    bold_factor = synthetic_bold_factor * 2;
+	  else
+	    bold_factor = synthetic_bold_factor;
+	  CGContextSetLineWidth (context, bold_factor * font_size);
+	  CGContextSetStrokeColorWithColor (context, gc->cg_fore_color);
+	}
+      if (no_antialias_p)
+	CGContextSetShouldAntialias (context, false);
+
+      CGContextSetTextMatrix (context, atfm);
+      CGContextSetTextPosition (context, text_position.x, text_position.y);
+
+#if MAC_OS_X_VERSION_MAX_ALLOWED >= 1070
+      if ((macfont_info->color_bitmap_p || macfont_info->svg_p)
+#if MAC_OS_X_VERSION_MIN_REQUIRED < 1070
+	  && CTFontDrawGlyphs != NULL
+#endif
+	  )
+	{
+	  if (len > 0)
+	    CTFontDrawGlyphs (macfont_info->macfont, glyphs, positions, len,
+			      context);
+	}
+      else
+#endif	/* MAC_OS_X_VERSION_MAX_ALLOWED >= 1070 */
+	{
+	  CGContextSetFont (context, macfont_info->cgfont);
+	  CGContextSetFontSize (context, font_size);
+	  CGContextShowGlyphsAtPositions (context, glyphs, positions, len);
+	}
+    }
+
+#if defined (XMALLOC_BLOCK_INPUT_CHECK) && DRAWING_USE_GCD
+  /* Don't use xfree here, because this might be called in a non-main
+     thread.  */
+  free (glyphs);
+  free (positions);
+#else
+  xfree (glyphs);
+  xfree (positions);
+#endif
+
+  MAC_END_DRAW_TO_FRAME (f);
+
+  unblock_input ();
+
+  return len;
+#else  /* HAVE_NS */
   struct frame * f = s->f;
   struct macfont_info *macfont_info = (struct macfont_info *) s->font;
   CGRect background_rect;
@@ -2869,6 +3096,9 @@ macfont_draw (struct glyph_string *s, int from, int to, int x, int y,
         {
           CGContextSetTextDrawingMode (context, kCGTextFillStroke);
 
+#if HAVE_MACGUI
+	  CGContextSetLineWidth (context, synthetic_bold_factor * font_size);
+#else
           /* Stroke line width for text drawing is not correctly
              scaled on Retina display/HiDPI mode when drawn to screen
              (whereas it is correctly scaled when drawn to bitmaps),
@@ -2889,16 +3119,19 @@ macfont_draw (struct glyph_string *s, int from, int to, int x, int y,
 #if MAC_OS_X_VERSION_MIN_REQUIRED < 1070
             CGContextSetLineWidth (context, synthetic_bold_factor * font_size);
 #endif
+#endif
           CG_SET_STROKE_COLOR_WITH_FACE_FOREGROUND (context, face, f);
         }
       if (no_antialias_p)
         CGContextSetShouldAntialias (context, false);
 
+#ifdef HAVE_NS
       if (!NILP (ns_use_thin_smoothing))
         {
           CGContextSetShouldSmoothFonts(context, YES);
           CGContextSetFontSmoothingStyle(context, 16);
         }
+#endif
 
       CGContextSetTextMatrix (context, atfm);
       CGContextSetTextPosition (context, text_position.x, text_position.y);
@@ -2933,6 +3166,7 @@ macfont_draw (struct glyph_string *s, int from, int to, int x, int y,
   unblock_input ();
 
   return len;
+#endif  /* HAVE_NS */
 }
 
 static Lisp_Object
@@ -3014,7 +3248,7 @@ macfont_shape (Lisp_Object lgstring, Lisp_Object direction)
       struct mac_glyph_layout *gl = glyph_layouts + i;
       EMACS_INT from, to;
       struct font_metrics metrics;
-      int xoff, yoff, wadjust;
+      int xoff, yoff, wadjust, multiplier;
 
       if (NILP (lglyph))
         {
@@ -3067,7 +3301,11 @@ macfont_shape (Lisp_Object lgstring, Lisp_Object direction)
 
       xoff = lround (gl->advance_delta);
       yoff = lround (- gl->baseline_delta);
-      wadjust = lround (gl->advance);
+      multiplier = macfont_monospace_width_multiplier (font, gl->advance);
+      if (multiplier)
+	wadjust = font->space_width * multiplier;
+      else
+	wadjust = lround (gl->advance);
       if (xoff != 0 || yoff != 0 || wadjust != metrics.width)
         {
           Lisp_Object vec = make_uninit_vector (3);
@@ -3082,6 +3320,43 @@ macfont_shape (Lisp_Object lgstring, Lisp_Object direction)
 
   return make_fixnum (used);
 }
+
+#ifdef HAVE_MACGUI
+DEFUN ("mac-font-shape-gstring-nocache", Fmac_font_shape_gstring_nocache, Smac_font_shape_gstring_nocache, 2, 2, 0,
+       doc: /* Like `font-shape-gstring', but don't put the result to the internal cache. */)
+  (Lisp_Object gstring, Lisp_Object direction)
+{
+  struct font *font;
+  Lisp_Object font_object, n;
+  ptrdiff_t i;
+
+  if (! composition_gstring_p (gstring))
+    signal_error ("Invalid glyph-string: ", gstring);
+  if (! NILP (LGSTRING_ID (gstring)))
+    return gstring;
+  font_object = LGSTRING_FONT (gstring);
+  CHECK_FONT_OBJECT (font_object);
+  font = XFONT_OBJECT (font_object);
+  if (! font->driver->shape)
+    return Qnil;
+
+  /* Try at most three times with larger gstring each time.  */
+  for (i = 0; i < 3; i++)
+    {
+      n = font->driver->shape (gstring, direction);
+      if (FIXNUMP (n))
+	break;
+      gstring = larger_vector (gstring,
+			       LGSTRING_GLYPH_LEN (gstring), -1);
+    }
+  if (i == 3 || XFIXNUM (n) == 0)
+    return Qnil;
+  if (XFIXNUM (n) < LGSTRING_GLYPH_LEN (gstring))
+    LGSTRING_SET_GLYPH (gstring, XFIXNUM (n), Qnil);
+
+  return gstring;
+}
+#endif
 
 /* Structures for the UVS subtable (format 14) in the cmap table.  */
 typedef UInt8 UINT24[3];
@@ -3277,6 +3552,9 @@ mac_font_get_glyphs_for_variants (CFDataRef uvs_table, UTF32Char c,
   struct variation_selector_record *records = uvs->variation_selector_records;
   CFIndex i;
   UInt32 ir, nrecords;
+  dispatch_queue_t queue =
+    dispatch_get_global_queue (DISPATCH_QUEUE_PRIORITY_DEFAULT, 0);
+  dispatch_group_t group = dispatch_group_create ();
 
   nrecords = BUINT32_VALUE (uvs->num_var_selector_records);
   i = 0;
@@ -3300,70 +3578,75 @@ mac_font_get_glyphs_for_variants (CFDataRef uvs_table, UTF32Char c,
       default_uvs_offset = BUINT32_VALUE (records[ir].default_uvs_offset);
       non_default_uvs_offset =
         BUINT32_VALUE (records[ir].non_default_uvs_offset);
+      dispatch_group_async (group, queue, ^{
+          glyphs[i] = kCGFontIndexInvalid;
 
-      glyphs[i] = kCGFontIndexInvalid;
-
-      if (default_uvs_offset)
-        {
-          struct default_uvs_table *default_uvs =
-            (struct default_uvs_table *) ((UInt8 *) uvs
-                                          + default_uvs_offset);
-          struct unicode_value_range *ranges =
-            default_uvs->unicode_value_ranges;
-          UInt32 lo, hi;
-
-          lo = 0;
-          hi = BUINT32_VALUE (default_uvs->num_unicode_value_ranges);
-          while (lo < hi)
+          if (default_uvs_offset)
             {
-              UInt32 mid = (lo + hi) / 2;
+              struct default_uvs_table *default_uvs =
+                (struct default_uvs_table *) ((UInt8 *) uvs
+                                              + default_uvs_offset);
+              struct unicode_value_range *ranges =
+                default_uvs->unicode_value_ranges;
+              UInt32 lo, hi;
 
-              if (c < BUINT24_VALUE (ranges[mid].start_unicode_value))
-                hi = mid;
-              else
-                lo = mid + 1;
+              lo = 0;
+              hi = BUINT32_VALUE (default_uvs->num_unicode_value_ranges);
+              while (lo < hi)
+                {
+                  UInt32 mid = (lo + hi) / 2;
+
+                  if (c < BUINT24_VALUE (ranges[mid].start_unicode_value))
+                    hi = mid;
+                  else
+                    lo = mid + 1;
+                }
+              if (hi > 0
+                  && (c <= (BUINT24_VALUE (ranges[hi - 1].start_unicode_value)
+                            + BUINT8_VALUE (ranges[hi - 1].additional_count))))
+                glyphs[i] = 0;
             }
-          if (hi > 0
-              && (c <= (BUINT24_VALUE (ranges[hi - 1].start_unicode_value)
-                        + BUINT8_VALUE (ranges[hi - 1].additional_count))))
-            glyphs[i] = 0;
-        }
 
-      if (glyphs[i] == kCGFontIndexInvalid && non_default_uvs_offset)
-        {
-          struct non_default_uvs_table *non_default_uvs =
-            (struct non_default_uvs_table *) ((UInt8 *) uvs
-                                              + non_default_uvs_offset);
-          struct uvs_mapping *mappings = non_default_uvs->uvs_mappings;
-          UInt32 lo, hi;
-
-          lo = 0;
-          hi = BUINT32_VALUE (non_default_uvs->num_uvs_mappings);
-          while (lo < hi)
+          if (glyphs[i] == kCGFontIndexInvalid && non_default_uvs_offset)
             {
-              UInt32 mid = (lo + hi) / 2;
+              struct non_default_uvs_table *non_default_uvs =
+                (struct non_default_uvs_table *) ((UInt8 *) uvs
+                                                  + non_default_uvs_offset);
+              struct uvs_mapping *mappings = non_default_uvs->uvs_mappings;
+              UInt32 lo, hi;
 
-              if (c < BUINT24_VALUE (mappings[mid].unicode_value))
-                hi = mid;
-              else
-                lo = mid + 1;
+              lo = 0;
+              hi = BUINT32_VALUE (non_default_uvs->num_uvs_mappings);
+              while (lo < hi)
+                {
+                  UInt32 mid = (lo + hi) / 2;
+
+                  if (c < BUINT24_VALUE (mappings[mid].unicode_value))
+                    hi = mid;
+                  else
+                    lo = mid + 1;
+                }
+              if (hi > 0 &&
+                  BUINT24_VALUE (mappings[hi - 1].unicode_value) == c)
+                glyphs[i] = BUINT16_VALUE (mappings[hi - 1].glyph_id);
             }
-          if (hi > 0 &&
-              BUINT24_VALUE (mappings[hi - 1].unicode_value) == c)
-            glyphs[i] = BUINT16_VALUE (mappings[hi - 1].glyph_id);
-        }
+        });
       i++;
       ir++;
     }
   while (i < count)
     glyphs[i++] = kCGFontIndexInvalid;
+  dispatch_group_wait (group, DISPATCH_TIME_FOREVER);
+#if !OS_OBJECT_USE_OBJC_RETAIN_RELEASE
+  dispatch_release (group);
+#endif
 }
 
 static int
 macfont_variation_glyphs (struct font *font, int c, unsigned variations[256])
 {
   CFDataRef uvs_table;
-  NSCharacterCollection uvs_collection;
+  CTCharacterCollection uvs_collection;
   int i, n = 0;
 
   block_input ();
@@ -3383,7 +3666,7 @@ macfont_variation_glyphs (struct font *font, int c, unsigned variations[256])
         {
           CGGlyph glyph = glyphs[i];
 
-          if (uvs_collection != NSIdentityMappingCharacterCollection
+          if (uvs_collection != kCTCharacterCollectionIdentityMapping
               && glyph != kCGFontIndexInvalid)
             glyph = macfont_get_glyph_for_cid (font, uvs_collection, glyph);
           if (glyph == kCGFontIndexInvalid)
@@ -3399,6 +3682,12 @@ macfont_variation_glyphs (struct font *font, int c, unsigned variations[256])
   unblock_input ();
 
   return n;
+}
+
+static Lisp_Object
+macfont_combining_capability (struct font *font)
+{
+  return Qt;
 }
 
 static const char *const macfont_booleans[] = {
@@ -3479,7 +3768,14 @@ mac_font_create_preferred_family_for_attributes (CFDictionaryRef attributes)
 
       if (languages && CFArrayGetCount (languages) > 0)
         {
-          if (CTGetCoreTextVersion () >= kCTVersionNumber10_9)
+          if (
+#ifdef HAVE_MACGUI
+	      mac_operating_system_version.major > 10
+	      || mac_operating_system_version.minor >= 9
+#else
+	      CTGetCoreTextVersion () >= kCTVersionNumber10_9
+#endif
+	      )
             values[num_values++] = CFArrayGetValueAtIndex (languages, 0);
           else
             {
@@ -3830,9 +4126,14 @@ mac_font_shape (CTFontRef font, CFStringRef string,
 
 /* The function below seems to cause a memory leak for the CFString
    created by CFStringCreateWithCharacters as of Mac OS X 10.5.8 and
-   10.6.3.  For now, we use the NSGlyphInfo version instead.  */
-#if USE_CT_GLYPH_INFO
-static CGGlyph
+   10.6.3.  Also, CTGlyphInfo and NSGlyphInfo versions are slightly
+   different in behavior on OS X 10.9 and earlier.  For these
+   versions, we use the NSGlyphInfo version instead.  */
+
+#if MAC_OS_X_VERSION_MIN_REQUIRED >= 101000
+static
+#endif
+CGGlyph
 mac_ctfont_get_glyph_for_cid (CTFontRef font, CTCharacterCollection collection,
                               CGFontIndex cid)
 {
@@ -3904,7 +4205,6 @@ mac_ctfont_get_glyph_for_cid (CTFontRef font, CTCharacterCollection collection,
 
   return result;
 }
-#endif
 
 static CFArrayRef
 mac_font_copy_default_descriptors_for_language (CFStringRef language)
@@ -4050,6 +4350,24 @@ macfont_get_nsctfont (struct font *font)
   return (void *) macfont;
 }
 
+#ifndef HAVE_NS
+Lisp_Object
+macfont_nsctfont_to_spec (void *font)
+{
+  Lisp_Object spec = Qnil;
+  CTFontDescriptorRef desc = CTFontCopyFontDescriptor (font);
+
+  if (desc)
+    {
+      spec = font_make_spec ();
+      macfont_store_descriptor_attributes (desc, spec);
+      CFRelease (desc);
+    }
+
+  return spec;
+}
+#endif	/* !HAVE_NS */
+
 void
 mac_register_font_driver (struct frame *f)
 {
@@ -4079,6 +4397,10 @@ syms_of_macfont (void)
 
   macfont_family_cache = Qnil;
   staticpro (&macfont_family_cache);
+
+#ifdef HAVE_MACGUI
+  defsubr (&Smac_font_shape_gstring_nocache);
+#endif
 
   pdumper_do_now_and_after_load (syms_of_macfont_for_pdumper);
 }

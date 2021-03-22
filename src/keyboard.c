@@ -1234,9 +1234,15 @@ static void adjust_point_for_property (ptrdiff_t, bool);
 Lisp_Object
 command_loop_1 (void)
 {
-  modiff_count prev_modiff = 0;
-  struct buffer *prev_buffer = NULL;
-  bool already_adjusted = 0;
+#if MAC_USE_AUTORELEASE_LOOP
+#define BLOCK __block
+#else
+#define BLOCK
+#endif
+  modiff_count BLOCK prev_modiff = 0;
+  struct buffer * BLOCK prev_buffer = NULL;
+  bool BLOCK already_adjusted = 0;
+#undef BLOCK
 
   kset_prefix_arg (current_kboard, Qnil);
   kset_last_prefix_arg (current_kboard, Qnil);
@@ -1275,8 +1281,15 @@ command_loop_1 (void)
   if (!CONSP (last_command_event))
     kset_last_repeatable_command (current_kboard, Vreal_this_command);
 
+#if MAC_USE_AUTORELEASE_LOOP
+  mac_autorelease_loop (^
+#else
   while (true)
+#endif
     {
+#if defined HAVE_MACGUI && !MAC_USE_AUTORELEASE_LOOP
+      void *pool = mac_alloc_autorelease_pool ();
+#endif
       Lisp_Object cmd;
 
       if (! FRAME_LIVE_P (XFRAME (selected_frame)))
@@ -1581,7 +1594,17 @@ command_loop_1 (void)
       if (!NILP (KVAR (current_kboard, defining_kbd_macro))
 	  && NILP (KVAR (current_kboard, Vprefix_arg)))
 	finalize_kbd_macro_chars ();
+#if defined HAVE_MACGUI && !MAC_USE_AUTORELEASE_LOOP
+      mac_release_autorelease_pool (pool);
+#endif
+#if MAC_USE_AUTORELEASE_LOOP
+      return Qt;
+#endif
     }
+#if MAC_USE_AUTORELEASE_LOOP
+    );
+  return Qnil;
+#endif
 }
 
 Lisp_Object
@@ -1851,7 +1874,7 @@ int poll_suppress_count;
 
 static struct atimer *poll_timer;
 
-#if defined CYGWIN || defined DOS_NT
+#if defined CYGWIN || defined DOS_NT || defined HAVE_MACGUI
 /* Poll for input, so that we catch a C-g if it comes in.  */
 void
 poll_for_input_1 (void)
@@ -1912,7 +1935,7 @@ start_polling (void)
 #endif
 }
 
-#if defined CYGWIN || defined DOS_NT
+#if defined CYGWIN || defined DOS_NT || defined HAVE_MACGUI
 /* True if we are using polling to handle input asynchronously.  */
 
 bool
@@ -4972,6 +4995,10 @@ static Lisp_Object Vlispy_mouse_stem;
 static const char *const lispy_wheel_names[] =
 {
   "wheel-up", "wheel-down", "wheel-left", "wheel-right"
+#ifdef HAVE_MACGUI
+  , "swipe-up", "swipe-down", "swipe-left", "swipe-right",
+  "magnify-up", "magnify-down", "rotate-left", "rotate-right"
+#endif
 };
 
 /* drag-n-drop events are generated when a set of selected files are
@@ -5772,6 +5799,9 @@ make_lispy_event (struct input_event *event)
 				      ASIZE (mouse_syms));
 	  if (event->modifiers & drag_modifier)
 	    return list3 (head, start_pos, position);
+	  else if (NUMBERP (event->arg))
+	    return list4 (head, position, make_fixnum (double_click_count),
+			  event->arg);
 	  else if (event->modifiers & (double_modifier | triple_modifier))
 	    return list3 (head, position, make_fixnum (double_click_count));
 	  else
@@ -5835,6 +5865,20 @@ make_lispy_event (struct input_event *event)
 
           if (event->kind == HORIZ_WHEEL_EVENT)
             symbol_num += 2;
+#ifdef HAVE_MACGUI
+          if (event->modifiers & drag_modifier)
+	    {
+	      /* Emit a swipe event.  */
+	      event->modifiers &= ~drag_modifier;
+	      symbol_num += 4;
+	    }
+          else if (event->modifiers & click_modifier)
+	    {
+	      /* Emit a maginify/rotate event.  */
+	      event->modifiers &= ~click_modifier;
+	      symbol_num += 8;
+	    }
+#endif
 
 	  is_double = (last_mouse_button == - (1 + symbol_num)
 		       && (eabs (XFIXNUM (event->x) - last_mouse_x) <= fuzz)
@@ -5876,8 +5920,34 @@ make_lispy_event (struct input_event *event)
         if (NUMBERP (event->arg))
           return list4 (head, position, make_fixnum (double_click_count),
                         event->arg);
-	else if (event->modifiers & (double_modifier | triple_modifier))
-	  return list3 (head, position, make_fixnum (double_click_count));
+	else if (event->modifiers & (double_modifier | triple_modifier)
+#ifdef HAVE_MACGUI
+	    || !NILP (event->arg)
+#endif
+	    )
+#ifdef HAVE_MACGUI
+	  {
+	    if (mac_ignore_momentum_wheel_events)
+	      {
+		Lisp_Object phases =
+		  CAR_SAFE (CDR_SAFE (CDR_SAFE (CDR_SAFE (event->arg))));
+		Lisp_Object momentum_phase = CAR_SAFE (CDR_SAFE (phases));
+
+		if (!NILP (momentum_phase)
+		    && !EQ (momentum_phase, make_fixnum (0)))
+		  return Qnil;
+	      }
+#endif
+	  return Fcons (head,
+			Fcons (position,
+			       Fcons (make_fixnum (double_click_count),
+#ifdef HAVE_MACGUI
+				      !NILP (event->arg) ? Fcons (event->arg, Qnil) :
+#endif
+				      Qnil)));
+#ifdef HAVE_MACGUI
+          }
+#endif
 	else
 	  return list2 (head, position);
       }
@@ -6023,6 +6093,19 @@ make_lispy_event (struct input_event *event)
 
     case SAVE_SESSION_EVENT:
       return list2 (Qsave_session, event->arg);
+
+#ifdef HAVE_MACGUI
+    case MAC_APPLE_EVENT:
+      {
+	Lisp_Object spec[2];
+
+	spec[0] = event->x;
+	spec[1] = event->y;
+	return Fcons (Qmac_apple_event,
+		      Fcons (Fvector (2, spec),
+			     Fcons (event->arg, Qnil)));
+      }
+#endif
 
 #ifdef HAVE_DBUS
     case DBUS_EVENT:
@@ -7139,6 +7222,12 @@ handle_async_input (void)
 void
 process_pending_signals (void)
 {
+#ifdef HAVE_MACGUI
+  /* Don't process pending signals in the GUI thread, especially when
+     called from maybe_quit.  */
+  if (mac_gui_thread_p ())
+    return;
+#endif
   pending_signals = false;
   handle_async_input ();
   do_pending_atimers ();
@@ -8576,7 +8665,7 @@ parse_tool_bar_item (Lisp_Object key, Lisp_Object item)
       if (menu_separator_name_p (SSDATA (caption)))
 	{
 	  set_prop (TOOL_BAR_ITEM_TYPE, Qt);
-#ifndef HAVE_EXT_TOOL_BAR
+#if !defined HAVE_EXT_TOOL_BAR || defined HAVE_INT_TOOL_BAR
 	  /* If we use build_desired_tool_bar_string to render the
 	     tool bar, the separator is rendered as an image.  */
 	  set_prop (TOOL_BAR_ITEM_IMAGES,
@@ -11435,8 +11524,11 @@ init_keyboard (void)
 
 #ifdef POLL_FOR_INPUT
   poll_timer = NULL;
-  poll_suppress_count = 1;
-  start_polling ();
+  if (!interrupt_input)
+    {
+      poll_suppress_count = 1;
+      start_polling ();
+    }
 #endif
 }
 
@@ -11542,6 +11634,10 @@ syms_of_keyboard (void)
 #ifdef HAVE_NTGUI
   DEFSYM (Qlanguage_change, "language-change");
   DEFSYM (Qend_session, "end-session");
+#endif
+
+#ifdef HAVE_MACGUI
+  DEFSYM (Qmac_apple_event, "mac-apple-event");
 #endif
 
 #ifdef HAVE_DBUS

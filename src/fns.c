@@ -2453,6 +2453,12 @@ internal_equal (Lisp_Object o1, Lisp_Object o2, enum equal_kind equal_kind,
 		    && (XMARKER (o1)->buffer == 0
 			|| XMARKER (o1)->bytepos == XMARKER (o2)->bytepos));
 	  }
+#ifdef HAVE_MACGUI
+	/* Font-objects, which are subject to equality testing, may
+	   contain save-values in the mac font backends.  */
+	if (mint_ptrp (o1))
+	  return xmint_pointer (o1) == xmint_pointer (o2);
+#endif
 	/* Boolvectors are compared much like strings.  */
 	if (BOOL_VECTOR_P (o1))
 	  {

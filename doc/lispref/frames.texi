@@ -55,6 +55,8 @@ The frame is displayed on a text terminal.
 The frame is displayed on an X graphical terminal.
 @item w32
 The frame is displayed on a MS-Windows graphical terminal.
+@item mac
+The frame is displayed on a macOS graphical terminal.
 @item ns
 The frame is displayed on a GNUstep or Macintosh Cocoa graphical
 terminal.
@@ -213,7 +215,7 @@ The terminal and keyboard coding systems used on the terminal.
 @item
 The kind of display associated with the terminal.  This is the symbol
 returned by the function @code{terminal-live-p} (i.e., @code{x},
-@code{t}, @code{w32}, @code{ns}, or @code{pc}).  @xref{Frames}.
+@code{t}, @code{w32}, @code{mac}, @code{ns}, or @code{pc}).  @xref{Frames}.
 
 @item
 A list of terminal parameters.  @xref{Terminal Parameters}.
@@ -3849,6 +3851,29 @@ For backward compatibility, there are obsolete aliases
 @code{x-get-selection} and @code{x-set-selection}, which were the
 names of @code{gui-get-selection} and @code{gui-set-selection} before
 Emacs 25.1.
+
+@cindex pasteboard support (for macOS)
+On macOS, selection-like data transfer between applications is
+performed through a mechanism called @dfn{pasteboards}.  The clipboard
+is a particular pasteboard named @code{Apple CFPasteboard general}.
+Types of pasteboard data are called @dfn{pasteboard data types}, which
+are identified by strings such as @code{NSStringPboardType}.  The Mac
+port of Emacs associates a selection with a pasteboard, and a
+selection type with a pasteboard data type via
+@code{mac-pasteboard-name} and @code{mac-pasteboard-data-type}
+properties, respectively.
+
+@example
+(get 'CLIPBOARD 'mac-pasteboard-name)
+     @result{} "Apple CFPasteboard general"
+(get 'NSStringPboardType 'mac-pasteboard-data-type)
+     @result{} "NSStringPboardType"
+@end example
+
+Conventionally, selection types for pasteboard data types on macOS are
+named according to the identifiers defined in the NSPasteboard class,
+(e.g., @code{NSStringPboardType}, @code{NSTIFFPboardType}, and
+@code{NSFilenamesPboardType}).
 
 @node Drag and Drop
 @section Drag and Drop

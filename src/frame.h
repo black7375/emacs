@@ -40,6 +40,9 @@ enum fullscreen_type
   FULLSCREEN_HEIGHT    = 0x2,
   FULLSCREEN_BOTH      = 0x3, /* Not a typo but means "width and height".  */
   FULLSCREEN_MAXIMIZED = 0x4,
+#ifdef HAVE_MACGUI
+  FULLSCREEN_DEDICATED_DESKTOP = 0x8,
+#endif
 #ifdef HAVE_NTGUI
   FULLSCREEN_WAIT      = 0x8
 #endif
@@ -190,7 +193,7 @@ struct frame
   Lisp_Object current_tab_bar_string;
 #endif
 
-#if defined (HAVE_WINDOW_SYSTEM) && ! defined (HAVE_EXT_TOOL_BAR)
+#ifdef HAVE_INT_TOOL_BAR
   /* A window used to display the tool-bar of a frame.  */
   Lisp_Object tool_bar_window;
 
@@ -210,6 +213,11 @@ struct frame
   Lisp_Object font_data;
 #endif
 
+#ifdef HAVE_MACGUI
+  /* File name used for proxy icon on the title bar.  */
+  Lisp_Object mac_file_name;
+#endif
+
   /* Desired and current tab-bar items.  */
   Lisp_Object tab_bar_items;
 
@@ -223,7 +231,7 @@ struct frame
   /* Tab-bar item index of the item on which a mouse button was pressed.  */
   int last_tab_bar_item;
 
-#if defined (HAVE_WINDOW_SYSTEM) && ! defined (HAVE_EXT_TOOL_BAR)
+#ifdef HAVE_INT_TOOL_BAR
   /* Tool-bar item index of the item on which a mouse button was pressed.  */
   int last_tool_bar_item;
 #endif
@@ -277,7 +285,7 @@ struct frame
   bool_bf minimize_tab_bar_window_p : 1;
 #endif
 
-#if defined (HAVE_WINDOW_SYSTEM) && ! defined (HAVE_EXT_TOOL_BAR)
+#ifdef HAVE_INT_TOOL_BAR
   /* Set to true to minimize tool-bar height even when
      auto-resize-tool-bar is set to grow-only.  */
   bool_bf minimize_tool_bar_window_p : 1;
@@ -572,6 +580,7 @@ struct frame
     struct tty_output *tty;     /* From termchar.h.  */
     struct x_output *x;         /* From xterm.h.  */
     struct w32_output *w32;     /* From w32term.h.  */
+    struct mac_output *mac;     /* From macterm.h.  */
     struct ns_output *ns;       /* From nsterm.h.  */
   }
   output_data;
@@ -767,7 +776,7 @@ fset_tool_bar_position (struct frame *f, Lisp_Object val)
   f->tool_bar_position = val;
 }
 #endif /* USE_GTK */
-#if defined (HAVE_WINDOW_SYSTEM) && ! defined (HAVE_EXT_TOOL_BAR)
+#ifdef HAVE_INT_TOOL_BAR
 INLINE void
 fset_tool_bar_window (struct frame *f, Lisp_Object val)
 {
@@ -784,6 +793,13 @@ fset_desired_tool_bar_string (struct frame *f, Lisp_Object val)
   f->desired_tool_bar_string = val;
 }
 #endif /* HAVE_WINDOW_SYSTEM && !USE_GTK && !HAVE_NS */
+#ifdef HAVE_MACGUI
+INLINE void
+fset_mac_file_name (struct frame *f, Lisp_Object val)
+{
+  f->mac_file_name = val;
+}
+#endif /* HAVE_MACGUI */
 
 INLINE double
 NUMVAL (Lisp_Object x)
@@ -835,6 +851,11 @@ default_pixels_per_inch_y (void)
 #else
 #define FRAME_MSDOS_P(f) ((f)->output_method == output_msdos_raw)
 #endif
+#ifndef HAVE_MACGUI
+#define FRAME_MAC_P(f) false
+#else
+#define FRAME_MAC_P(f) ((f)->output_method == output_mac)
+#endif
 #ifndef HAVE_NS
 #define FRAME_NS_P(f) false
 #else
@@ -849,6 +870,9 @@ default_pixels_per_inch_y (void)
 #endif
 #ifdef HAVE_NTGUI
 #define FRAME_WINDOW_P(f) FRAME_W32_P (f)
+#endif
+#ifdef HAVE_MACGUI
+#define FRAME_WINDOW_P(f) FRAME_MAC_P (f)
 #endif
 #ifdef HAVE_NS
 #define FRAME_WINDOW_P(f) FRAME_NS_P(f)
@@ -1318,7 +1342,7 @@ extern Lisp_Object old_selected_frame;
 
 extern int frame_default_tab_bar_height;
 
-#ifndef HAVE_EXT_TOOL_BAR
+#if !defined HAVE_EXT_TOOL_BAR || defined HAVE_INT_TOOL_BAR
 extern int frame_default_tool_bar_height;
 #endif
 
@@ -1656,7 +1680,7 @@ extern const char *x_get_resource_string (const char *, const char *);
 extern void x_sync (struct frame *);
 #endif /* HAVE_X_WINDOWS */
 
-#ifndef HAVE_NS
+#if !defined HAVE_MACGUI && !defined HAVE_NS
 
 /* Set F's bitmap icon, if specified among F's parameters.  */
 
@@ -1670,7 +1694,7 @@ gui_set_bitmap_icon (struct frame *f)
     FRAME_TERMINAL (f)->set_bitmap_icon_hook (f, XCDR (obj));
 }
 
-#endif /* !HAVE_NS */
+#endif /* !HAVE_MACGUI && !HAVE_NS */
 #endif /* HAVE_WINDOW_SYSTEM */
 
 INLINE void

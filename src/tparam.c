@@ -49,6 +49,9 @@ tparam (const char *string, char *outstring, int len,
   return tparam1 (string, outstring, len, NULL, NULL, arg);
 }
 
+/* These are already defined in the System framework in macOS and
+   cause prebinding to fail.  */
+#ifndef DARWIN_OS
 char *BC;
 char *UP;
 
@@ -64,6 +67,7 @@ tgoto (const char *cm, int hpos, int vpos)
   args[1] = hpos;
   return tparam1 (cm, tgoto_buf, 50, UP, BC, args);
 }
+#endif
 
 static char *
 tparam1 (const char *string, char *outstring, int len,

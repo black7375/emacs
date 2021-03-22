@@ -4568,7 +4568,9 @@ load_path_default (void)
   const char *normal = PATH_LOADSEARCH;
   const char *loadpath = NULL;
 
-#ifdef HAVE_NS
+#ifdef HAVE_MACGUI
+  loadpath = mac_load_path;
+#elif defined HAVE_NS
   loadpath = ns_load_path ();
 #endif
 

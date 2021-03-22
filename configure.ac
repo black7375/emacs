@@ -443,9 +443,11 @@ OPTION_DEFAULT_ON([m17n-flt],[don't use m17n-flt for text shaping])
 OPTION_DEFAULT_ON([toolkit-scroll-bars],[don't use Motif/Xaw3d/GTK toolkit scroll bars])
 OPTION_DEFAULT_ON([xaw3d],[don't use Xaw3d])
 OPTION_DEFAULT_ON([xim],[at runtime, default X11 XIM to off])
-AC_ARG_WITH([ns],[AS_HELP_STRING([--with-ns],
-[use Nextstep (macOS Cocoa or GNUstep) windowing system.
-On by default on macOS.])],[],[with_ns=maybe])
+AC_ARG_WITH([mac],[AS_HELP_STRING([--with-mac],
+[use GUI on macOS.
+On by default on macOS.])],[],[with_mac=maybe])
+OPTION_DEFAULT_ON([mac-metal],[use Metal framework in application-side double buffering])
+OPTION_DEFAULT_OFF([ns],[use Nextstep (macOS Cocoa or GNUstep) windowing system.])
 OPTION_DEFAULT_OFF([w32], [use native MS Windows GUI in a Cygwin build])
 
 OPTION_DEFAULT_ON([gpm],[don't use -lgpm for mouse support on a GNU/Linux console])
@@ -512,6 +514,17 @@ case ${with_gameuser} in
   :*) gamegroup=${with_gameuser#:} ;;
   *) gameuser=${with_gameuser} ;;
 esac
+
+AC_ARG_ENABLE(mac-app,
+[AS_HELP_STRING([--enable-mac-app@<:@=DIR@:>@],
+                [specify install directory for Emacs.app on macOS
+		 [DIR=/Application]])],
+[ mac_appdir_x=${enableval}])
+
+AC_ARG_ENABLE(mac-self-contained,
+[AS_HELP_STRING([--enable-mac-self-contained],
+                [enable self contained build under mac])],
+                EN_MAC_SELF_CONTAINED=$enableval)
 
 AC_ARG_WITH([gnustep-conf],dnl
 [AS_HELP_STRING([--with-gnustep-conf=FILENAME],
@@ -1929,7 +1942,25 @@ else
   bitmapdir=${bmd_acc#:}
 fi
 
-test "${with_ns}" = maybe && test "${opsys}" != darwin && with_ns=no
+test "${with_mac}" = maybe && test "${opsys}" != darwin && with_mac=no
+HAVE_MACGUI=no
+if test "${with_mac}" != no; then
+  AC_CHECK_HEADER(Carbon/Carbon.h, HAVE_MACGUI=yes)
+  test "${HAVE_MACGUI}" = yes && window_system=mac
+
+  ## Specify the install directory
+  mac_appdir=`pwd`/mac
+  if test "${mac_appdir_x}" != ""; then
+    case ${mac_appdir_x} in
+      y | ye | yes)  mac_appdir=/Applications ;;
+      * ) mac_appdir=${mac_appdir_x} ;;
+    esac
+  fi
+
+  mac_appbindir=${mac_appdir}/Emacs.app/Contents/MacOS
+  mac_appresdir=${mac_appdir}/Emacs.app/Contents/Resources
+fi
+
 HAVE_NS=no
 NS_GNUSTEP_CONFIG=no
 NS_IMPL_COCOA=no
@@ -2044,11 +2075,41 @@ fi
 
 AC_SUBST(LIBS_GNUSTEP)
 
+mac_self_contained=no
+MAC_OBJ=
+MAC_OBJC_OBJ=
+if test "${HAVE_MACGUI}" = yes; then
+  if test "${EN_MAC_SELF_CONTAINED}" = yes; then
+     mac_self_contained=yes
+     prefix=${mac_appresdir}
+     exec_prefix=${mac_appbindir}
+     dnl This one isn't really used, only archlibdir is.
+     libexecdir="\${mac_appbindir}/libexec"
+     archlibdir="\${mac_appbindir}/libexec"
+     etcdocdir="\${mac_appresdir}/etc"
+     etcdir="\${mac_appresdir}/etc"
+     dnl FIXME maybe set datarootdir instead.
+     dnl That would also get applications, icons, man.
+     infodir="\${mac_appresdir}/info"
+     mandir="\${mac_appresdir}/man"
+     lispdir="\${mac_appresdir}/lisp"
+     test "$locallisppathset" = no && locallisppath=""
+     INSTALL_ARCH_INDEP_EXTRA=
+  fi
+
+  MAC_OBJ="mac.o macterm.o macfns.o macmenu.o macselect.o"
+  MAC_OBJC_OBJ="macappkit.o macfont.o"
+fi
+AC_SUBST(MAC_OBJ)
+AC_SUBST(MAC_OBJC_OBJ)
+AC_SUBST(mac_self_contained)
+
 INSTALL_ARCH_INDEP_EXTRA=install-etc
 ns_self_contained=no
 NS_OBJ=
 NS_OBJC_OBJ=
 if test "${HAVE_NS}" = yes; then
+  test "${window_system}" = mac && HAVE_MACGUI=no
   if test "$with_toolkit_scroll_bars" = "no"; then
     AC_MSG_ERROR([Non-toolkit scroll bars are not implemented for Nextstep.])
   fi
@@ -2247,6 +2308,9 @@ dnl If user did not say whether to use a toolkit, make this decision later:
 dnl use the toolkit if we have gtk, or X11R5 or newer.
       * ) USE_X_TOOLKIT=maybe ;;
     esac
+  ;;
+  mac )
+    term_header=macterm.h
   ;;
   nextstep )
     term_header=nsterm.h
@@ -2582,7 +2646,7 @@ fi
 
 ### Use -lrsvg-2 if available, unless '--with-rsvg=no' is specified.
 HAVE_RSVG=no
-if test "${HAVE_X11}" = "yes" || test "${HAVE_NS}" = "yes" || test "${opsys}" = "mingw32"; then
+if test "${HAVE_X11}" = "yes" || test "${HAVE_MACGUI}" = "yes" || test "${HAVE_NS}" = "yes" || test "${opsys}" = "mingw32"; then
   if test "${with_rsvg}" != "no"; then
     RSVG_REQUIRED=2.14.0
     RSVG_MODULE="librsvg-2.0 >= $RSVG_REQUIRED"
@@ -2603,7 +2667,7 @@ if test "${HAVE_X11}" = "yes" || test "${HAVE_NS}" = "yes" || test "${opsys}" = 
 fi
 
 HAVE_IMAGEMAGICK=no
-if test "${HAVE_X11}" = "yes" || test "${HAVE_NS}" = "yes" || test "${HAVE_W32}" = "yes"; then
+if test "${HAVE_X11}" = "yes" || test "${HAVE_MACGUI}" = "yes" || test "${HAVE_NS}" = "yes" || test "${HAVE_W32}" = "yes"; then
   if test "${with_imagemagick}" != "no"; then
     if test -n "$BREW"; then
       # Homebrew doesn't link ImageMagick 6 by default, so make sure
@@ -3228,6 +3292,9 @@ if test "${with_toolkit_scroll_bars}" != "no"; then
   elif test "${HAVE_GTK}" = "yes"; then
     AC_DEFINE(USE_TOOLKIT_SCROLL_BARS)
     USE_TOOLKIT_SCROLL_BARS=yes
+  elif test "${HAVE_MACGUI}" = "yes"; then
+    AC_DEFINE(USE_TOOLKIT_SCROLL_BARS)
+    USE_TOOLKIT_SCROLL_BARS=yes
   elif test "${HAVE_NS}" = "yes"; then
     AC_DEFINE(USE_TOOLKIT_SCROLL_BARS)
     USE_TOOLKIT_SCROLL_BARS=yes
@@ -3589,7 +3656,7 @@ AC_SUBST(LIBXPM)
 ### Use -ljpeg if available, unless '--with-jpeg=no'.
 HAVE_JPEG=no
 LIBJPEG=
-if test "${NS_IMPL_COCOA}" = yes; then
+if test "${HAVE_MACGUI}" = "yes" || test "${NS_IMPL_COCOA}" = yes; then
   : # Cocoa provides its own jpeg support, so do nothing.
 elif test "${HAVE_X11}" = "yes" || test "${HAVE_W32}" = "yes"; then
   if test "${with_jpeg}" != "no"; then
@@ -3918,6 +3985,20 @@ AC_SUBST(LIBGPM)
 
 dnl Check for malloc/malloc.h on darwin
 AC_CHECK_HEADERS_ONCE(malloc/malloc.h)
+
+MAC_CFLAGS=
+### Use macOS GUI.
+if test "${HAVE_MACGUI}" = "yes"; then
+  AC_DEFINE(HAVE_MACGUI, 1, [Define to 1 if you are using GUI on macOS.])
+  AC_DEFINE(HAVE_SOUND, 1, [Define to 1 if you have sound support.])
+  AC_CHECK_HEADERS(AvailabilityMacros.h)
+  MAC_CFLAGS="-fconstant-cfstrings"
+  # We also have mouse menus.
+  HAVE_MENUS=yes
+  # Tell src/Makefile.in to create files in the macOS application
+  # bundle mac/Emacs.app.
+  OTHER_FILES=macosx-app
+fi
 
 GNUSTEP_CFLAGS=
 ### Use NeXTstep API to implement GUI.
@@ -5254,10 +5335,14 @@ AC_SUBST(gamegroup)
 ## end of LIBX_BASE, but nothing ever set it.
 AC_SUBST(LD_SWITCH_X_SITE)
 AC_SUBST(C_SWITCH_X_SITE)
+AC_SUBST(MAC_CFLAGS)
 AC_SUBST(GNUSTEP_CFLAGS)
 AC_SUBST(CFLAGS)
 ## Used in lwlib/Makefile.in.
 AC_SUBST(X_TOOLKIT_TYPE)
+AC_SUBST(mac_appdir)
+AC_SUBST(mac_appbindir)
+AC_SUBST(mac_appresdir)
 AC_SUBST(ns_appdir)
 AC_SUBST(ns_appbindir)
 AC_SUBST(ns_appresdir)
@@ -5498,7 +5583,6 @@ case "$opsys" in
    else
      libs_nsgui=
    fi
-   LD_SWITCH_SYSTEM_TEMACS=$libs_nsgui
    ## The -headerpad option tells ld (see man page) to leave room at the
    ## end of the header for adding load commands.  Needed for dumping.
    ## 0x1000 is enough for roughly 52 load commands on the x86_64
@@ -5507,6 +5591,52 @@ case "$opsys" in
    ## about 14 to about 34. Setting it high gets us plenty of slop and
    ## only costs about 1.5K of wasted binary space.
    headerpad_extra=1000
+   if test "$HAVE_MACGUI" = "yes"; then
+     AC_MSG_CHECKING(Mac OS X version max allowed >= 10.11)
+     AC_CACHE_VAL(emacs_cv_mac_os_x_max_allowed_10_11,
+     [AC_LINK_IFELSE([AC_LANG_PROGRAM([[
+#ifdef HAVE_AVAILABILITYMACROS_H
+#include <AvailabilityMacros.h>
+#endif]],
+[[#if MAC_OS_X_VERSION_MAX_ALLOWED >= 101100 && MAC_OS_X_VERSION_MIN_REQUIRED > 1020
+fail;
+#endif
+]])], emacs_cv_mac_os_x_max_allowed_10_11=no, emacs_cv_mac_os_x_max_allowed_10_11=yes)])
+     libs_metal=
+     if test $emacs_cv_mac_os_x_max_allowed_10_11 = yes; then
+       AC_MSG_RESULT(10.11 or later)
+       if test "${with_mac_metal}" != "no"; then
+	 AC_DEFINE(HAVE_MAC_METAL, 1, [Define to 1 if using Metal framework.])
+	 libs_metal="-framework Metal"
+       fi
+     else
+       AC_MSG_RESULT(before 10.11)
+     fi
+     AC_MSG_CHECKING(Mac OS X version min required >= 11.0)
+     AC_CACHE_VAL(emacs_cv_mac_os_x_min_required_11_0,
+     [AC_LINK_IFELSE([AC_LANG_PROGRAM([[
+#ifdef HAVE_AVAILABILITYMACROS_H
+#include <AvailabilityMacros.h>
+#endif]],
+[[#if MAC_OS_X_VERSION_MIN_REQUIRED >= 110000
+fail;
+#endif
+]])], emacs_cv_mac_os_x_min_required_11_0=no, emacs_cv_mac_os_x_min_required_11_0=yes)])
+     libs_uniform_type_identifiers=
+     if test $emacs_cv_mac_os_x_min_required_11_0 = yes; then
+       AC_MSG_RESULT(11.0 or later)
+       AC_DEFINE(HAVE_UNIFORM_TYPE_IDENTIFIERS, 1,
+		 [Define to 1 if using UniformTypeIdentifiers framework.])
+       libs_uniform_type_identifiers="-framework UniformTypeIdentifiers"
+     else
+       AC_MSG_RESULT(before 11.0)
+     fi
+     libs_macgui="-framework Carbon -framework WebKit -framework Quartz -framework QuartzCore -framework IOKit -framework OSAKit -framework Accelerate -framework IOSurface $libs_metal $libs_uniform_type_identifiers -framework Cocoa"
+     headerpad_extra=BD0
+   else
+     libs_macgui=$libs_nsgui
+   fi
+   LD_SWITCH_SYSTEM_TEMACS=$libs_macgui
    if test "$with_unexec" = yes; then
      LD_SWITCH_SYSTEM_TEMACS="-fno-pie $LD_SWITCH_SYSTEM_TEMACS -Xlinker -headerpad -Xlinker $headerpad_extra"
    fi
@@ -5745,6 +5875,21 @@ fi
 
 echo
 
+if test "$HAVE_MACGUI" = "yes"; then
+   if test "$with_wide_int" = yes; then
+      echo "Warning: \`--with-wide-int' is not eagerly tested on the Mac port.
+Use it at your own risk."
+      echo
+   fi
+   if test "$EN_MAC_SELF_CONTAINED" = "yes"; then
+      echo "The application will be fully self-contained."
+   else
+      AS_ECHO(["The lisp resources for the application will be installed under ${prefix}.
+You may need to run \"${MAKE-make} install\" with sudo.  The application will fail
+to run if these resources are not installed."])
+   fi
+fi
+
 if test "$HAVE_NS" = "yes"; then
    echo
    AS_ECHO(["Run '${MAKE-make}' to build Emacs, then run 'src/emacs' to test it.
@@ -5779,6 +5924,14 @@ case $exec_prefix in
   */) exec_prefix=`AS_DIRNAME(["$exec_prefix."])`;;
 esac
 
+MAC_TEMPLATE_FILES=
+if test "$HAVE_MACGUI" = "yes"; then
+    AC_CONFIG_FILES([mac/Emacs.app/Contents/Info.plist:mac/templates/Info.plist.in \
+    mac/Emacs.app/Contents/Resources/English.lproj/InfoPlist.strings:mac/templates/InfoPlist.strings.in])
+    MAC_TEMPLATE_FILES="mac/templates/Info.plist.in mac/templates/InfoPlist.strings.in"
+fi
+AC_SUBST(MAC_TEMPLATE_FILES)
+
 if test "$HAVE_NS" = "yes"; then
   if test "$NS_IMPL_GNUSTEP" = yes; then
     AC_CONFIG_FILES([nextstep/GNUstep/Emacs.base/Resources/Info-gnustep.plist:nextstep/templates/Info-gnustep.plist.in \
@@ -5798,7 +5951,7 @@ dnl config.status treats $srcdir specially, so I think this is ok...
 AC_CONFIG_FILES([$srcdir/doc/man/emacs.1])
 
 m4_define([subdir_makefiles],
-  [lib/Makefile lib-src/Makefile oldXMenu/Makefile doc/emacs/Makefile doc/misc/Makefile doc/lispintro/Makefile doc/lispref/Makefile src/Makefile lwlib/Makefile lisp/Makefile leim/Makefile nextstep/Makefile nt/Makefile])
+  [lib/Makefile lib-src/Makefile oldXMenu/Makefile doc/emacs/Makefile doc/misc/Makefile doc/lispintro/Makefile doc/lispref/Makefile src/Makefile lwlib/Makefile lisp/Makefile leim/Makefile mac/Makefile nextstep/Makefile nt/Makefile])
 SUBDIR_MAKEFILES="subdir_makefiles"
 AC_CONFIG_FILES(subdir_makefiles)
 

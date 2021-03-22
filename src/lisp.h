@@ -3376,14 +3376,18 @@ struct window;
 struct frame;
 
 /* Define if the windowing system provides a menu bar.  */
-#if defined (USE_X_TOOLKIT) || defined (HAVE_NTGUI) \
-  || defined (HAVE_NS) || defined (USE_GTK)
+#if defined USE_X_TOOLKIT || defined HAVE_NTGUI || defined HAVE_MACGUI || defined HAVE_NS || defined USE_GTK
 #define HAVE_EXT_MENU_BAR true
 #endif
 
 /* Define if the windowing system provides a tool-bar.  */
 #if defined (USE_GTK) || defined (HAVE_NS)
 #define HAVE_EXT_TOOL_BAR true
+#elif defined HAVE_MACGUI
+#define HAVE_EXT_TOOL_BAR true
+#define HAVE_INT_TOOL_BAR true
+#elif defined HAVE_WINDOW_SYSTEM
+#define HAVE_INT_TOOL_BAR true
 #endif
 
 /* Copy COUNT Lisp_Objects from ARGS to contents of V starting from OFFSET.  */
@@ -4714,6 +4718,47 @@ extern void syms_of_xterm (void);
 /* Defined in xterm.c, nsterm.m, w32term.c.  */
 extern char *get_keysym_name (int);
 #endif /* HAVE_WINDOW_SYSTEM */
+
+#ifdef HAVE_MACGUI
+/* Defined in macfns.c */
+extern void syms_of_macfns (void);
+
+/* Defined in macselect.c */
+extern void syms_of_macselect (void);
+
+/* Defined in macterm.c */
+extern void syms_of_macterm (void);
+
+/* Defined in macmenu.c */
+extern void syms_of_macmenu (void);
+
+/* Defined in mac.c */
+extern const char *mac_etc_directory;
+extern const char *mac_exec_path;
+extern const char *mac_load_path;
+extern void syms_of_mac (void);
+extern void init_mac_osx_environment (void);
+
+/* Defined in macappkit.m */
+#ifdef __clang__
+#define MAC_USE_AUTORELEASE_LOOP 1
+extern void mac_autorelease_loop (Lisp_Object (
+#if __has_attribute (noescape)
+					       __attribute__ ((noescape))
+#endif
+					       ^) (void));
+#else
+extern void *mac_alloc_autorelease_pool (void);
+extern void mac_release_autorelease_pool (void *);
+#endif
+
+/* Defined in macappkit.m */
+extern bool mac_gui_thread_p (void);
+extern void mac_handle_alarm_signal (void);
+
+/* Defined in emacs.c */
+extern int emacs_main (int, char **);
+#endif /* HAVE_MACGUI */
 
 /* Defined in xml.c.  */
 extern void syms_of_xml (void);

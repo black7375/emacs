@@ -1508,20 +1508,23 @@ egetenv_internal (const char *var, ptrdiff_t len)
 void
 init_callproc_1 (void)
 {
-#ifdef HAVE_NS
+#ifdef HAVE_MACGUI
+  const char *etc_dir = mac_etc_directory;
+  const char *path_exec = mac_exec_path;
+#elif defined HAVE_NS
   const char *etc_dir = ns_etc_directory ();
   const char *path_exec = ns_exec_path ();
 #endif
 
   Vdata_directory = decode_env_path ("EMACSDATA",
-#ifdef HAVE_NS
+#if defined HAVE_MACGUI || defined HAVE_NS
                                              etc_dir ? etc_dir :
 #endif
                                              PATH_DATA, 0);
   Vdata_directory = Ffile_name_as_directory (Fcar (Vdata_directory));
 
   Vdoc_directory = decode_env_path ("EMACSDOC",
-#ifdef HAVE_NS
+#if defined HAVE_MACGUI || defined HAVE_NS
                                              etc_dir ? etc_dir :
 #endif
                                              PATH_DOC, 0);
@@ -1530,7 +1533,7 @@ init_callproc_1 (void)
   /* Check the EMACSPATH environment variable, defaulting to the
      PATH_EXEC path from epaths.h.  */
   Vexec_path = decode_env_path ("EMACSPATH",
-#ifdef HAVE_NS
+#if defined HAVE_MACGUI || defined HAVE_NS
                                 path_exec ? path_exec :
 #endif
                                 PATH_EXEC, 0);
@@ -1548,9 +1551,13 @@ init_callproc (void)
 
   char *sh;
   Lisp_Object tempdir;
-#ifdef HAVE_NS
+#if defined HAVE_MACGUI || defined HAVE_NS
   if (data_dir == 0)
+#ifdef HAVE_MACGUI
+    data_dir = mac_etc_directory != 0;
+#else
     data_dir = ns_etc_directory () != 0;
+#endif
 #endif
 
   if (!NILP (Vinstallation_directory))
@@ -1563,12 +1570,14 @@ init_callproc (void)
 	  /* MSDOS uses wrapped binaries, so don't do this.  */
       if (NILP (Fmember (tem, Vexec_path)))
 	{
-#ifdef HAVE_NS
+#ifdef HAVE_MACGUI
+	  const char *path_exec = mac_exec_path;
+#elif defined (HAVE_NS)
 	  const char *path_exec = ns_exec_path ();
 #endif
 	  /* Running uninstalled, so default to tem rather than PATH_EXEC.  */
 	  Vexec_path = decode_env_path ("EMACSPATH",
-#ifdef HAVE_NS
+#if defined HAVE_MACGUI || defined HAVE_NS
 					path_exec ? path_exec :
 #endif
 					SSDATA (tem), 0);
