@@ -105,9 +105,6 @@ jobs:
       - name: Merge Master
         run: |
           git pull --no-edit origin master
-      - name: Merge feature/pgtk
-        run: |
-          git pull --no-edit upstream feature/pgtk
       - name: Merge emacs-mac
         if: ${{ matrix.target.mac }}
         run: |
