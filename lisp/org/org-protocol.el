@@ -631,8 +631,11 @@ CLIENT is ignored."
                        (greedy (plist-get (cdr prolist) :greedy))
                        (split (split-string fname proto))
                        (result (if greedy restoffiles (cadr split)))
-		       (new-style (string-match "/*?" (match-string 1 fname))))
-                  (when (plist-get (cdr prolist) :kill-client)
+		       (new-style (string= (match-string 1 fname) "?")))
+		  ;; Emacs Mac port directly handles `org-protocol'
+		  ;; URLs without the help of external commands or
+		  ;; apps.  In this case, `client' is set to nil.
+                  (when (and client (plist-get (cdr prolist) :kill-client))
 		    (message "Greedy org-protocol handler.  Killing client.")
 		    (server-edit))
                   (when (fboundp func)
