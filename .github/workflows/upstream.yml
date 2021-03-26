@@ -28,6 +28,9 @@ jobs:
           git fetch upstream
 
       ## Upstream for master
+      - name: Merge workflow
+        run: |
+          git pull --no-edit origin workflow
       - name: Merge feature/native-comp
         run: |
           git pull --no-edit upstream feature/native-comp
