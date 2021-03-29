@@ -43,12 +43,6 @@
 
 ;;; Code:
 
-;; Unused.
-;;; (defgroup ccl nil
-;;;   "CCL (Code Conversion Language) compiler."
-;;;   :prefix "ccl-"
-;;;   :group 'i18n)
-
 (defconst ccl-command-table
   [if branch loop break repeat write-repeat write-read-repeat
       read read-if read-branch write call end
@@ -196,7 +190,9 @@
   "Embed integer DATA in `ccl-program-vector' at `ccl-current-ic' and
 increment it.  If IC is specified, embed DATA at IC."
   (if ic
-      (aset ccl-program-vector ic (ccl-fixnum data))
+      (aset ccl-program-vector ic (if (numberp data)
+                                      (ccl-fixnum data)
+                                    data))
     (let ((len (length ccl-program-vector)))
       (if (>= ccl-current-ic len)
 	  (let ((new (make-vector (* len 2) nil)))
@@ -204,7 +200,9 @@ increment it.  If IC is specified, embed DATA at IC."
 	      (setq len (1- len))
 	      (aset new len (aref ccl-program-vector len)))
 	    (setq ccl-program-vector new))))
-    (aset ccl-program-vector ccl-current-ic (ccl-fixnum data))
+    (aset ccl-program-vector ccl-current-ic (if (numberp data)
+                                                (ccl-fixnum data)
+                                              data))
     (setq ccl-current-ic (1+ ccl-current-ic))))
 
 (defun ccl-embed-symbol (symbol prop)

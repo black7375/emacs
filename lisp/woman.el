@@ -6,7 +6,7 @@
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: help, unix
 ;; Adapted-By: Eli Zaretskii <eliz@gnu.org>
-;; Version: 0.551
+;; Old-Version: 0.551
 ;; URL: http://centaur.maths.qmul.ac.uk/Emacs/WoMan/
 
 ;; This file is part of GNU Emacs.
@@ -69,13 +69,7 @@
 ;; Recommended use
 ;; ===============
 
-;; Put this in your .emacs:
-;;   (autoload 'woman "woman"
-;;             "Decode and browse a UN*X man page." t)
-;;   (autoload 'woman-find-file "woman"
-;;             "Find, decode and browse a specific UN*X man-page file." t)
-
-;; Then either (1 -- *RECOMMENDED*): If the `MANPATH' environment
+;; Either (1 -- *RECOMMENDED*): If the `MANPATH' environment
 ;; variable is set then WoMan will use it; otherwise you may need to
 ;; reset the Lisp variable `woman-manpath', and you may also want to
 ;; set the Lisp variable `woman-path'.  Please see the online
@@ -139,14 +133,8 @@
 ;; ==============================
 
 ;; WoMan supports the GNU Emacs customization facility, and puts
-;; a customization group called `WoMan' in the `Help' group under the
-;; top-level `Emacs' group.  In order to be able to customize WoMan
-;; without first loading it, add the following sexp to your .emacs:
-
-;;  (defgroup woman nil
-;;     "Browse UNIX manual pages `wo (without) man'."
-;;     :tag "WoMan" :group 'help :load "woman")
-
+;; a customization group called `woman' in the `help' group under the
+;; top-level `emacs' group.
 
 ;; WoMan currently runs two hooks: `woman-pre-format-hook' immediately
 ;; before formatting a buffer and `woman-post-format-hook' immediately
@@ -401,9 +389,9 @@
 ;;; Code:
 
 (defvar woman-version "0.551 (beta)" "WoMan version information.")
+(make-obsolete-variable 'woman-version nil "28.1")
 
 (require 'man)
-(require 'button)
 (define-button-type 'WoMan-xref-man-page
   :supertype 'Man-abstract-xref-man-page
   'func (lambda (arg)
@@ -674,7 +662,7 @@ These normally have names of the form `man?'.  Its default value is
 \"[Mm][Aa][Nn]\", which is case-insensitive mainly for the benefit of
 Microsoft platforms.  Its purpose is to avoid `cat?', `.', `..', etc."
   ;; Based on a suggestion by Wei-Xue Shi.
-  :type 'string
+  :type 'regexp
   :group 'woman-interface)
 
 (defcustom woman-path
@@ -753,7 +741,7 @@ Default is t."
 An alist with elements of the form (MENU-TITLE REGEXP INDEX) --
 see the documentation for `imenu-generic-expression'."
   :type '(alist :key-type (choice :tag "Title" (const nil) string)
-                :value-type (group (choice (string :tag "Regexp")
+                :value-type (group (choice (regexp :tag "Regexp")
                                            function)
                                    integer))
   :group 'woman-interface)
@@ -913,8 +901,8 @@ Troff emulation is experimental and largely untested.
   :group 'faces)
 
 (defcustom woman-fontify
-  (or (and (fboundp 'display-color-p) (display-color-p))
-      (and (fboundp 'display-graphic-p) (display-graphic-p))
+  (or (display-color-p)
+      (display-graphic-p)
       (x-display-color-p))
   "If non-nil then WoMan assumes that face support is available.
 It defaults to a non-nil value if the display supports either colors
@@ -1078,9 +1066,8 @@ Set by `.ns' request; reset by any output or `.rs' request")
   ;; Could end with "\\( +\\|$\\)" instead of " *"
   "Regexp to match a ?roff request plus trailing white space.")
 
-(defvar woman-imenu-done nil
+(defvar-local woman-imenu-done nil
   "Buffer-local: set to true if function `woman-imenu' has been called.")
-(make-variable-buffer-local 'woman-imenu-done)
 
 ;; From imenu.el -- needed when reformatting a file in its old buffer.
 ;; The latest buffer index used to update the menu bar menu.
@@ -1276,14 +1263,11 @@ cache to be re-read."
 				  (test-completion
 				   word-at-point woman-topic-all-completions))
 			 word-at-point)))
-		(completing-read
-		 (if default
-		     (format "Manual entry (default %s): " default)
-		   "Manual entry: ")
-		 woman-topic-all-completions nil 1
-		 nil
-		 'woman-topic-history
-		 default))))
+		(completing-read (format-prompt "Manual entry" default)
+		                 woman-topic-all-completions nil 1
+		                 nil
+		                 'woman-topic-history
+		                 default))))
     ;; Note that completing-read always returns a string.
     (unless (= (length topic) 0)
       (cond
@@ -1830,7 +1814,6 @@ Argument EVENT is the invoking mouse event."
    ["Mini Help" woman-mini-help t]
    ,@(if (fboundp 'customize-group)
 	 '(["Customize..." (customize-group 'woman) t]))
-   ["Show Version" (message "WoMan %s" woman-version) t]
    "--"
    ("Advanced"
     ["View Source" (view-file woman-last-file-name) woman-last-file-name]
@@ -1873,14 +1856,15 @@ Argument EVENT is the invoking mouse event."
 
 (defvar bookmark-make-record-function)
 
-(define-derived-mode woman-mode special-mode "WoMan"
+(define-derived-mode woman-mode man-common "WoMan"
   "Turn on (most of) Man mode to browse a buffer formatted by WoMan.
 WoMan is an ELisp emulation of much of the functionality of the Emacs
 `man' command running the standard UN*X man and ?roff programs.
 WoMan author: F.J.Wright@Maths.QMW.ac.uk
-WoMan version: see `woman-version'.
 See `Man-mode' for additional details.
 \\{woman-mode-map}"
+  ;; FIXME: Should all this just be re-arranged so that this can just
+  ;; inherit `man-common' and be done with it?
   (let ((Man-build-page-list (symbol-function 'Man-build-page-list))
 	(Man-strip-page-headers (symbol-function 'Man-strip-page-headers))
 	(Man-unindent (symbol-function 'Man-unindent))
@@ -2120,7 +2104,7 @@ No external programs are used."
   (interactive)				; mainly for testing
   (WoMan-log-begin)
   (run-hooks 'woman-pre-format-hook)
-  (and (boundp 'font-lock-mode) font-lock-mode (font-lock-mode -1))
+  (and font-lock-mode (font-lock-mode -1))
   ;; (fundamental-mode)
   (let ((start-time (current-time))
 	time)
@@ -2292,6 +2276,12 @@ Currently set only from \\='\\\" t in the first line of the source file.")
     ;; Set buffer-local variables:
     (setq fill-column woman-fill-column
 	  tab-width woman-tab-width)
+
+    ;; Ignore the \, and \/ kerning operators.  See
+    ;; https://www.gnu.org/software/groff/manual/groff.html#Ligatures-and-Kerning
+    (goto-char (point-min))
+    (while (re-search-forward "\\\\[,/]" nil t)
+      (replace-match "" t t))
 
     ;; Hide unpaddable and digit-width spaces \(space) and \0:
     (goto-char from)

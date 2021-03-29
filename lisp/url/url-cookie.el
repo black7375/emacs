@@ -60,7 +60,7 @@
 
 (defcustom url-cookie-multiple-line nil
   "If nil, HTTP requests put all cookies for the server on one line.
-Some web servers, such as http://www.hotmail.com/, only accept cookies
+Some web servers, such as https://www.hotmail.com/, only accept cookies
 when they are on one line.  This is broken behavior, but just try
 telling Microsoft that."
   :type 'boolean
@@ -162,7 +162,7 @@ i.e. 1970-1-1) are loaded as expiring one year from now instead."
               ";; version-control: never\n"
               ";; no-byte-compile: t\n"
               ";; End:\n")
-      (set (make-local-variable 'version-control) 'never)
+      (setq-local version-control 'never)
       (write-file fname))
     (setq url-cookies-changed-since-last-save nil))))
 

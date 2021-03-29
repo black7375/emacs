@@ -160,7 +160,6 @@ enum event_kind
   SELECTION_REQUEST_EVENT,	/* Another X client wants a selection from us.
 				   See `struct selection_input_event'.  */
   SELECTION_CLEAR_EVENT,	/* Another X client cleared our selection.  */
-  BUFFER_SWITCH_EVENT,		/* A process filter has switched buffers.  */
   DELETE_WINDOW_EVENT,		/* An X client said "delete this window".  */
 #ifdef HAVE_NTGUI
   END_SESSION_EVENT,		/* The user is logging out or shutting down.  */
@@ -229,10 +228,6 @@ enum event_kind
      from the received Apple event.  Parameters for non-Apple events
      are converted to those in Apple events.  */
   , MAC_APPLE_EVENT
-#endif
-
-#ifdef HAVE_GPM
-  , GPM_CLICK_EVENT
 #endif
 
 #ifdef HAVE_DBUS
@@ -381,10 +376,8 @@ enum {
 
 #ifdef HAVE_GPM
 #include <gpm.h>
-extern int handle_one_term_event (struct tty_display_info *, Gpm_Event *, struct input_event *);
-#ifndef HAVE_WINDOW_SYSTEM
+extern int handle_one_term_event (struct tty_display_info *, Gpm_Event *);
 extern void term_mouse_moveto (int, int);
-#endif
 
 /* The device for which we have enabled gpm support.  */
 extern struct tty_display_info *gpm_tty;

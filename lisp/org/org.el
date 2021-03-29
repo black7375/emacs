@@ -1846,7 +1846,7 @@ link types.  The types are:
 bracket   The recommended [[link][description]] or [[link]] links with hiding.
 angle     Links in angular brackets that may contain whitespace like
           <bbdb:Carsten Dominik>.
-plain     Plain links in normal text, no whitespace, like http://google.com.
+plain     Plain links in normal text, no whitespace, like https://gnu.org.
 radio     Text that is matched by a radio target, see manual for details.
 tag       Tag settings in a headline (link to tag search).
 date      Time stamps (link to calendar).
@@ -4112,7 +4112,8 @@ groups carry important information:
   "Regular expression to match a timestamp time or time range.
 After a match, the following groups carry important information:
 0  the full match
-1  date plus weekday, for back referencing to make sure both times are on the same day
+1  date plus weekday, for back referencing to make sure
+     both times are on the same day
 2  the first time, range or not
 4  the second time, if it is a range.")
 
@@ -4756,8 +4757,8 @@ This is for getting out of special buffers like capture.")
 ;; Other stuff we need.
 (require 'time-date)
 (unless (fboundp 'time-subtract) (defalias 'time-subtract 'subtract-time))
-(require 'easymenu)
-(require 'overlay)
+(when (< emacs-major-version 28)  ; preloaded in Emacs 28
+  (require 'easymenu))
 
 (require 'org-entities)
 (require 'org-faces)
@@ -5519,7 +5520,7 @@ highlighting was done, nil otherwise."
 
 (defun org-restart-font-lock ()
   "Restart `font-lock-mode', to force refontification."
-  (when (and (boundp 'font-lock-mode) font-lock-mode)
+  (when font-lock-mode
     (font-lock-mode -1)
     (font-lock-mode 1)))
 
@@ -20341,7 +20342,7 @@ unless optional argument NO-INHERITANCE is non-nil."
 
 (defun org-point-at-end-of-empty-headline ()
   "If point is at the end of an empty headline, return t, else nil.
-If the heading only contains a TODO keyword, it is still still considered
+If the heading only contains a TODO keyword, it is still considered
 empty."
   (let ((case-fold-search nil))
     (and (looking-at "[ \t]*$")

@@ -1,4 +1,4 @@
-;;; mh-thread.el --- MH-E threading support
+;;; mh-thread.el --- MH-E threading support  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2002-2004, 2006-2021 Free Software Foundation, Inc.
 
@@ -26,10 +26,10 @@
 
 ;; The threading portion of this files tries to implement the
 ;; algorithm described at:
-;;   http://www.jwz.org/doc/threading.html
+;;   https://www.jwz.org/doc/threading.html
 ;; It also begins to implement the threading section of the IMAP -
 ;; SORT and THREAD Extensions RFC at:
-;;   http://tools.ietf.org/html/rfc5256
+;;   https://tools.ietf.org/html/rfc5256
 ;; The implementation lacks the reference and subject canonicalization
 ;; of the RFC.
 

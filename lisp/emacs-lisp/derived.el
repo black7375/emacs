@@ -1,4 +1,4 @@
-;;; derived.el --- allow inheritance of major modes
+;;; derived.el --- allow inheritance of major modes  -*- lexical-binding: t; -*-
 ;; (formerly mode-clone.el)
 
 ;; Copyright (C) 1993-1994, 1999, 2001-2021 Free Software Foundation,
@@ -141,6 +141,9 @@ KEYWORD-ARGS:
            :after-hook FORM
                    A single lisp form which is evaluated after the mode
                    hooks have been run.  It should not be quoted.
+           :interactive BOOLEAN
+                   Whether the derived mode should be `interactive' or not.
+                   The default is t.
 
 BODY:      forms to execute just before running the
            hooks for the new mode.  Do not use `interactive' here.
@@ -194,6 +197,7 @@ See Info node `(elisp)Derived Modes' for more details.
 	(declare-syntax t)
 	(hook (derived-mode-hook-name child))
 	(group nil)
+        (interactive t)
         (after-hook nil))
 
     ;; Process the keyword args.
@@ -203,6 +207,7 @@ See Info node `(elisp)Derived Modes' for more details.
 	(:abbrev-table (setq abbrev (pop body)) (setq declare-abbrev nil))
 	(:syntax-table (setq syntax (pop body)) (setq declare-syntax nil))
         (:after-hook (setq after-hook (pop body)))
+        (:interactive (setq interactive (pop body)))
 	(_ (pop body))))
 
     (setq docstring (derived-mode-make-docstring
@@ -246,7 +251,7 @@ No problems result if this variable is not bound.
 
        (defun ,child ()
 	 ,docstring
-	 (interactive)
+	 ,(and interactive '(interactive))
 					; Run the parent.
 	 (delay-mode-hooks
 
@@ -306,11 +311,13 @@ No problems result if this variable is not bound.
       ;; Use a default docstring.
       (setq docstring
 	    (if (null parent)
-		;; FIXME filling.
-		(format "Major-mode.\nUses keymap `%s'%s%s." map
-			(if abbrev (format "%s abbrev table `%s'"
-					   (if syntax "," " and") abbrev) "")
-			(if syntax (format " and syntax-table `%s'" syntax) ""))
+                (concat
+                 "Major-mode.\n"
+                 (internal--format-docstring-line
+                  "Uses keymap `%s'%s%s." map
+                  (if abbrev (format "%s abbrev table `%s'"
+                                     (if syntax "," " and") abbrev) "")
+                  (if syntax (format " and syntax-table `%s'" syntax) "")))
 	      (format "Major mode derived from `%s' by `define-derived-mode'.
 It inherits all of the parent's attributes, but has its own keymap%s:
 
@@ -336,20 +343,22 @@ which more-or-less shadow%s %s's corresponding table%s."
     (unless (string-match (regexp-quote (symbol-name hook)) docstring)
       ;; Make sure the docstring mentions the mode's hook.
       (setq docstring
-	    (concat docstring
-		    (if (null parent)
-			"\n\nThis mode "
-		      (concat
-		       "\n\nIn addition to any hooks its parent mode "
-		       (if (string-match (format "[`‘]%s['’]"
-                                                 (regexp-quote
-						  (symbol-name parent)))
-					 docstring)
-                           nil
-			 (format "`%s' " parent))
-		       "might have run,\nthis mode "))
-		    (format "runs the hook `%s'" hook)
-		    ", as the final or penultimate step\nduring initialization.")))
+            (concat docstring "\n\n"
+                    (internal--format-docstring-line
+                     "%s%s%s"
+                     (if (null parent)
+                         "This mode "
+                       (concat
+                        "In addition to any hooks its parent mode "
+                        (if (string-match (format "[`‘]%s['’]"
+                                                  (regexp-quote
+                                                   (symbol-name parent)))
+                                          docstring)
+                            nil
+                          (format "`%s' " parent))
+                        "might have run, this mode "))
+                     (format "runs the hook `%s'" hook)
+                     ", as the final or penultimate step during initialization."))))
 
     (unless (string-match "\\\\[{[]" docstring)
       ;; And don't forget to put the mode's keymap.
@@ -364,6 +373,7 @@ which more-or-less shadow%s %s's corresponding table%s."
 
 (defsubst derived-mode-setup-function-name (mode)
   "Construct a setup-function name based on a MODE name."
+  (declare (obsolete nil "28.1"))
   (intern (concat (symbol-name mode) "-setup")))
 
 

@@ -1,4 +1,4 @@
-;;; erc-networks.el --- IRC networks
+;;; erc-networks.el --- IRC networks  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2002, 2004-2021 Free Software Foundation, Inc.
 
@@ -152,7 +152,7 @@
   ("EFnet: EU, PL, Warszawa" EFnet "irc.efnet.pl" 6667)
   ("EFnet: EU, RU, Moscow" EFnet "irc.rt.ru" ((6661 6669)))
   ("EFnet: EU, SE, Dalarna" EFnet "irc.du.se" ((6666 6669)))
-  ("EFnet: EU, SE, Gothenberg" EFnet "irc.hemmet.chalmers.se" ((6666 7000)))
+  ("EFnet: EU, SE, Gothenburg" EFnet "irc.hemmet.chalmers.se" ((6666 7000)))
   ("EFnet: EU, SE, Sweden" EFnet "irc.light.se" 6667)
   ("EFnet: EU, UK, London (carrier)" EFnet "irc.carrier1.net.uk" ((6666 6669)))
   ("EFnet: EU, UK, London (demon)" EFnet "efnet.demon.co.uk" ((6665 6669)))
@@ -190,9 +190,9 @@
   ("Fraggers: Random server" Fraggers "irc.fraggers.co.uk" ((6661 6669) (7000 7001) ))
   ("FreedomChat: Random server" FreedomChat "chat.freedomchat.net" 6667)
   ("FreedomIRC: Random server" FreedomIRC "irc.freedomirc.net" 6667)
-  ("Freenode: Random server" freenode "irc.freenode.net" 6667)
-  ("Freenode: Random EU server" freenode "irc.eu.freenode.net" 6667)
-  ("Freenode: Random US server" freenode "irc.us.freenode.net" 6667)
+  ("Freenode: Random server" freenode "chat.freenode.net" 6667)
+  ("Freenode: Random EU server" freenode "chat.eu.freenode.net" 6667)
+  ("Freenode: Random US server" freenode "chat.us.freenode.net" 6667)
   ("FunNet: Random server" FunNet "irc.funnet.org" 6667)
   ("Galaxynet: Random server" GalaxyNet "irc.galaxynet.org" ((6662 6668) 7000 ))
   ("Galaxynet: AU, NZ, Auckland" GalaxyNet "auckland.nz.galaxynet.org" ((6661 6669)))
@@ -443,7 +443,6 @@ NET is a symbol indicating to which network from `erc-networks-alist'
   this server corresponds,
 HOST is the servers hostname and
 PORTS is either a number, a list of numbers, or a list of port ranges."
-  :group 'erc-networks
   :type '(alist :key-type (string :tag "Name")
 		:value-type
 		(group symbol (string :tag "Hostname")
@@ -714,7 +713,6 @@ MATCHER is used to find a corresponding network to a server while
   connected to it.  If it is regexp, it's used to match against
   `erc-server-announced-name'.  It can also be a function (predicate).
   Then it is executed with the server buffer as current-buffer."
-  :group 'erc-networks
   :type '(repeat
 	  (list :tag "Network"
 		(symbol :tag "Network name")
@@ -722,9 +720,8 @@ MATCHER is used to find a corresponding network to a server while
 		 (regexp)
 		 (const :tag "Network has no common server ending" nil)))))
 
-(defvar erc-network nil
+(defvar-local erc-network nil
   "The name of the network you are connected to (a symbol).")
-(make-variable-buffer-local 'erc-network)
 
 ;; Functions:
 
@@ -756,32 +753,32 @@ Return the name of this server's network as a symbol."
   (erc-with-server-buffer
     (intern (downcase (symbol-name erc-network)))))
 
-(erc-make-obsolete 'erc-current-network 'erc-network
-		   "Obsolete since erc-networks 1.5")
+(make-obsolete 'erc-current-network 'erc-network
+               "Obsolete since erc-networks 1.5")
 
 (defun erc-network-name ()
   "Return the name of the current network as a string."
   (erc-with-server-buffer (symbol-name erc-network)))
 
-(defun erc-set-network-name (proc parsed)
+(defun erc-set-network-name (_proc _parsed)
   "Set `erc-network' to the value returned by `erc-determine-network'."
   (unless erc-server-connected
     (setq erc-network (erc-determine-network)))
   nil)
 
-(defun erc-unset-network-name (nick ip reason)
+(defun erc-unset-network-name (_nick _ip _reason)
   "Set `erc-network' to nil."
   (setq erc-network nil)
   nil)
 
 (define-erc-module networks nil
   "Provide data about IRC networks."
-  ((add-hook 'erc-server-375-functions 'erc-set-network-name)
-   (add-hook 'erc-server-422-functions 'erc-set-network-name)
-   (add-hook 'erc-disconnected-hook 'erc-unset-network-name))
-  ((remove-hook 'erc-server-375-functions 'erc-set-network-name)
-   (remove-hook 'erc-server-422-functions 'erc-set-network-name)
-   (remove-hook 'erc-disconnected-hook 'erc-unset-network-name)))
+  ((add-hook 'erc-server-375-functions #'erc-set-network-name)
+   (add-hook 'erc-server-422-functions #'erc-set-network-name)
+   (add-hook 'erc-disconnected-hook #'erc-unset-network-name))
+  ((remove-hook 'erc-server-375-functions #'erc-set-network-name)
+   (remove-hook 'erc-server-422-functions #'erc-set-network-name)
+   (remove-hook 'erc-disconnected-hook #'erc-unset-network-name)))
 
 (defun erc-ports-list (ports)
   "Return a list of PORTS.
@@ -812,7 +809,7 @@ As an example:
   (let* ((completion-ignore-case t)
 	 (net (intern
 	       (completing-read "Network: "
-				(erc-delete-dups
+				(delete-dups
 				 (mapcar (lambda (x)
 					   (list (symbol-name (nth 1 x))))
 					 erc-server-alist)))))

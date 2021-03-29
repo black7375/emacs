@@ -76,8 +76,7 @@
 Input matching this regexp is not saved on the input history in Inferior Lisp
 mode.  Default is whitespace followed by 0 or 1 single-letter colon-keyword
 \(as in :a, :c, etc.)"
-  :type 'regexp
-  :group 'inferior-lisp)
+  :type 'regexp)
 
 (defvar inferior-lisp-mode-map
   (let ((map (copy-keymap comint-mode-map)))
@@ -124,15 +123,14 @@ mode.  Default is whitespace followed by 0 or 1 single-letter colon-keyword
 (define-key lisp-mode-map "\C-c\C-v" 'lisp-show-variable-documentation)
 
 
-;;; This function exists for backwards compatibility.
-;;; Previous versions of this package bound commands to C-c <letter>
-;;; bindings, which is not allowed by the Emacs standard.
+;; This function exists for backwards compatibility.
+;; Previous versions of this package bound commands to C-c <letter>
+;; bindings, which is not allowed by the Emacs standard.
 
 ;;;  "This function binds many inferior-lisp commands to C-c <letter> bindings,
 ;;;where they are more accessible. C-c <letter> bindings are reserved for the
-;;;user, so these bindings are non-standard. If you want them, you should
-;;;have this function called by the inferior-lisp-load-hook:
-;;;  (add-hook 'inferior-lisp-load-hook 'inferior-lisp-install-letter-bindings)
+;;;user, so these bindings are non-standard. If you want them:
+;;;  (with-eval-after-load 'inf-lisp 'inferior-lisp-install-letter-bindings)
 ;;;You can modify this function to install just the bindings you want."
 (defun inferior-lisp-install-letter-bindings ()
   (define-key lisp-mode-map "\C-ce" 'lisp-eval-defun-and-go)
@@ -156,8 +154,7 @@ mode.  Default is whitespace followed by 0 or 1 single-letter colon-keyword
 
 (defcustom inferior-lisp-program "lisp"
   "Program name for invoking an inferior Lisp in Inferior Lisp mode."
-  :type 'string
-  :group 'inferior-lisp)
+  :type 'string)
 
 (defcustom inferior-lisp-load-command "(load \"%s\")\n"
   "Format-string for building a Lisp expression to load a file.
@@ -167,8 +164,7 @@ to load that file.  The default works acceptably on most Lisps.
 The string \"(progn (load \\\"%s\\\" :verbose nil :print t) (values))\\n\"
 produces cosmetically superior output for this application,
 but it works only in Common Lisp."
-  :type 'string
-  :group 'inferior-lisp)
+  :type 'string)
 
 (defcustom inferior-lisp-prompt "^[^> \n]*>+:? *"
   "Regexp to recognize prompts in the Inferior Lisp mode.
@@ -183,8 +179,7 @@ More precise choices:
 Lucid Common Lisp: \"^\\\\(>\\\\|\\\\(->\\\\)+\\\\) *\"
 franz: \"^\\\\(->\\\\|<[0-9]*>:\\\\) *\"
 kcl: \"^>+ *\""
-  :type 'regexp
-  :group 'inferior-lisp)
+  :type 'regexp)
 
 (defvar inferior-lisp-buffer nil "*The current inferior-lisp process buffer.
 
@@ -275,7 +270,8 @@ If you accidentally suspend your process, use \\[comint-continue-subjob]
 to continue it."
   (setq comint-prompt-regexp inferior-lisp-prompt)
   (setq mode-line-process '(":%s"))
-  (lisp-mode-variables t)
+  (lisp-mode-variables)
+  (set-syntax-table lisp-mode-syntax-table)
   (setq comint-get-old-input (function lisp-get-old-input))
   (setq comint-input-filter (function lisp-input-filter)))
 
@@ -487,12 +483,11 @@ describing the last `lisp-load-file' or `lisp-compile-file' command.")
 If it's loaded into a buffer that is in one of these major modes, it's
 considered a Lisp source file by `lisp-load-file' and `lisp-compile-file'.
 Used by these commands to determine defaults."
-  :type '(repeat symbol)
-  :group 'inferior-lisp)
+  :type '(repeat symbol))
 
 (defun lisp-load-file (file-name)
   "Load a Lisp file into the inferior Lisp process."
-  (interactive (comint-get-source "Load Lisp file: " lisp-prev-l/c-dir/file
+  (interactive (comint-get-source "Load Lisp file" lisp-prev-l/c-dir/file
 				  lisp-source-modes nil)) ; nil because LOAD
 					; doesn't need an exact name
   (comint-check-source file-name) ; Check to see if buffer needs saved.
@@ -505,7 +500,7 @@ Used by these commands to determine defaults."
 
 (defun lisp-compile-file (file-name)
   "Compile a Lisp file in the inferior Lisp process."
-  (interactive (comint-get-source "Compile Lisp file: " lisp-prev-l/c-dir/file
+  (interactive (comint-get-source "Compile Lisp file" lisp-prev-l/c-dir/file
 				  lisp-source-modes nil)) ; nil = don't need
 					; suffix .lisp
   (comint-check-source file-name) ; Check to see if buffer needs saved.
@@ -555,10 +550,7 @@ Used by these commands to determine defaults."
 
 ;;; Reads a string from the user.
 (defun lisp-symprompt (prompt default)
-  (list (let* ((prompt (if default
-			   (format "%s (default %s): " prompt default)
-			 (concat prompt ": ")))
-	       (ans (read-string prompt)))
+  (list (let ((ans (read-string (format-prompt prompt default))))
 	  (if (zerop (length ans)) default ans))))
 
 
@@ -632,6 +624,8 @@ See variable `lisp-describe-sym-command'."
 ;;;===============================
 (defvar inferior-lisp-load-hook nil
   "This hook is run when the library `inf-lisp' is loaded.")
+(make-obsolete-variable 'inferior-lisp-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 
 (run-hooks 'inferior-lisp-load-hook)
 

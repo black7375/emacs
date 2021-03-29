@@ -224,7 +224,7 @@ Should show the queue(s) that \\[tex-print] puts jobs on."
   :group 'tex-view)
 
 ;;;###autoload
-(defcustom tex-default-mode 'latex-mode
+(defcustom tex-default-mode #'latex-mode
   "Mode to enter for a new file that might be either TeX or LaTeX.
 This variable is used when it can't be determined whether the file
 is plain TeX or LaTeX or what because the file contains no commands.
@@ -422,7 +422,7 @@ An alternative value is \" . \", if you use a font with a narrow period."
 	(push (cons "--" (match-beginning 0)) menu))
 
       ;; Sort in increasing buffer position order.
-      (sort menu (function (lambda (a b) (< (cdr a) (cdr b))))))))
+      (sort menu (lambda (a b) (< (cdr a) (cdr b)))))))
 
 ;;;;
 ;;;; Outline support
@@ -465,7 +465,7 @@ An alternative value is \" . \", if you use a font with a narrow period."
 ;    ("{\\\\bf\\([^}]+\\)}" 1 'bold keep)
 ;    ("{\\\\\\(em\\|it\\|sl\\)\\([^}]+\\)}" 2 'italic keep)
 ;    ("\\\\\\([a-zA-Z@]+\\|.\\)" . font-lock-keyword-face)
-;    ("^[ \t\n]*\\\\def[\\\\@]\\(\\w+\\)" 1 font-lock-function-name-face keep))
+;    ("^[ \t\n]*\\\\def[\\@]\\(\\w+\\)" 1 font-lock-function-name-face keep))
 ;  ;; Rewritten and extended for LaTeX2e by Ulrik Dickow <dickow@nbi.dk>.
 ;  '(("\\\\\\(begin\\|end\\|newcommand\\){\\([a-zA-Z0-9\\*]+\\)}"
 ;     2 font-lock-function-name-face)
@@ -593,7 +593,7 @@ An alternative value is \" . \", if you use a font with a narrow period."
 	    ;; Miscellany.
 	    (slash "\\\\")
 	    (opt " *\\(\\[[^]]*\\] *\\)*")
-	    (args "\\(\\(?:[^{}&\\]+\\|\\\\.\\|{[^}]*}\\)+\\)")
+	    (args "\\(\\(?:[^${}&\\]+\\|\\\\.\\|{[^}]*}\\)+\\)")
 	    (arg "{\\(\\(?:[^{}\\]+\\|\\\\.\\|{[^}]*}\\)+\\)"))
        (list
 	;;
@@ -668,7 +668,9 @@ An alternative value is \" . \", if you use a font with a narrow period."
   "Default expressions to highlight in TeX modes.")
 
 (defvar tex-verbatim-environments
-  '("verbatim" "verbatim*"))
+  '("verbatim" "verbatim*"
+    "Verbatim" ;; From "fancyvrb"
+    ))
 (put 'tex-verbatim-environments 'safe-local-variable
      (lambda (x) (not (memq nil (mapcar #'stringp x)))))
 
@@ -855,11 +857,11 @@ START is the position of the \\ and DELIM is the delimiter char."
 
 (defun tex-define-common-keys (keymap)
   "Define the keys that we want defined both in TeX mode and in the TeX shell."
-  (define-key keymap "\C-c\C-k" 'tex-kill-job)
-  (define-key keymap "\C-c\C-l" 'tex-recenter-output-buffer)
-  (define-key keymap "\C-c\C-q" 'tex-show-print-queue)
-  (define-key keymap "\C-c\C-p" 'tex-print)
-  (define-key keymap "\C-c\C-v" 'tex-view)
+  (define-key keymap "\C-c\C-k" #'tex-kill-job)
+  (define-key keymap "\C-c\C-l" #'tex-recenter-output-buffer)
+  (define-key keymap "\C-c\C-q" #'tex-show-print-queue)
+  (define-key keymap "\C-c\C-p" #'tex-print)
+  (define-key keymap "\C-c\C-v" #'tex-view)
 
   (define-key keymap [menu-bar tex] (cons "TeX" (make-sparse-keymap "TeX")))
 
@@ -882,27 +884,27 @@ START is the position of the \\ and DELIM is the delimiter char."
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map text-mode-map)
     (tex-define-common-keys map)
-    (define-key map "\"" 'tex-insert-quote)
-    (define-key map "\n" 'tex-handle-newline)
-    (define-key map "\M-\r" 'latex-insert-item)
-    (define-key map "\C-c}" 'up-list)
-    (define-key map "\C-c{" 'tex-insert-braces)
-    (define-key map "\C-c\C-r" 'tex-region)
-    (define-key map "\C-c\C-b" 'tex-buffer)
-    (define-key map "\C-c\C-f" 'tex-file)
-    (define-key map "\C-c\C-c" 'tex-compile)
-    (define-key map "\C-c\C-i" 'tex-bibtex-file)
-    (define-key map "\C-c\C-o" 'latex-insert-block)
+    (define-key map "\"" #'tex-insert-quote)
+    (define-key map "\n" #'tex-handle-newline)
+    (define-key map "\M-\r" #'latex-insert-item)
+    (define-key map "\C-c}" #'up-list)
+    (define-key map "\C-c{" #'tex-insert-braces)
+    (define-key map "\C-c\C-r" #'tex-region)
+    (define-key map "\C-c\C-b" #'tex-buffer)
+    (define-key map "\C-c\C-f" #'tex-file)
+    (define-key map "\C-c\C-c" #'tex-compile)
+    (define-key map "\C-c\C-i" #'tex-bibtex-file)
+    (define-key map "\C-c\C-o" #'latex-insert-block)
 
     ;; Redundant keybindings, for consistency with SGML mode.
-    (define-key map "\C-c\C-t" 'latex-insert-block)
-    (define-key map "\C-c]" 'latex-close-block)
-    (define-key map "\C-c/" 'latex-close-block)
+    (define-key map "\C-c\C-t" #'latex-insert-block)
+    (define-key map "\C-c]" #'latex-close-block)
+    (define-key map "\C-c/" #'latex-close-block)
 
-    (define-key map "\C-c\C-e" 'latex-close-block)
-    (define-key map "\C-c\C-u" 'tex-goto-last-unclosed-latex-block)
-    (define-key map "\C-c\C-m" 'tex-feed-input)
-    (define-key map [(control return)] 'tex-feed-input)
+    (define-key map "\C-c\C-e" #'latex-close-block)
+    (define-key map "\C-c\C-u" #'tex-goto-last-unclosed-latex-block)
+    (define-key map "\C-c\C-m" #'tex-feed-input)
+    (define-key map [(control return)] #'tex-feed-input)
     (define-key map [menu-bar tex tex-bibtex-file]
       '("BibTeX File" . tex-bibtex-file))
     (define-key map [menu-bar tex tex-validate-region]
@@ -920,7 +922,7 @@ START is the position of the \\ and DELIM is the delimiter char."
 (defvar latex-mode-map
   (let ((map (make-sparse-keymap)))
     (set-keymap-parent map tex-mode-map)
-    (define-key map "\C-c\C-s" 'latex-split-block)
+    (define-key map "\C-c\C-s" #'latex-split-block)
     map)
   "Keymap for `latex-mode'.  See also `tex-mode-map'.")
 
@@ -966,7 +968,7 @@ Inherits `shell-mode-map' with a few additions.")
 
 ;; This would be a lot simpler if we just used a regexp search,
 ;; but then it would be too slow.
-(defun tex-guess-mode ()
+(defun tex--guess-mode ()
   (let ((mode tex-default-mode) slash comment)
     (save-excursion
       (goto-char (point-min))
@@ -983,52 +985,40 @@ Inherits `shell-mode-map' with a few additions.")
 		      (regexp-opt '("documentstyle" "documentclass"
 				    "begin" "subsection" "section"
 				    "part" "chapter" "newcommand"
-				    "renewcommand" "RequirePackage") 'words)
+				    "renewcommand" "RequirePackage")
+				  'words)
 		      "\\|NeedsTeXFormat{LaTeX")))
 		  (if (and (looking-at
 			    "document\\(style\\|class\\)\\(\\[.*\\]\\)?{slides}")
 			   ;; SliTeX is almost never used any more nowadays.
 			   (tex-executable-exists-p slitex-run-command))
-		      'slitex-mode
-		    'latex-mode)
-		'plain-tex-mode))))
-    (funcall mode)))
+		      #'slitex-mode
+		    #'latex-mode)
+		#'plain-tex-mode))))
+    mode))
 
 ;; `tex-mode' plays two roles: it's the parent of several sub-modes
 ;; but it's also the function that chooses between those submodes.
 ;; To tell the difference between those two cases where the function
 ;; might be called, we check `delay-mode-hooks'.
-(define-derived-mode tex-mode text-mode "generic-TeX"
-  (tex-common-initialization))
-;; We now move the function and define it again.  This gives a warning
-;; in the byte-compiler :-( but it's difficult to avoid because
-;; `define-derived-mode' will necessarily define the function once
-;; and we need to define it a second time for `autoload' to get the
-;; proper docstring.
-(defalias 'tex-mode-internal (symbol-function 'tex-mode))
-
-;; Suppress the byte-compiler warning about multiple definitions.
-;; This is a) ugly, and b) cheating, but this was the last
-;; remaining warning from byte-compiling all of Emacs...
-(eval-when-compile
-  (if (boundp 'byte-compile-function-environment)
-      (setq byte-compile-function-environment
-            (delq (assq 'tex-mode byte-compile-function-environment)
-                  byte-compile-function-environment))))
-
 ;;;###autoload
-(defun tex-mode ()
+(define-derived-mode tex-mode text-mode "generic-TeX"
   "Major mode for editing files of input for TeX, LaTeX, or SliTeX.
+This is the shared parent mode of several submodes.
 Tries to determine (by looking at the beginning of the file) whether
 this file is for plain TeX, LaTeX, or SliTeX and calls `plain-tex-mode',
-`latex-mode', or `slitex-mode', respectively.  If it cannot be determined,
+`latex-mode', or `slitex-mode', accordingly.  If it cannot be determined,
 such as if there are no commands in the file, the value of `tex-default-mode'
 says which mode to use."
-  (interactive)
-  (if delay-mode-hooks
-      ;; We're called from one of the children already.
-      (tex-mode-internal)
-    (tex-guess-mode)))
+  (tex-common-initialization))
+
+(advice-add 'tex-mode :around #'tex--redirect-to-submode)
+(defun tex--redirect-to-submode (orig-fun)
+  "Redirect to one of the submodes when called directly."
+  (funcall (if delay-mode-hooks
+               ;; We're called from one of the children already.
+               orig-fun
+             (tex--guess-mode))))
 
 ;; The following three autoloaded aliases appear to conflict with
 ;; AUCTeX.  However, even though AUCTeX uses the mixed case variants
@@ -1037,13 +1027,17 @@ says which mode to use."
 ;; AUCTeX to provide a fully functional user-level replacement.  So
 ;; these aliases should remain as they are, in particular since AUCTeX
 ;; users are likely to use them.
+;; Note from Stef: I don't understand the above explanation, the only
+;; justification I can find to keep those confusing aliases is for those
+;; users who may have files annotated with -*- LaTeX -*- (e.g. because they
+;; received them from someone using AUCTeX).
 
 ;;;###autoload
-(defalias 'TeX-mode 'tex-mode)
+(defalias 'TeX-mode #'tex-mode)
 ;;;###autoload
-(defalias 'plain-TeX-mode 'plain-tex-mode)
+(defalias 'plain-TeX-mode #'plain-tex-mode)
 ;;;###autoload
-(defalias 'LaTeX-mode 'latex-mode)
+(defalias 'LaTeX-mode #'latex-mode)
 
 ;;;###autoload
 (define-derived-mode plain-tex-mode tex-mode "TeX"
@@ -1175,7 +1169,12 @@ subshell is initiated, `tex-shell-hook' is run."
   (setq-local outline-regexp latex-outline-regexp)
   (setq-local outline-level #'latex-outline-level)
   (setq-local forward-sexp-function #'latex-forward-sexp)
-  (setq-local skeleton-end-hook nil))
+  (setq-local skeleton-end-hook nil)
+  (setq-local comment-region-function #'latex--comment-region)
+  (setq-local comment-style 'plain))
+
+(defun latex--comment-region (beg end &optional arg)
+  (comment-region-default-1 beg end arg t))
 
 ;;;###autoload
 (define-derived-mode slitex-mode latex-mode "SliTeX"
@@ -1252,10 +1251,10 @@ Entering SliTeX mode runs the hook `text-mode-hook', then the hook
                  ("\\\\[a-zA-Z]+\\( +\\|{}\\)[a-zA-Z]*" . "")
                  ("%" . "$"))))
   ;; A line containing just $$ is treated as a paragraph separator.
-  (setq-local paragraph-start "[ \t]*$\\|[\f\\\\%]\\|[ \t]*\\$\\$")
+  (setq-local paragraph-start "[ \t]*$\\|[\f\\%]\\|[ \t]*\\$\\$")
   ;; A line starting with $$ starts a paragraph,
   ;; but does not separate paragraphs if it has more stuff on it.
-  (setq-local paragraph-separate "[ \t]*$\\|[\f\\\\%]\\|[ \t]*\\$\\$[ \t]*$")
+  (setq-local paragraph-separate "[ \t]*$\\|[\f\\%]\\|[ \t]*\\$\\$[ \t]*$")
   (setq-local add-log-current-defun-function #'tex-current-defun-name)
   (setq-local comment-start "%")
   (setq-local comment-add 1)
@@ -1561,7 +1560,7 @@ the name of the environment and SKEL-ELEM is an element to use in
 a skeleton (see `skeleton-insert').")
 
 ;; Like tex-insert-braces, but for LaTeX.
-(defalias 'tex-latex-block 'latex-insert-block)
+(defalias 'tex-latex-block #'latex-insert-block)
 (define-skeleton latex-insert-block
   "Create a matching pair of lines \\begin{NAME} and \\end{NAME} at point.
 Puts point on a blank line between them."
@@ -1867,7 +1866,7 @@ Mark is left at original location."
 	(with-syntax-table tex-mode-syntax-table
 	  (forward-sexp))))))
 
-(defalias 'tex-close-latex-block 'latex-close-block)
+(defalias 'tex-close-latex-block #'latex-close-block)
 (define-skeleton latex-close-block
   "Create an \\end{...} to match the last unclosed \\begin{...}."
   (save-excursion
@@ -2009,7 +2008,7 @@ Mark is left at original location."
        ;; Specify an interactive shell, to make sure it prompts.
        "-i")
     (let ((proc (get-process "tex-shell")))
-      (set-process-sentinel proc 'tex-shell-sentinel)
+      (set-process-sentinel proc #'tex-shell-sentinel)
       (set-process-query-on-exit-flag proc nil)
       (tex-shell)
       (while (zerop (buffer-size))
@@ -2045,8 +2044,7 @@ In the tex shell buffer this command behaves like `comint-send-input'."
     (with-current-buffer buffer
       (setq default-directory directory))))
 
-(defvar tex-send-command-modified-tick 0)
-(make-variable-buffer-local 'tex-send-command-modified-tick)
+(defvar-local tex-send-command-modified-tick 0)
 
 (defun tex-shell-proc ()
   (or (tex-shell-running) (error "No TeX subprocess")))
@@ -2065,7 +2063,7 @@ evaluates to a command string.
 
 Return the process in which TeX is running."
   (save-excursion
-    (let* ((cmd (eval command))
+    (let* ((cmd (eval command t))
 	   (proc (tex-shell-proc))
 	   (buf (process-buffer proc))
            (star (string-match "\\*" cmd))
@@ -2301,9 +2299,6 @@ FILE is typically the output DVI or PDF file."
 	     (setq uptodate nil)))))
      uptodate)))
 
-
-(autoload 'format-spec "format-spec")
-
 (defvar tex-executable-cache nil)
 (defun tex-executable-exists-p (name)
   "Like `executable-find' but with a cache."
@@ -2318,7 +2313,7 @@ FILE is typically the output DVI or PDF file."
             executable))))))
 
 (defun tex-command-executable (cmd)
-  (let ((s (if (stringp cmd) cmd (eval (car cmd)))))
+  (let ((s (if (stringp cmd) cmd (eval (car cmd) t))))
     (substring s 0 (string-match "[ \t]\\|\\'" s))))
 
 (defun tex-command-active-p (cmd fspec)
@@ -2340,9 +2335,14 @@ FILE is typically the output DVI or PDF file."
   :version "23.1"
   :group 'tex-run)
 
+(defun tex--quote-spec (fspec)
+  (cl-loop for (char . file) in fspec
+           collect (cons char (shell-quote-argument file))))
+
 (defun tex-format-cmd (format fspec)
   "Like `format-spec' but adds user-specified args to the command.
 Only applies the FSPEC to the args part of FORMAT."
+  (setq fspec (tex--quote-spec fspec))
   (if (not (string-match "\\([^ /\\]+\\) " format))
       (format-spec format fspec)
     (let* ((prefix (substring format 0 (match-beginning 0)))
@@ -2400,7 +2400,7 @@ Only applies the FSPEC to the args part of FORMAT."
 		(setq latest (nth 1 cmd) cmds (list cmd)))))))
     ;; Expand the command spec into the actual text.
     (dolist (cmd (prog1 cmds (setq cmds nil)))
-      (push (cons (eval (car cmd)) (cdr cmd)) cmds))
+      (push (cons (eval (car cmd) t) (cdr cmd)) cmds))
     ;; Select the favorite command from the history.
     (let ((hist tex-compile-history)
 	  re hist-cmd)
@@ -2439,14 +2439,14 @@ Only applies the FSPEC to the args part of FORMAT."
 	    (prog1 (file-name-directory (expand-file-name file))
 	      (setq file (file-name-nondirectory file))))
 	  (root (file-name-sans-extension file))
-	  (fspec (list (cons ?r (shell-quote-argument root))
-		       (cons ?f (shell-quote-argument file))))
+	  (fspec (list (cons ?r root)
+		       (cons ?f file)))
 	  (default (tex-compile-default fspec)))
      (list default-directory
 	   (completing-read
 	    (format "Command [%s]: " (tex-summarize-command default))
 	    (mapcar (lambda (x)
-		      (list (tex-format-cmd (eval (car x)) fspec)))
+		      (list (tex-format-cmd (eval (car x) t) fspec)))
 		    tex-compile-commands)
 	    nil nil nil 'tex-compile-history default))))
   (save-some-buffers (not compilation-ask-about-save) nil)
@@ -2740,7 +2740,7 @@ because there is no standard value that would generally work."
   ;; Restart the TeX shell if necessary.
   (or (tex-shell-running)
       (tex-start-shell))
-  (let ((tex-dvi-print-command (eval tex-dvi-view-command)))
+  (let ((tex-dvi-print-command (eval tex-dvi-view-command t)))
     (tex-print)))
 
 (defun tex-append (file-name suffix)
@@ -3550,6 +3550,8 @@ There might be text before point."
       (process-send-region tex-chktex--process (point-min) (point-max))
       (process-send-eof tex-chktex--process))))
 
+(make-obsolete-variable 'tex-mode-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 (run-hooks 'tex-mode-load-hook)
 
 (provide 'tex-mode)

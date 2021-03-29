@@ -227,7 +227,7 @@ supports it in developing GNU and promoting software freedom.''
 @c learn Emacs Lisp starting with the Emacs Lisp Reference Manual.
 @c
 @c        Richard Stallman <rms@gnu.org>,
-@c        https://lists.gnu.org/archive/html/emacs-devel/2018-05/msg00374.html
+@c        https://lists.gnu.org/r/emacs-devel/2018-05/msg00374.html
 
 @shortcontents
 @contents
@@ -929,7 +929,7 @@ GNU Emacs Lisp is largely inspired by Maclisp, which was written at MIT
 in the 1960s.  It is somewhat inspired by Common Lisp, which became a
 standard in the 1980s.  However, Emacs Lisp is much simpler than Common
 Lisp.  (The standard Emacs distribution contains an optional extensions
-file, @file{cl.el}, that adds many Common Lisp features to Emacs Lisp.)
+file, @file{cl-lib.el}, that adds many Common Lisp features to Emacs Lisp.)
 
 @node Note for Novices
 @unnumberedsec A Note for Novices
@@ -17523,7 +17523,7 @@ Here is the definition:
 ;;; Line to top of window;
 ;;; replace three keystroke sequence  C-u 0 C-l
 (defun line-to-top-of-window ()
-  "Move the line point is on to top of window."
+  "Move the line that point is on to top of window."
   (interactive)
   (recenter 0))
 @end group
@@ -17532,10 +17532,9 @@ Here is the definition:
 @need 1250
 Now for the keybinding.
 
-Nowadays, function keys as well as mouse button events and
-non-@sc{ascii} characters are written within square brackets, without
-quotation marks.  (In Emacs version 18 and before, you had to write
-different function key bindings for each different make of terminal.)
+Function keys as well as mouse button events and non-@sc{ascii}
+characters are written within square brackets, without quotation
+marks.
 
 I bind @code{line-to-top-of-window} to my @key{F6} function key like
 this:
@@ -17550,18 +17549,18 @@ Your Init File, emacs, The GNU Emacs Manual}.
 @cindex Conditional 'twixt two versions of Emacs
 @cindex Version of Emacs, choosing
 @cindex Emacs version, choosing
-If you run two versions of GNU Emacs, such as versions 22 and 23, and
+If you run two versions of GNU Emacs, such as versions 27 and 28, and
 use one @file{.emacs} file, you can select which code to evaluate with
 the following conditional:
 
 @smallexample
 @group
 (cond
- ((= 22 emacs-major-version)
-  ;; evaluate version 22 code
+ ((= 27 emacs-major-version)
+  ;; evaluate version 27 code
   ( @dots{} ))
- ((= 23 emacs-major-version)
-  ;; evaluate version 23 code
+ ((= 28 emacs-major-version)
+  ;; evaluate version 28 code
   ( @dots{} )))
 @end group
 @end smallexample

@@ -1,22 +1,24 @@
-;;; electric-tests.el --- tests for electric.el
+;;; electric-tests.el --- tests for electric.el  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2013-2021 Free Software Foundation, Inc.
 
 ;; Author: João Távora <joaotavora@gmail.com>
 ;; Keywords:
 
-;; This program is free software; you can redistribute it and/or modify
+;; This file is part of GNU Emacs.
+
+;; GNU Emacs is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by
 ;; the Free Software Foundation, either version 3 of the License, or
 ;; (at your option) any later version.
 
-;; This program is distributed in the hope that it will be useful,
+;; GNU Emacs is distributed in the hope that it will be useful,
 ;; but WITHOUT ANY WARRANTY; without even the implied warranty of
 ;; MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 ;; GNU General Public License for more details.
 
 ;; You should have received a copy of the GNU General Public License
-;; along with this program.  If not, see <https://www.gnu.org/licenses/>.
+;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
 
@@ -48,7 +50,8 @@
   `(call-with-saved-electric-modes #'(lambda () ,@body)))
 
 (defun electric-pair-test-for (fixture where char expected-string
-                                       expected-point mode bindings fixture-fn)
+                                       expected-point mode bindings
+                                       fixture-fn &optional doc-string)
   (with-temp-buffer
     (funcall mode)
     (insert fixture)
@@ -61,6 +64,14 @@
             (mapcar #'car bindings)
             (mapcar #'cdr bindings)
           (call-interactively (key-binding `[,last-command-event])))))
+    (when
+        (and doc-string
+             (not
+              (and
+               (equal (buffer-substring-no-properties (point-min) (point-max))
+                      expected-string)
+               (equal (point) expected-point))))
+      (message "\n%s\n" doc-string))
     (should (equal (buffer-substring-no-properties (point-min) (point-max))
                    expected-string))
     (should (equal (point)
@@ -107,14 +118,9 @@
            (fixture (format "%s%s%s" prefix fixture suffix))
            (expected-string (format "%s%s%s" prefix expected-string suffix))
            (expected-point (+ (length prefix) expected-point))
-           (pos (+ (length prefix) pos)))
-      `(ert-deftest ,(intern (format "electric-pair-%s-at-point-%s-in-%s%s"
-                                     name
-                                     (1+ pos)
-                                     mode
-                                     extra-desc))
-           ()
-         ,(format "Electricity test in a `%s' buffer.\n
+           (pos (+ (length prefix) pos))
+           (doc-string
+            (format "Electricity test in a `%s' buffer.\n
 Start with point at %d in a %d-char-long buffer
 like this one:
 
@@ -133,13 +139,22 @@ The buffer's contents should %s:
                   (length fixture)
                   fixture
                   (if fixture-fn (format "\nNow call this:\n\n%s"
-                                         (pp-to-string fixture-fn)) "")
+                                         (pp-to-string fixture-fn))
+                    "")
                   (if bindings (format "\nEnsure the following bindings:\n\n%s"
-                                       (pp-to-string bindings)) "")
+                                       (pp-to-string bindings))
+                    "")
                   char
                   (if (string= fixture expected-string) "stay" "become")
                   (replace-regexp-in-string "\n" "\\\\n" expected-string)
-                  expected-point)
+                  expected-point)))
+      `(ert-deftest ,(intern (format "electric-pair-%s-at-point-%s-in-%s%s"
+                                     name
+                                     (1+ pos)
+                                     mode
+                                     extra-desc))
+           ()
+         ,doc-string
          (electric-pair-test-for ,fixture
                                  ,(1+ pos)
                                  ,char
@@ -147,7 +162,8 @@ The buffer's contents should %s:
                                  ,expected-point
                                  ',mode
                                  ,bindings
-                                 ,fixture-fn)))))
+                                 ,fixture-fn
+                                 ,doc-string)))))
 
 (cl-defmacro define-electric-pair-test
     (name fixture
@@ -161,8 +177,11 @@ The buffer's contents should %s:
           (test-in-comments t)
           (test-in-strings t)
           (test-in-code t)
-          (fixture-fn #'(lambda ()
-                          (electric-pair-mode 1))))
+          ;; The semantics of CL's defmacro "default values" is subtle:
+          ;; contrary to the actual arguments, these are evaluated (and
+          ;; are expected to return the "default form").
+          ;; `fixture-fn' contains a form whose evaluation returns a function.
+          (fixture-fn '#'electric-pair-mode))
   `(progn
      ,@(cl-loop
         for mode in (eval modes) ;FIXME: avoid `eval'
@@ -545,6 +564,24 @@ baz\"\""
       (goto-char 2)
       (electric-pair-delete-pair 1)
       (should (equal "" (buffer-string))))))
+
+
+;;; Undoing
+(ert-deftest electric-pair-undo-unrelated-state ()
+  "Make sure `electric-pair-mode' does not confuse `undo' (bug#39680)."
+  (with-temp-buffer
+    (buffer-enable-undo)
+    (electric-pair-local-mode)
+    (let ((last-command-event ?\())
+      (ert-simulate-command '(self-insert-command 1)))
+    (undo-boundary)
+    (let ((last-command-event ?a))
+      (ert-simulate-command '(self-insert-command 1)))
+    (undo-boundary)
+    (ert-simulate-command '(undo))
+    (let ((last-command-event ?\())
+      (ert-simulate-command '(self-insert-command 1)))
+    (should (string= (buffer-string) "(())"))))
 
 
 ;;; Electric newlines between pairs

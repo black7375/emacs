@@ -1,4 +1,4 @@
-;;; semantic/bovine/grammar.el --- Bovine's input grammar mode
+;;; semantic/bovine/grammar.el --- Bovine's input grammar mode  -*- lexical-binding: t; -*-
 ;;
 ;; Copyright (C) 2002-2021 Free Software Foundation, Inc.
 ;;
@@ -143,8 +143,7 @@ expanded from elsewhere."
               form  (cdr form))
 	;; Hack for dealing with new reading of unquotes outside of
 	;; backquote (introduced in 2010-12-06T16:37:26Z!monnier@iro.umontreal.ca).
-	(when (and (>= emacs-major-version 24)
-		   (listp first)
+        (when (and (listp first)
 		   (or (equal (car first) '\,)
 		       (equal (car first) '\,@)))
 	  (if (listp (cadr first))
@@ -244,7 +243,8 @@ QUOTEMODE is the mode in which quoted symbols are slurred."
       (insert "\n")
       (cond
        ((eq (car sexp) 'EXPAND)
-        (insert ",(lambda (vals start end)")
+        (insert ",(lambda (vals start end)"
+                "\n(ignore vals start end)")
         ;; The EXPAND macro definition is mandatory
         (bovine-grammar-expand-form
          (apply (cdr (assq 'EXPAND bovine--grammar-macros)) (cdr sexp))
@@ -521,7 +521,8 @@ Menu items are appended to the common grammar menu.")
 	(goto-char (point-min))
 	(delete-region (point-min) (line-end-position))
 	(insert ";;; " packagename
-		" --- Generated parser support file")
+		  " --- Generated parser support file  "
+		  "-*- lexical-binding:t -*-")
 	(delete-trailing-whitespace)
 	(re-search-forward ";;; \\(.*\\) ends here")
 	(replace-match packagename nil nil nil 1)))))

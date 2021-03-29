@@ -832,7 +832,7 @@ macfont_store_descriptor_attributes (CTFontDescriptorRef desc,
       } numeric_traits[] =
           {{FONT_WEIGHT_INDEX, kCTFontWeightTrait,
             {{-0.4, 50},	/* light */
-             {-0.24, 87.5},	/* (semi-light + normal) / 2 */
+             {-0.2, 87.5},	/* (semi-light + normal) / 2 */
              {0, 100},		/* normal */
              {0.24, 140},	/* (semi-bold + normal) / 2 */
              {0.4, 200},	/* bold */
@@ -1132,7 +1132,8 @@ struct macfont_metrics
 };
 
 #define METRICS_VALUE(metrics, member)                          \
-  (((metrics)->member##_high << 8) | (metrics)->member##_low)
+  ((int) (((unsigned int) (metrics)->member##_high << 8)        \
+          | (metrics)->member##_low))
 #define METRICS_SET_VALUE(metrics, member, value)                   \
   do {short tmp = (value); (metrics)->member##_low = tmp & 0xff;    \
     (metrics)->member##_high = tmp >> 8;} while (0)
@@ -1933,7 +1934,7 @@ macfont_create_attributes_with_spec (Lisp_Object spec)
   } numeric_traits[] =
       {{FONT_WEIGHT_INDEX, kCTFontWeightTrait,
         {{-0.4, 50},		/* light */
-         {-0.24, 87.5},		/* (semi-light + normal) / 2 */
+         {-0.2, 87.5},		/* (semi-light + normal) / 2 */
          {0, 100},		/* normal */
          {0.24, 140},		/* (semi-bold + normal) / 2 */
          {0.4, 200},		/* bold */
@@ -3308,10 +3309,8 @@ macfont_shape (Lisp_Object lgstring, Lisp_Object direction)
 	wadjust = lround (gl->advance);
       if (xoff != 0 || yoff != 0 || wadjust != metrics.width)
         {
-          Lisp_Object vec = make_uninit_vector (3);
-          ASET (vec, 0, make_fixnum (xoff));
-          ASET (vec, 1, make_fixnum (yoff));
-          ASET (vec, 2, make_fixnum (wadjust));
+          Lisp_Object vec = CALLN (Fvector, make_fixnum (xoff),
+				   make_fixnum (yoff), make_fixnum (wadjust));
           LGLYPH_SET_ADJUSTMENT (lglyph, vec);
         }
     }

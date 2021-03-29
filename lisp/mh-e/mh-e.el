@@ -1,4 +1,4 @@
-;;; mh-e.el --- GNU Emacs interface to the MH mail system
+;;; mh-e.el --- GNU Emacs interface to the MH mail system  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 1985-1988, 1990, 1992-1995, 1997, 1999-2021 Free
 ;; Software Foundation, Inc.
@@ -522,7 +522,7 @@ parsed by MH-E."
     (let* ((initial-size (mh-truncate-log-buffer))
            (start (point))
            (args (mh-list-to-string args)))
-      (apply 'call-process (expand-file-name command mh-progs) nil t nil args)
+      (apply #'call-process (expand-file-name command mh-progs) nil t nil args)
       (when (> (buffer-size) initial-size)
         (save-excursion
           (goto-char start)
@@ -560,7 +560,7 @@ ARGS are passed to COMMAND as command line arguments."
   (with-current-buffer (get-buffer-create mh-log-buffer)
     (mh-truncate-log-buffer))
   (let* ((process-connection-type nil)
-         (process (apply 'start-process
+         (process (apply #'start-process
                          command nil
                          (expand-file-name command mh-progs)
                          (mh-list-to-string args))))
@@ -602,7 +602,7 @@ RAISE-ERROR is non-nil, in which case an error is signaled if
   (set-buffer (get-buffer-create mh-temp-buffer))
   (erase-buffer)
   (let ((value
-         (apply 'call-process
+         (apply #'call-process
                 (expand-file-name command mh-progs) nil t nil
                 args)))
     (goto-char (point-min))
@@ -616,7 +616,7 @@ Put the output into buffer after point.
 Set mark after inserted text.
 Output is expected to be shown to user, not parsed by MH-E."
   (push-mark (point) t)
-  (apply 'call-process
+  (apply #'call-process
          (expand-file-name command mh-progs) nil t display
          (mh-list-to-string args))
 
@@ -650,7 +650,7 @@ preserves whether the mark is active or not."
   "Execute MH library command COMMAND with ARGS.
 Put the output into buffer after point.
 Set mark after inserted text."
-  (apply 'mh-exec-cmd-output (expand-file-name command mh-lib-progs) nil args))
+  (apply #'mh-exec-cmd-output (expand-file-name command mh-lib-progs) nil args))
 
 (defun mh-handle-process-error (command status)
   "Raise error if COMMAND returned non-zero STATUS, otherwise return STATUS."
@@ -695,9 +695,8 @@ See documentation for `defgroup' for a description of the arguments
 SYMBOL, MEMBERS, DOC and ARGS.
 This macro is used by Emacs versions that lack the :package-version
 keyword, introduced in Emacs 22."
-  (declare (doc-string 3))
+  (declare (doc-string 3) (indent defun))
   `(defgroup ,symbol ,members ,doc ,@(mh-strip-package-version args)))
-(put 'defgroup-mh 'lisp-indent-function 'defun)
 
 (defmacro defcustom-mh (symbol value doc &rest args)
   "Declare SYMBOL as a customizable variable that defaults to VALUE.
@@ -705,9 +704,8 @@ See documentation for `defcustom' for a description of the arguments
 SYMBOL, VALUE, DOC and ARGS.
 This macro is used by Emacs versions that lack the :package-version
 keyword, introduced in Emacs 22."
-  (declare (doc-string 3))
+  (declare (doc-string 3) (indent defun))
   `(defcustom ,symbol ,value ,doc ,@(mh-strip-package-version args)))
-(put 'defcustom-mh 'lisp-indent-function 'defun)
 
 (defmacro defface-mh (face spec doc &rest args)
   "Declare FACE as a customizable face that defaults to SPEC.
@@ -715,9 +713,8 @@ See documentation for `defface' for a description of the arguments
 FACE, SPEC, DOC and ARGS.
 This macro is used by Emacs versions that lack the :package-version
 keyword, introduced in Emacs 22."
-  (declare (doc-string 3))
+  (declare (doc-string 3) (indent defun))
   `(defface ,face ,spec ,doc ,@(mh-strip-package-version args)))
-(put 'defface-mh 'lisp-indent-function 'defun)
 
 
 
@@ -977,7 +974,7 @@ necessary and can actually cause problems."
   :set (lambda (symbol value)
          (set-default symbol value)     ;Done in mh-variant-set-variant!
          (mh-variant-set value))
-  :initialize 'custom-initialize-default
+  :initialize #'custom-initialize-default
   :group 'mh-e
   :package-version '(MH-E . "8.0"))
 
@@ -1550,8 +1547,8 @@ as the result is undefined."
                                ,(append
                                  '(radio)
                                  (mapcar
-                                  (function (lambda (arg) `(const ,arg)))
-                                  (mapcar 'car mh-identity-list))))
+                                  (lambda (arg) `(const ,arg))
+                                  (mapcar #'car mh-identity-list))))
                          (cons :tag "Fcc Field"
                                (const "fcc")
                                (string :tag "Value"))
@@ -1577,8 +1574,8 @@ See `mh-identity-list'."
   :type (append
          '(radio)
          (cons '(const :tag "None" nil)
-               (mapcar (function (lambda (arg) `(const ,arg)))
-                       (mapcar 'car mh-identity-list))))
+               (mapcar (lambda (arg) `(const ,arg))
+                       (mapcar #'car mh-identity-list))))
   :group 'mh-identity
   :package-version '(MH-E . "7.1"))
 
@@ -1747,7 +1744,7 @@ bogofilter, then you can set this option to \"Bogofilter\"."
                  (const :tag "SpamAssassin" spamassassin)
                  (const :tag "Bogofilter" bogofilter)
                  (const :tag "SpamProbe" spamprobe))
-  :set 'mh-junk-choose
+  :set #'mh-junk-choose
   :group 'mh-junk
   :package-version '(MH-E . "7.3"))
 
@@ -1910,11 +1907,11 @@ white image, can be generated using the \"compface\" command (see URL
 `ftp://ftp.cs.indiana.edu/pub/faces/compface/compface.tar.Z'). The
 \"Online X-Face Converter\" is a useful resource for quick conversion
 of images into \"X-Face:\" header fields (see URL
-`http://www.dairiki.org/xface/').
+`https://www.dairiki.org/xface/').
 
 Use the \"make-face\" script to convert a JPEG image to the higher
 resolution, color, \"Face:\" header field (see URL
-`http://quimby.gnus.org/circus/face/make-face').
+`https://quimby.gnus.org/circus/face/make-face').
 
 The URL of any image can be used for the \"X-Image-URL:\" field and no
 processing of the image is required.
@@ -2008,7 +2005,7 @@ call `mh-set-cmd-note' with the width specified by your format file
 you would use \"(mh-set-cmd-note 4)\"."
   :type 'boolean
   :group 'mh-scan-line-formats
-  :set 'mh-adaptive-cmd-note-flag-check
+  :set #'mh-adaptive-cmd-note-flag-check
   :package-version '(MH-E . "7.0"))
 
 (defun mh-scan-format-file-check (symbol value)
@@ -2047,7 +2044,7 @@ Emacs start with 0)."
                  (const :tag "Use Default scan Format" nil)
                  (file  :tag "Specify a scan Format File"))
   :group 'mh-scan-line-formats
-  :set 'mh-scan-format-file-check
+  :set #'mh-scan-format-file-check
   :package-version '(MH-E . "6.0"))
 
 (defun mh-adaptive-cmd-note-flag-check (symbol value)
@@ -2420,11 +2417,11 @@ of citations entirely, choose \"None\"."
 
 ;; These entries have been intentionally excluded by the developers.
 ;;  "Comments:"                         ; RFC 822 (or later) - show this one
-;;  "Fax:"                              ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
-;;  "Mail-System-Version:"              ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
-;;  "Mailer:"                           ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+;;  "Fax:"                              ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
+;;  "Mail-System-Version:"              ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
+;;  "Mailer:"                           ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
 ;;  "Organization:"                     ;
-;;  "Phone:"                            ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+;;  "Phone:"                            ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
 ;;  "Reply-By:"                         ; RFC 2156
 ;;  "Reply-To:"                         ; RFC 822 (or later)
 ;;  "Sender:"                           ;
@@ -2437,13 +2434,13 @@ of citations entirely, choose \"None\"."
 ;; Mention source, if known.
 (defvar mh-invisible-header-fields-internal
   '(
-    "Abuse-Reports-To:"                 ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Abuse-Reports-To:"                 ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Accept-Language:"
     "AcceptLanguage:"
     "Accreditor:"                       ; Habeas
     "Also-Control:"                     ; H. Spencer: News Article Format and Transmission, June 1994
     "Alternate-recipient:"              ; RFC 2156
-    "Approved-By:"                      ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Approved-By:"                      ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Approved:"                         ; RFC 1036
     "Article-Names:"                    ; H. Spencer: News Article Format and Transmission, June 1994
     "Article-Updates:"                  ; H. Spencer: News Article Format and Transmission, June 1994
@@ -2454,7 +2451,7 @@ of citations entirely, choose \"None\"."
     "Bounces-To:"
     "Bounces_to:"
     "Bytes:"
-    "Cancel-Key:"                       ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Cancel-Key:"                       ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Cancel-Lock:"                      ; NNTP posts
     "Comment:"                          ; Shows up with DomainKeys
     "Content-"                          ; RFC 2045, 1123, 1766, 1864, 2045, 2110, 2156, 2183, 2912
@@ -2469,20 +2466,20 @@ of citations entirely, choose \"None\"."
     "Disposition-Notification-Options:" ; RFC 2298
     "Disposition-Notification-To:"      ; RFC 2298
     "Distribution:"                     ; RFC 1036
-    "DKIM-"                             ; http://antispam.yahoo.com/domainkeys
+    "DKIM-"                             ; https://en.wikipedia.org/wiki/DomainKeys_Identified_Mail
     "DL-Expansion-History:"             ; RFC 2156
-    "DomainKey-"                        ; http://antispam.yahoo.com/domainkeys
+    "DomainKey-"                        ; https://en.wikipedia.org/wiki/DomainKeys_Identified_Mail
     "DomainKey-Signature:"
     "Encoding:"                         ; RFC 1505
     "Envelope-to:"
-    "Errors-To:"                        ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Errors-To:"                        ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Expires:"                          ; RFC 1036
     "Expiry-Date:"                      ; RFC 2156
     "Face:"                             ; Gnus Face header
     "Followup-To:"                      ; RFC 1036
-    "For-Approval:"                     ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
-    "For-Comment:"                      ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
-    "For-Handling:"                     ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "For-Approval:"                     ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "For-Comment:"                      ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "For-Handling:"                     ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Forwarded:"                        ; MH
     "From "                             ; sendmail
     "Generate-Delivery-Report:"         ; RFC 2156
@@ -2493,12 +2490,12 @@ of citations entirely, choose \"None\"."
     "Language:"                         ; RFC 2156
     "Lines:"                            ; RFC 1036
     "List-"                             ; RFC 2369, 2919
-    "Mail-Copies-To:"                   ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
-    "Mail-Followup-To:"                 ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Mail-Copies-To:"                   ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Mail-Followup-To:"                 ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Mail-from:"                        ; MH
-    "Mail-Reply-To:"                    ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Mail-Reply-To:"                    ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Mailing-List:"                     ; Egroups/yahoogroups mailing list manager
-    "Message-Content:"                  ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Message-Content:"                  ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Message-ID:"                       ; RFC 822 (or later)
     "Message-Type:"                     ; RFC 2156
     "Mime-Version"                      ; RFC 2045
@@ -2516,50 +2513,50 @@ of citations entirely, choose \"None\"."
     "Original-Recipient:"               ; RFC 2298
     "Original-To:"                      ; mail to news
     "Original-X-"                       ; mail to news
-    "Origination-Client:"               ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
-    "Originator:"                       ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Origination-Client:"               ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Originator:"                       ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "P1-Content-Type:"                  ; X400
     "P1-Message-Id:"                    ; X400
     "P1-Recipient:"                     ; X400
     "Path:"                             ; RFC 1036
     "Pics-Label:"                       ; W3C
-    "Posted-To:"                        ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
-    "Precedence:"                       ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Posted-To:"                        ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Precedence:"                       ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Prev-Resent"                       ; MH
     "Prevent-NonDelivery-Report:"       ; RFC 2156
     "Priority:"                         ; RFC 2156
-    "Read-Receipt-To:"                  ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Read-Receipt-To:"                  ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Received-SPF:"                     ; Gmail
     "Received:"                         ; RFC 822 (or later)
     "References:"                       ; RFC 822 (or later)
-    "Registered-Mail-Reply-Requested-By:"       ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Registered-Mail-Reply-Requested-By:"       ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Remailed-"                         ; MH
-    "Replaces:"                         ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Replaces:"                         ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Replied:"                          ; MH
     "Resent-"                           ; RFC 822 (or later)
     "Return-Path:"                      ; RFC 822 (or later)
-    "Return-Receipt-Requested:"         ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
-    "Return-Receipt-To:"                ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Return-Receipt-Requested:"         ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Return-Receipt-To:"                ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Seal-Send-Time:"
     "See-Also:"                         ; H. Spencer: News Article Format and Transmission, June 1994
     "Sensitivity:"                      ; RFC 2156, 2421
-    "Speech-Act:"                       ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Speech-Act:"                       ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Status:"                           ; sendmail
     "Supersedes:"                       ; H. Spencer: News Article Format and Transmission, June 1994
-    "Telefax:"                          ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Telefax:"                          ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Thread-"
     "Thread-Index:"
     "Thread-Topic:"
-    "Translated-By:"                    ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
-    "Translation-Of:"                   ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Translated-By:"                    ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "Translation-Of:"                   ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "Ua-Content-Id:"                    ; X400
     "Via:"                              ; MH
     "X-Abuse-and-DMCA-"
     "X-Abuse-Info:"
     "X-Accept-Language:"                ; Netscape/Mozilla
     "X-Ack:"
-    "X-ACL-Warn:"			; http://www.exim.org
-    "X-Admin:"                          ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-ACL-Warn:"			; https://www.exim.org
+    "X-Admin:"                          ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-Administrivia-To:"
     "X-AMAZON"                          ; Amazon.com
     "X-AnalysisOut:"                    ; Exchange
@@ -2582,8 +2579,8 @@ of citations entirely, choose \"None\"."
     "X-BFI:"
     "X-Bigfish:"
     "X-Bogosity:"                       ; bogofilter
-    "X-BPS1:"				; http://www.boggletools.com
-    "X-BPS2:"				; http://www.boggletools.com
+    "X-BPS1:"				; http://www.boggletools.com [dead link?]
+    "X-BPS2:"				; http://www.boggletools.com [dead link?]
     "X-Brightmail-Tracker:"             ; Brightmail
     "X-BrightmailFiltered:"             ; Brightmail
     "X-Bugzilla-"                       ; Bugzilla
@@ -2594,17 +2591,17 @@ of citations entirely, choose \"None\"."
     "X-CanIt-Geo:"                      ; IEEE spam filter
     "X-Cloudmark-SP-"			; Cloudmark (www.cloudmark.com)
     "X-Comment:"                        ; AT&T Mailennium
-    "X-Complaints-To:"                  ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-Complaints-To:"                  ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-Completed:"
-    "X-Confirm-Reading-To:"             ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-Confirm-Reading-To:"             ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-Content-Filtered-By:"
     "X-ContentStamp:"                   ; NetZero
-    "X-Country-Chain:"                  ; http://www.declude.com/x-note.htm
+    "X-Country-Chain:"                  ; http://www.declude.com/x-note.htm [dead link?]
     "X-Cr-Hashedpuzzle:"
     "X-Cr-Puzzleid:"
     "X-Cron-Env:"
     "X-DCC-"                            ; SpamAssassin
-    "X-Declude-"                        ; http://www.declude.com/x-note.htm
+    "X-Declude-"                        ; http://www.declude.com/x-note.htm [dead link?]
     "X-Dedicated:"
     "X-Delivered"
     "X-Destination-ID:"
@@ -2619,40 +2616,40 @@ of citations entirely, choose \"None\"."
     "X-EID:"
     "X-ELNK-Trace:"                     ; Earthlink mailer
     "X-EM-"				; Some ecommerce software
-    "X-Email-Type-Id:"			; Paypal http://www.paypal.com
+    "X-Email-Type-Id:"			; Paypal https://www.paypal.com
     "X-Enigmail-Version:"
     "X-Envelope-Date:"                  ; GNU mailutils
-    "X-Envelope-From:"                  ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-Envelope-From:"                  ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-Envelope-Sender:"
-    "X-Envelope-To:"                    ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-Envelope-To:"                    ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-EviteMessageId:"                 ; evite.com
     "X-Evolution:"                      ; Evolution mail client
     "X-ExtLoop"
-    "X-Face:"                           ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-Face:"                           ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-Facebook"                        ; Facebook
     "X-FB-SS:"
     "X-fmx-"
     "X-Folder:"                         ; Spam
     "X-Forwarded-"                      ; Google+
     "X-From-Line"
-    "X-FuHaFi:"				; http://www.gmx.net/
+    "X-FuHaFi:"				; https://www.gmx.net/
     "X-Generated-By:"                   ; launchpad.net
     "X-Gmail-"                          ; Gmail
     "X-Gnus-Mail-Source:"               ; gnus
     "X-Google-"                         ; Google mail
     "X-Google-Sender-Auth:"
     "X-Greylist:"                       ; milter-greylist-1.2.1
-    "X-Habeas-"				; http://www.returnpath.net
+    "X-Habeas-"				; https://www.returnpath.net
     "X-Hashcash:"                       ; hashcash
     "X-Headers-End:"                    ; SpamCop
     "X-HPL-"
     "X-HR-"
     "X-HTTP-UserAgent:"
     "X-Hz"				; Hertz
-    "X-Identity:"                       ; http://www.declude.com/x-note.htm
+    "X-Identity:"                       ; http://www.declude.com/x-note.htm [dead link?]
     "X-IEEE-UCE-"                       ; IEEE spam filter
     "X-Image-URL:"
-    "X-IMAP:"                           ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-IMAP:"                           ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-Info:"                           ; NTMail
     "X-IronPort-"                       ; IronPort AV
     "X-ISI-4-30-3-MailScanner:"
@@ -2662,15 +2659,15 @@ of citations entirely, choose \"None\"."
     "X-Juno-"                           ; Juno
     "X-Key:"
     "X-Launchpad-"                      ; plaunchpad.net
-    "X-List-Host:"                      ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-List-Host:"                      ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-List-Subscribe:"                 ; Unknown mailing list managers
     "X-List-Unsubscribe:"               ; Unknown mailing list managers
     "X-Listprocessor-"                  ; ListProc(tm) by CREN
-    "X-Listserver:"                     ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
-    "X-Loop:"                           ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-Listserver:"                     ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-Loop:"                           ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-Lrde-Mailscanner:"
     "X-Lumos-SenderID:"                 ; Roving ConstantContact
-    "X-mail_abuse_inquiries:"		; http://www.salesforce.com
+    "X-mail_abuse_inquiries:"		; https://www.salesforce.com
     "X-Mail-from:"                      ; fastmail.fm
     "X-MAIL-INFO:"                      ; NetZero
     "X-Mailer_"
@@ -2683,28 +2680,28 @@ of citations entirely, choose \"None\"."
     "X-Mailutils-Message-Id"            ; GNU Mailutils
     "X-Majordomo:"                      ; Majordomo mailing list manager
     "X-Match:"
-    "X-MaxCode-Template:"		; Paypal http://www.paypal.com
+    "X-MaxCode-Template:"		; Paypal https://www.paypal.com
     "X-MB-Message-"                     ; AOL WebMail
     "X-MDaemon-Deliver-To:"
     "X-MDRemoteIP:"
-    "X-ME-Bayesian:"			; http://www.newmediadevelopment.net/page.cfm/parent/Client-Area/content/Managing-spam/
+    "X-ME-Bayesian:"			; https://www.newmediadevelopment.net/page.cfm/parent/Client-Area/content/Managing-spam/
     "X-Message-Id"
     "X-Message-Type:"
     "X-MessageWall-Score:"              ; Unknown mailing list manager, AUC TeX
     "X-MHE-Checksum:"                   ; Checksum added during index search
     "X-MIME-Autoconverted:"             ; sendmail
-    "X-MIMEOLE:"                        ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/sendmail
+    "X-MIMEOLE:"                        ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/sendmail
     "X-MIMETrack:"
     "X-Mms-"                            ; T-Mobile pictures
     "X-Mozilla-Status:"                 ; Netscape/Mozilla
     "X-MS-"                             ; MS Outlook
     "X-Msmail-"                         ; MS Outlook
-    "X-MSMail-Priority"                 ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-MSMail-Priority"                 ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-MXL-Hash:"
     "X-NAI-Spam-"                       ; Network Associates Inc. SpamKiller
     "X-News:"                           ; News
-    "X-Newsreader:"                     ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
-    "X-No-Archive:"                     ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-Newsreader:"                     ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-No-Archive:"                     ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-Notes-Item:"                     ; Lotus Notes Domino structured header
     "X-Notification-"                   ; Google+
     "X-Notifications:"                  ; Google+
@@ -2713,7 +2710,7 @@ of citations entirely, choose \"None\"."
     "X-ORBL:"
     "X-Orcl-Content-Type:"
     "X-Organization:"
-    "X-Original-Arrival-Type:"          ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-Original-Arrival-Type:"          ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-Original-Complaints-To:"
     "X-Original-Date:"                  ; SourceForge mailing list manager
     "X-Original-To:"
@@ -2733,10 +2730,10 @@ of citations entirely, choose \"None\"."
     "X-Provags-ID:"
     "X-PSTN-"
     "X-Qotd-"                           ; User added
-    "X-RCPT-TO:"                        ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-RCPT-TO:"                        ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-Received-Date:"
     "X-Received:"
-    "X-Report-Abuse-To:"                ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-Report-Abuse-To:"                ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-Request-"
     "X-Resolved-to:"                    ; fastmail.fm
     "X-Return-Path-Hint:"               ; Roving ConstantContact
@@ -2753,12 +2750,12 @@ of citations entirely, choose \"None\"."
     "X-SBRule:"                         ; Spam
     "X-Scanned-By:"
     "X-Sender-ID:"                      ; Google+
-    "X-Sender:"                         ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-Sender:"                         ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-Sendergroup:"			; Cisco Email Security (formerly IronPort; http://www.ironport.com)
     "X-Server-Date:"
     "X-Server-Uuid:"
     "X-Service-Code:"
-    "X-SFDC-"				; http://www.salesforce.com
+    "X-SFDC-"				; https://www.salesforce.com
     "X-Sieve:"                          ; Sieve filtering
     "X-SMFBL:"
     "X-SMHeaderMap:"
@@ -2773,14 +2770,14 @@ of citations entirely, choose \"None\"."
     "X-Submissions-To:"
     "X-Sun-Charset:"
     "X-Telecom-Digest"
-    "X-TM-IMSS-Message-ID:"		; http://www.trendmicro.com
+    "X-TM-IMSS-Message-ID:"		; https://www.trendmicro.com
     "X-Trace:"
     "X-UID"
-    "X-UIDL:"                           ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-UIDL:"                           ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-Unity"
     "X-UNTD-"                           ; NetZero
-    "X-URI:"                            ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
-    "X-URL:"                            ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-URI:"                            ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-URL:"                            ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
     "X-USANET-"                         ; usa.net
     "X-Usenet-Provider"
     "X-UserInfo1:"
@@ -2792,11 +2789,11 @@ of citations entirely, choose \"None\"."
     "X-VSMLoop:"                        ; NTMail
     "X-WebTV-Signature:"
     "X-Wss-Id:"                         ; Worldtalk gateways
-    "X-X-Sender:"                       ; http://people.dsv.su.se/~jpalme/ietf/mail-headers/
-    "X-XPT-XSL-Name:"			; Paypal http://www.paypal.com
+    "X-X-Sender:"                       ; https://people.dsv.su.se/~jpalme/ietf/mail-headers/
+    "X-XPT-XSL-Name:"			; Paypal https://www.paypal.com
     "X-xsi-"
-    "X-XWALL-"				; http://www.dataenter.co.at/doc/xwall_undocumented_config.htm
-    "X-Y-GMX-Trusted:"			; http://www.gmx.net/
+    "X-XWALL-"				; https://www.dataenter.co.at/doc/xwall_undocumented_config.htm
+    "X-Y-GMX-Trusted:"			; https://www.gmx.net/
     "X-Yahoo"
     "X-Yahoo-Newman-"
     "X-YMail-"
@@ -3036,20 +3033,20 @@ supports it.
 The first header field used, if present, is the Gnus-specific
 \"Face:\" field. The \"Face:\" field appeared in GNU Emacs 21 and
 XEmacs. For more information, see URL
-`http://quimby.gnus.org/circus/face/'. Next is the traditional
+`https://quimby.gnus.org/circus/face/'. Next is the traditional
 \"X-Face:\" header field. The display of this field requires the
 \"uncompface\" program (see URL
 `ftp://ftp.cs.indiana.edu/pub/faces/compface/compface.tar.z'). Recent
 versions of XEmacs have internal support for \"X-Face:\" images. If
 your version of XEmacs does not, then you'll need both \"uncompface\"
-and the x-face package (see URL `http://www.jpl.org/ftp/pub/elisp/').
+and the x-face package (see URL `https://www.jpl.org/ftp/pub/elisp/').
 
 Finally, MH-E will display images referenced by the \"X-Image-URL:\"
 header field if neither the \"Face:\" nor the \"X-Face:\" fields are
 present. The display of the images requires \"wget\" (see URL
 `https://www.gnu.org/software/wget/wget.html'), \"fetch\", or \"curl\"
 to fetch the image and the \"convert\" program from the ImageMagick
-suite (see URL `http://www.imagemagick.org/'). Of the three header
+suite (see URL `https://www.imagemagick.org/'). Of the three header
 fields this is the most efficient in terms of network usage since the
 image doesn't need to be transmitted with every single mail.
 
@@ -3182,7 +3179,7 @@ folder, which is also available in `mh-current-folder'."
   :package-version '(MH-E . "8.0"))
 
 (defcustom-mh mh-annotate-msg-hook nil
-  "Hook run whenever a message is sent and after the scan lines and message are annotated.
+  "Hook run when a message is sent and after annotating the scan lines and message.
 Hook functions can access the current folder name with
 `mh-current-folder' and obtain the message numbers of the
 annotated messages with `mh-annotate-list'."
@@ -3412,6 +3409,7 @@ sequence."
 ;;; Faces (:group 'mh-faces + group where faces described)
 
 (if (boundp 'facemenu-unlisted-faces)
+    ;; This variable was removed in Emacs 22.1.
     (add-to-list 'facemenu-unlisted-faces "^mh-"))
 
 ;; To add a new face:

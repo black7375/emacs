@@ -29,7 +29,6 @@
 
 (require 'cl-lib)
 (require 'backtrace)
-(require 'button)
 
 (defgroup debugger nil
   "Debuggers and related commands for Emacs."
@@ -322,7 +321,7 @@ the debugger will not be entered."
 
 (make-obsolete 'debugger-insert-backtrace
                "use a `backtrace-mode' buffer or `backtrace-to-string'."
-               "Emacs 27.1")
+               "27.1")
 
 (defun debugger-insert-backtrace (frames do-xrefs)
   "Format and insert the backtrace FRAMES at point.
@@ -670,9 +669,7 @@ Redefining FUNCTION also cancels it."
      (when (special-form-p fn)
        (setq fn nil))
      (setq val (completing-read
-		(if fn
-		    (format "Debug on entry to function (default %s): " fn)
-		  "Debug on entry to function: ")
+                (format-prompt "Debug on entry to function" fn)
 		obarray
 		#'(lambda (symbol)
 		    (and (fboundp symbol)
@@ -775,8 +772,7 @@ another symbol also cancels it."
    (let* ((var-at-point (variable-at-point))
           (var (and (symbolp var-at-point) var-at-point))
           (val (completing-read
-                (concat "Debug when setting variable"
-                        (if var (format " (default %s): " var) ": "))
+                (format-prompt "Debug when setting variable" var)
                 obarray #'boundp
                 t nil nil (and var (symbol-name var)))))
      (list (if (equal val "") var (intern val)))))

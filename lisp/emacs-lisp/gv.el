@@ -166,16 +166,33 @@ arguments as NAME.  DO is a function as defined in `gv-get'."
         ;; (`(expand ,expander) `(gv-define-expand ,name ,expander))
         (_ (message "Unknown %s declaration %S" symbol handler) nil))))
 
+;; Additions for `declare'.  We specify the values as named aliases so
+;; that `describe-variable' prints something useful; cf. Bug#40491.
+
+;;;###autoload
+(defsubst gv--expander-defun-declaration (&rest args)
+  (apply #'gv--defun-declaration 'gv-expander args))
+
+;;;###autoload
+(defsubst gv--setter-defun-declaration (&rest args)
+  (apply #'gv--defun-declaration 'gv-setter args))
+
 ;;;###autoload
 (or (assq 'gv-expander defun-declarations-alist)
-    (let ((x `(gv-expander
-               ,(apply-partially #'gv--defun-declaration 'gv-expander))))
+    (let ((x (list 'gv-expander #'gv--expander-defun-declaration)))
       (push x macro-declarations-alist)
       (push x defun-declarations-alist)))
 ;;;###autoload
 (or (assq 'gv-setter defun-declarations-alist)
-    (push `(gv-setter ,(apply-partially #'gv--defun-declaration 'gv-setter))
+    (push (list 'gv-setter #'gv--setter-defun-declaration)
 	  defun-declarations-alist))
+
+;;;###autoload
+(let ((spec (get 'compiler-macro 'edebug-declaration-spec)))
+  ;; It so happens that it's the same spec for gv-* as for compiler-macros.
+  ;; '(&or symbolp ("lambda" &define lambda-list lambda-doc def-body))
+  (put 'gv-expander 'edebug-declaration-spec spec)
+  (put 'gv-setter 'edebug-declaration-spec spec))
 
 ;; (defmacro gv-define-expand (name expander)
 ;;   "Use EXPANDER to handle NAME as a generalized var.
@@ -214,7 +231,8 @@ The first arg in ARGLIST (the one that receives VAL) receives an expression
 which can do arbitrary things, whereas the other arguments are all guaranteed
 to be pure and copyable.  Example use:
   (gv-define-setter aref (v a i) \\=`(aset ,a ,i ,v))"
-  (declare (indent 2) (debug (&define name sexp def-body)))
+  (declare (indent 2)
+           (debug (&define [&name symbolp "@gv-setter"] sexp def-body)))
   `(gv-define-expander ,name
      (lambda (do &rest args)
        (declare-function
@@ -297,7 +315,7 @@ The return value is the last VAL in the list.
 ;; Autoload this `put' since a user might use C-u C-M-x on an expression
 ;; containing a non-trivial `push' even before gv.el was loaded.
 ;;;###autoload
-(put 'gv-place 'edebug-form-spec 'edebug-match-form)
+(def-edebug-elem-spec 'gv-place '(form))
 
 ;; CL did the equivalent of:
 ;;(gv-define-macroexpand edebug-after (lambda (before index place) place))
@@ -406,6 +424,17 @@ The return value is the last VAL in the list.
                                               `(delq ,p ,getter))))))
                             ,v))))))))))
 
+(gv-define-expander plist-get
+  (lambda (do plist prop)
+    (macroexp-let2 macroexp-copyable-p key prop
+      (gv-letplace (getter setter) plist
+        (macroexp-let2 nil p `(cdr (plist-member ,getter ,key))
+          (funcall do
+                   `(car ,p)
+                   (lambda (val)
+                     `(if ,p
+                          (setcar ,p ,val)
+                        ,(funcall setter `(cons ,key (cons ,val ,getter)))))))))))
 
 ;;; Some occasionally handy extensions.
 
@@ -482,6 +511,11 @@ The return value is the last VAL in the list.
              (funcall do `(funcall (car ,gv))
                       (lambda (v) `(funcall (cdr ,gv) ,v))))))))
 
+(put 'error 'gv-expander
+     (lambda (do &rest args)
+       (funcall do `(error . ,args)
+                (lambda (v) `(progn ,v (error . ,args))))))
+
 (defmacro gv-synthetic-place (getter setter)
   "Special place described by its setter and getter.
 GETTER and SETTER (typically obtained via `gv-letplace') get and
@@ -516,9 +550,12 @@ This macro only makes sense when used in a place."
          (gv-letplace (dgetter dsetter) d
            (funcall do
                     `(cons ,agetter ,dgetter)
-                    (lambda (v) `(progn
-                              ,(funcall asetter `(car ,v))
-                              ,(funcall dsetter `(cdr ,v)))))))))
+                    (lambda (v)
+                      (macroexp-let2 nil v v
+                        `(progn
+                           ,(funcall asetter `(car ,v))
+                           ,(funcall dsetter `(cdr ,v))
+                           ,v))))))))
 
 (put 'logand 'gv-expander
      (lambda (do place &rest masks)
@@ -528,9 +565,12 @@ This macro only makes sense when used in a place."
            (funcall
             do `(logand ,getter ,mask)
             (lambda (v)
-              (funcall setter
-                       `(logior (logand ,v ,mask)
-                                (logand ,getter (lognot ,mask))))))))))
+              (macroexp-let2 nil v v
+                `(progn
+                   ,(funcall setter
+                             `(logior (logand ,v ,mask)
+                                      (logand ,getter (lognot ,mask))))
+                   ,v))))))))
 
 ;;; References
 
@@ -552,7 +592,7 @@ binding mode."
             ;; dynamic binding mode as well.
             (eq (car-safe code) 'cons))
         code
-      (macroexp--warn-and-return
+      (macroexp-warn-and-return
        "Use of gv-ref probably requires lexical-binding"
        code))))
 

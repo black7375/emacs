@@ -327,9 +327,8 @@ With a prefix argument switch off tracing of procedure PROC."
   (interactive
    (list (let ((current (symbol-at-point))
                (action (if current-prefix-arg "Untrace" "Trace")))
-           (if current
-               (read-string (format "%s procedure [%s]: " action current) nil nil (symbol-name current))
-             (read-string (format "%s procedure: " action))))
+           (read-string (format-prompt "%s procedure" current action)
+                        nil nil (and current (symbol-name current))))
          current-prefix-arg))
   (when (= (length proc) 0)
     (error "Invalid procedure name"))
@@ -422,7 +421,7 @@ in the next one.")
 
 (defun scheme-load-file (file-name)
   "Load a Scheme file FILE-NAME into the inferior Scheme process."
-  (interactive (comint-get-source "Load Scheme file: " scheme-prev-l/c-dir/file
+  (interactive (comint-get-source "Load Scheme file" scheme-prev-l/c-dir/file
 				  scheme-source-modes t)) ; t because `load'
                                                           ; needs an exact name
   (comint-check-source file-name) ; Check to see if buffer needs saved.
@@ -434,7 +433,7 @@ in the next one.")
 
 (defun scheme-compile-file (file-name)
   "Compile a Scheme file FILE-NAME in the inferior Scheme process."
-  (interactive (comint-get-source "Compile Scheme file: "
+  (interactive (comint-get-source "Compile Scheme file"
 				  scheme-prev-l/c-dir/file
 				  scheme-source-modes
 				  nil)) ; nil because COMPILE doesn't
@@ -517,6 +516,8 @@ command to run."
 This is a good place to put keybindings."
   :type 'hook
   :group 'cmuscheme)
+(make-obsolete-variable 'cmuscheme-load-hook
+                        "use `with-eval-after-load' instead." "28.1")
 
 (run-hooks 'cmuscheme-load-hook)
 

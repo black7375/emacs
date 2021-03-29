@@ -58,13 +58,10 @@
 ;;; Code:
 
 (require 'cl-lib)
-(require 'button)
 (require 'debug)
 (require 'backtrace)
-(require 'easymenu)
 (require 'ewoc)
 (require 'find-func)
-(require 'help)
 (require 'pp)
 
 ;;; UI customization options.
@@ -83,15 +80,13 @@ Use nil for no limit (caution: backtrace lines can be very long)."
                                      :background "green1")
                                     (((class color) (background dark))
                                      :background "green3"))
-  "Face used for expected results in the ERT results buffer."
-  :group 'ert)
+  "Face used for expected results in the ERT results buffer.")
 
 (defface ert-test-result-unexpected '((((class color) (background light))
                                        :background "red1")
                                       (((class color) (background dark))
                                        :background "red3"))
-  "Face used for unexpected results in the ERT results buffer."
-  :group 'ert)
+  "Face used for unexpected results in the ERT results buffer.")
 
 
 ;;; Copies/reimplementations of cl functions.
@@ -198,8 +193,8 @@ it has to be wrapped in `(eval (quote ...))'.
 
 \(fn NAME () [DOCSTRING] [:expected-result RESULT-TYPE] \
 [:tags \\='(TAG...)] BODY...)"
-  (declare (debug (&define :name test
-                           name sexp [&optional stringp]
+  (declare (debug (&define [&name "test@" symbolp]
+			   sexp [&optional stringp]
 			   [&rest keywordp sexp] def-body))
            (doc-string 3)
            (indent 2))
@@ -225,16 +220,6 @@ it has to be wrapped in `(eval (quote ...))'.
                             `(:tags ,tags))
                         :body (lambda () ,@body)))
          ',name))))
-
-;; We use these `put' forms in addition to the (declare (indent)) in
-;; the defmacro form since the `declare' alone does not lead to
-;; correct indentation before the .el/.elc file is loaded.
-;; Autoloading these `put' forms solves this.
-;;;###autoload
-(progn
-  ;; TODO(ohler): Figure out what these mean and make sure they are correct.
-  (put 'ert-deftest 'lisp-indent-function 2)
-  (put 'ert-info 'lisp-indent-function 1))
 
 (defvar ert--find-test-regexp
   (concat "^\\s-*(ert-deftest"
@@ -276,7 +261,7 @@ DATA is displayed to the user and should state the reason for skipping."
 It should only be stopped when ran from inside ert--run-test-internal."
   (when (and (not (symbolp debugger))   ; only run on anonymous debugger
              (memq error-symbol '(ert-test-failed ert-test-skipped)))
-    (funcall debugger 'error data)))
+    (funcall debugger 'error (cons error-symbol data))))
 
 (defun ert--special-operator-p (thing)
   "Return non-nil if THING is a symbol naming a special operator."
@@ -292,14 +277,7 @@ It should only be stopped when ran from inside ert--run-test-internal."
   (let ((form
          ;; catch macroexpansion errors
          (condition-case err
-             (macroexpand-all form
-                              (append (bound-and-true-p
-                                       byte-compile-macro-environment)
-                                      (cond
-                                       ((boundp 'macroexpand-all-environment)
-                                        macroexpand-all-environment)
-                                       ((boundp 'cl-macro-environment)
-                                        cl-macro-environment))))
+             (macroexpand-all form macroexpand-all-environment)
            (error `(signal ',(car err) ',(cdr err))))))
     (cond
      ((or (atom form) (ert--special-operator-p (car form)))
@@ -489,7 +467,7 @@ Errors during evaluation are caught and handled like nil."
 Returns nil if they are."
   (if (not (eq (type-of a) (type-of b)))
       `(different-types ,a ,b)
-    (pcase-exhaustive a
+    (pcase a
       ((pred consp)
        (let ((a-length (proper-list-p a))
              (b-length (proper-list-p b)))
@@ -515,7 +493,14 @@ Returns nil if they are."
                        `(cdr ,cdr-x)
                      (cl-assert (equal a b) t)
                      nil))))))))
-      ((pred arrayp)
+      ((pred cl-struct-p)
+       (cl-loop for slot in (cl-struct-slot-info (type-of a))
+                for ai across a
+                for bi across b
+                for xf = (ert--explain-equal-rec ai bi)
+                do (when xf (cl-return `(struct-field ,(car slot) ,xf)))
+                finally (cl-assert (equal a b) t)))
+      ((or (pred arrayp) (pred recordp))
        ;; For mixed unibyte/multibyte string comparisons, make both multibyte.
        (when (and (stringp a)
                   (xor (multibyte-string-p a) (multibyte-string-p b)))
@@ -533,7 +518,7 @@ Returns nil if they are."
                   for xi = (ert--explain-equal-rec ai bi)
                   do (when xi (cl-return `(array-elt ,i ,xi)))
                   finally (cl-assert (equal a b) t))))
-      ((pred atom)
+      (_
        (if (not (equal a b))
            (if (and (symbolp a) (symbolp b) (string= a b))
                `(different-symbols-with-the-same-name ,a ,b)
@@ -1298,7 +1283,8 @@ EXPECTEDP specifies whether the result was expected."
   "Pretty-print OBJECT, indenting it to the current column of point.
 Ensures a final newline is inserted."
   (let ((begin (point))
-        (pp-escape-newlines nil))
+        (pp-escape-newlines nil)
+        (print-escape-control-characters t))
     (pp object (current-buffer))
     (unless (bolp) (insert "\n"))
     (save-excursion
@@ -1557,7 +1543,7 @@ Ran \\([0-9]+\\) tests, \\([0-9]+\\) results as expected\
       (message "------------------")
       (setq tests (sort tests (lambda (x y) (> (car x) (car y)))))
       (when (< high (length tests)) (setcdr (nthcdr (1- high) tests) nil))
-      (message "%s" (mapconcat 'cdr tests "\n")))
+      (message "%s" (mapconcat #'cdr tests "\n")))
     ;; More details on hydra, where the logs are harder to get to.
     (when (and (getenv "EMACS_HYDRA_CI")
                (not (zerop (+ nunexpected nskipped))))
@@ -1628,9 +1614,7 @@ Signals an error if no test name was read."
                     nil)))
     (ert-test (setq default (ert-test-name default))))
   (when add-default-to-prompt
-    (setq prompt (if (null default)
-                     (format "%s: " prompt)
-                   (format "%s (default %s): " prompt default))))
+    (setq prompt (format-prompt prompt default)))
   (let ((input (completing-read prompt obarray #'ert-test-boundp
                                 t nil history default nil)))
     ;; completing-read returns an empty string if default was nil and
@@ -1649,7 +1633,7 @@ default (if any)."
 
 (defun ert-find-test-other-window (test-name)
   "Find, in another window, the definition of TEST-NAME."
-  (interactive (list (ert-read-test-name-at-point "Find test definition: ")))
+  (interactive (list (ert-read-test-name-at-point "Find test definition")))
   (find-function-do-it test-name 'ert--test 'switch-to-buffer-other-window))
 
 (defun ert-delete-test (test-name)
@@ -1798,8 +1782,8 @@ Also sets `ert--results-progress-bar-button-begin'."
            ;; `progress-bar-button-begin' will be the right position
            ;; even in the results buffer.
            (with-current-buffer results-buffer
-             (set (make-local-variable 'ert--results-progress-bar-button-begin)
-                  progress-bar-button-begin))))
+             (setq-local ert--results-progress-bar-button-begin
+                         progress-bar-button-begin))))
        (insert "\n\n")
        (buffer-string))
      ;; footer
@@ -1975,15 +1959,15 @@ BUFFER-NAME, if non-nil, is the buffer name to use."
         ;; from ert-results-mode to ert-results-mode when
         ;; font-lock-mode turns itself off in change-major-mode-hook.)
         (erase-buffer)
-        (set (make-local-variable 'font-lock-function)
-             'ert--results-font-lock-function)
+        (setq-local font-lock-function
+                    'ert--results-font-lock-function)
         (let ((ewoc (ewoc-create 'ert--print-test-for-ewoc nil nil t)))
-          (set (make-local-variable 'ert--results-ewoc) ewoc)
-          (set (make-local-variable 'ert--results-stats) stats)
-          (set (make-local-variable 'ert--results-progress-bar-string)
-               (make-string (ert-stats-total stats)
-                            (ert-char-for-test-result nil t)))
-          (set (make-local-variable 'ert--results-listener) listener)
+          (setq-local ert--results-ewoc ewoc)
+          (setq-local ert--results-stats stats)
+          (setq-local ert--results-progress-bar-string
+                      (make-string (ert-stats-total stats)
+                                   (ert-char-for-test-result nil t)))
+          (setq-local ert--results-listener listener)
           (cl-loop for test across (ert--stats-tests stats) do
                    (ewoc-enter-last ewoc
                                     (make-ert--ewoc-entry :test test
@@ -2016,9 +2000,7 @@ and how to display message."
                             (car ert--selector-history)
                           "t")))
            (read
-            (completing-read (if (null default)
-                                 "Run tests: "
-                               (format "Run tests (default %s): " default))
+            (completing-read (format-prompt "Run tests" default)
                              obarray #'ert-test-boundp nil nil
                              'ert--selector-history default nil)))
          nil))
@@ -2088,7 +2070,7 @@ and how to display message."
     (ert-run-tests selector listener t)))
 
 ;;;###autoload
-(defalias 'ert 'ert-run-tests-interactively)
+(defalias 'ert #'ert-run-tests-interactively)
 
 
 ;;; Simple view mode for auxiliary information like stack traces or
@@ -2101,6 +2083,7 @@ and how to display message."
 
 (define-derived-mode ert-results-mode special-mode "ERT-Results"
   "Major mode for viewing results of ERT test runs."
+  :interactive nil
   (setq-local revert-buffer-function
               (lambda (&rest _) (ert-results-rerun-all-tests))))
 
@@ -2196,7 +2179,7 @@ To be used in the ERT results buffer."
   "Move point to the next test.
 
 To be used in the ERT results buffer."
-  (interactive)
+  (interactive nil ert-results-mode)
   (ert--results-move (ewoc-locate ert--results-ewoc) 'ewoc-next
                      "No tests below"))
 
@@ -2204,7 +2187,7 @@ To be used in the ERT results buffer."
   "Move point to the previous test.
 
 To be used in the ERT results buffer."
-  (interactive)
+  (interactive nil ert-results-mode)
   (ert--results-move (ewoc-locate ert--results-ewoc) 'ewoc-prev
                      "No tests above"))
 
@@ -2237,7 +2220,7 @@ user-error is signaled with the message ERROR-MESSAGE."
   "Find the definition of the test at point in another window.
 
 To be used in the ERT results buffer."
-  (interactive)
+  (interactive nil ert-results-mode)
   (let ((name (ert-test-at-point)))
     (unless name
       (user-error "No test at point"))
@@ -2271,7 +2254,7 @@ To be used in the ERT results buffer."
   ;; the summary apparently needs to be easily accessible from the
   ;; error log, and perhaps it would be better to have it in a
   ;; separate buffer to keep it visible.
-  (interactive)
+  (interactive nil ert-results-mode)
   (let ((ewoc ert--results-ewoc)
         (progress-bar-begin ert--results-progress-bar-button-begin))
     (cond ((ert--results-test-node-or-null-at-point)
@@ -2388,7 +2371,7 @@ definition."
   "Re-run all tests, using the same selector.
 
 To be used in the ERT results buffer."
-  (interactive)
+  (interactive nil ert-results-mode)
   (cl-assert (eql major-mode 'ert-results-mode))
   (let ((selector (ert--stats-selector ert--results-stats)))
     (ert-run-tests-interactively selector (buffer-name))))
@@ -2397,7 +2380,7 @@ To be used in the ERT results buffer."
   "Re-run the test at point.
 
 To be used in the ERT results buffer."
-  (interactive)
+  (interactive nil ert-results-mode)
   (cl-destructuring-bind (test redefinition-state)
       (ert--results-test-at-point-allow-redefinition)
     (when (null test)
@@ -2432,7 +2415,7 @@ To be used in the ERT results buffer."
   "Re-run the test at point with `ert-debug-on-error' bound to t.
 
 To be used in the ERT results buffer."
-  (interactive)
+  (interactive nil ert-results-mode)
   (let ((ert-debug-on-error t))
     (ert-results-rerun-test-at-point)))
 
@@ -2440,7 +2423,7 @@ To be used in the ERT results buffer."
   "Display the backtrace for the test at point.
 
 To be used in the ERT results buffer."
-  (interactive)
+  (interactive nil ert-results-mode)
   (let* ((test (ert--results-test-at-point-no-redefinition t))
          (stats ert--results-stats)
          (pos (ert--stats-test-pos stats test))
@@ -2467,7 +2450,7 @@ To be used in the ERT results buffer."
   "Display the part of the *Messages* buffer generated during the test at point.
 
 To be used in the ERT results buffer."
-  (interactive)
+  (interactive nil ert-results-mode)
   (let* ((test (ert--results-test-at-point-no-redefinition t))
          (stats ert--results-stats)
          (pos (ert--stats-test-pos stats test))
@@ -2488,7 +2471,7 @@ To be used in the ERT results buffer."
   "Display the list of `should' forms executed during the test at point.
 
 To be used in the ERT results buffer."
-  (interactive)
+  (interactive nil ert-results-mode)
   (let* ((test (ert--results-test-at-point-no-redefinition t))
          (stats ert--results-stats)
          (pos (ert--stats-test-pos stats test))
@@ -2524,7 +2507,7 @@ To be used in the ERT results buffer."
   "Toggle how much of the condition to print for the test at point.
 
 To be used in the ERT results buffer."
-  (interactive)
+  (interactive nil ert-results-mode)
   (let* ((ewoc ert--results-ewoc)
          (node (ert--results-test-node-at-point))
          (entry (ewoc-data node)))
@@ -2536,7 +2519,7 @@ To be used in the ERT results buffer."
   "Display test timings for the last run.
 
 To be used in the ERT results buffer."
-  (interactive)
+  (interactive nil ert-results-mode)
   (let* ((stats ert--results-stats)
          (buffer (get-buffer-create "*ERT timings*"))
          (data (cl-loop for test across (ert--stats-tests stats)
@@ -2615,7 +2598,7 @@ To be used in the ERT results buffer."
   "Display the documentation of the test at point.
 
 To be used in the ERT results buffer."
-  (interactive)
+  (interactive nil ert-results-mode)
   (ert-describe-test (ert--results-test-at-point-no-redefinition t)))
 
 

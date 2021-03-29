@@ -181,7 +181,8 @@ Possible properties are:
   :working-directory - the local working directory.  This is, what base-url will
                        be replaced with.
   :redirects         - A list of cons cells, each of which maps a regular
-                       expression to match to a path relative to :working-directory.
+                       expression to match to a path relative to
+                       :working-directory.
 
 Example:
 
@@ -202,7 +203,8 @@ Example:
           :working-directory \"~/site/content/post/\"
           :online-suffix \".html\"
           :working-suffix \".md\"
-          :rewrites ((\"\\(https://site.com/[0-9]+/[0-9]+/[0-9]+/\\)\" . \".md\")))
+          :rewrites ((\"\\(https://site.com/[0-9]+/[0-9]+/[0-9]+/\\)\"
+                     . \".md\")))
          (\"GNU emacs OpenGrok\"
           :base-url \"https://opengrok.housegordon.com/source/xref/emacs/\"
           :working-directory \"~/dev/gnu-emacs/\")))
@@ -533,7 +535,7 @@ The location for a browser's bookmark should look like this:
         encodeURIComponent(location.href)"
   ;; As we enter this function for a match on our protocol, the return value
   ;; defaults to nil.
-  (let ((result nil)
+  (let (;; (result nil)
 	(f (org-protocol-sanitize-uri
 	    (plist-get (org-protocol-parse-parameters fname nil '(:url))
 		       :url))))
@@ -584,7 +586,7 @@ The location for a browser's bookmark should look like this:
               (if (file-exists-p the-file)
                   (message "%s: permission denied!" the-file)
                 (message "%s: no such file or directory." the-file))))))
-      result)))
+      nil))) ;; FIXME: Really?
 
 
 ;;; Core functions:
@@ -629,7 +631,7 @@ CLIENT is ignored."
                        (greedy (plist-get (cdr prolist) :greedy))
                        (split (split-string fname proto))
                        (result (if greedy restoffiles (cadr split)))
-		       (new-style (string= (match-string 1 fname) "?")))
+		       (new-style (string-match "/*?" (match-string 1 fname))))
 		  ;; Emacs Mac port directly handles `org-protocol'
 		  ;; URLs without the help of external commands or
 		  ;; apps.  In this case, `client' is set to nil.

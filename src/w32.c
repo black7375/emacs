@@ -1941,11 +1941,10 @@ buf_prev (int from)
   return prev_idx;
 }
 
-static void
-sample_system_load (ULONGLONG *idle, ULONGLONG *kernel, ULONGLONG *user)
+unsigned
+w32_get_nproc (void)
 {
   SYSTEM_INFO sysinfo;
-  FILETIME ft_idle, ft_user, ft_kernel;
 
   /* Initialize the number of processors on this machine.  */
   if (num_of_processors <= 0)
@@ -1960,6 +1959,15 @@ sample_system_load (ULONGLONG *idle, ULONGLONG *kernel, ULONGLONG *user)
       if (num_of_processors <= 0)
 	num_of_processors = 1;
     }
+  return num_of_processors;
+}
+
+static void
+sample_system_load (ULONGLONG *idle, ULONGLONG *kernel, ULONGLONG *user)
+{
+  FILETIME ft_idle, ft_user, ft_kernel;
+
+  (void) w32_get_nproc ();
 
   /* TODO: Take into account threads that are ready to run, by
      sampling the "\System\Processor Queue Length" performance
@@ -2392,6 +2400,26 @@ srandom (int seed)
   ix = rand () % RAND_MAX_X;
   iy = rand () % RAND_MAX_Y;
   iz = rand () % RAND_MAX_Z;
+}
+
+/* Emulate explicit_bzero.  This is to avoid using the Gnulib version,
+   because it calls SecureZeroMemory at will, disregarding systems
+   older than Windows XP, which didn't have that function.  We want to
+   avoid having that function as dependency in builds that need to
+   support systems older than Windows XP, otherwise Emacs will refuse
+   to start on those systems.  */
+void
+explicit_bzero (void *buf, size_t len)
+{
+#if _WIN32_WINNT >= 0x0501
+  /* We are compiling for XP or newer, most probably with MinGW64.
+     We can use SecureZeroMemory.  */
+  SecureZeroMemory (buf, len);
+#else
+  memset (buf, 0, len);
+  /* Compiler barrier.  */
+  asm volatile ("" ::: "memory");
+#endif
 }
 
 /* Return the maximum length in bytes of a multibyte character
@@ -3228,17 +3256,8 @@ fdutimens (int fd, char const *file, struct timespec const timespec[2])
       return _futime (fd, &_ut);
     }
   else
-    {
-      struct utimbuf ut;
-
-      ut.actime = timespec[0].tv_sec;
-      ut.modtime = timespec[1].tv_sec;
-      /* Call 'utime', which is implemented below, not the MS library
-	 function, which fails on directories.  */
-      return utime (file, &ut);
-    }
+    return utimensat (fd, file, timespec, 0);
 }
-
 
 /* ------------------------------------------------------------------------- */
 /* IO support and wrapper functions for the Windows API. */
@@ -3500,8 +3519,6 @@ is_fat_volume (const char * name, const char ** pPath)
 /* Convert all slashes in a filename to backslashes, and map filename
    to a valid 8.3 name if necessary.  The result is a pointer to a
    static buffer, so CAVEAT EMPTOR!  */
-const char *map_w32_filename (const char *, const char **);
-
 const char *
 map_w32_filename (const char * name, const char ** pPath)
 {
@@ -4370,10 +4387,9 @@ sys_chdir (const char * path)
     }
 }
 
-int
-sys_chmod (const char * path, int mode)
+static int
+chmod_worker (const char * path, int mode)
 {
-  path = chase_symlinks (map_w32_filename (path, NULL));
   if (w32_unicode_filenames)
     {
       wchar_t path_w[MAX_PATH];
@@ -4388,6 +4404,20 @@ sys_chmod (const char * path, int mode)
       filename_to_ansi (path, path_a);
       return _chmod (path_a, mode);
     }
+}
+
+int
+sys_chmod (const char * path, int mode)
+{
+  path = chase_symlinks (map_w32_filename (path, NULL));
+  return chmod_worker (path, mode);
+}
+
+int
+lchmod (const char * path, mode_t mode)
+{
+  path = map_w32_filename (path, NULL);
+  return chmod_worker (path, mode);
 }
 
 int
@@ -4642,9 +4672,52 @@ sys_open (const char * path, int oflag, int mode)
 }
 
 int
+openat (int fd, const char * path, int oflag, int mode)
+{
+  /* Rely on a hack: an open directory is modeled as file descriptor 0,
+     as in fstatat.  FIXME: Add proper support for openat.  */
+  char fullname[MAX_UTF8_PATH];
+
+  if (fd != AT_FDCWD)
+    {
+      if (_snprintf (fullname, sizeof fullname, "%s/%s", dir_pathname, path)
+	  < 0)
+	{
+	  errno = ENAMETOOLONG;
+	  return -1;
+	}
+      path = fullname;
+    }
+
+  return sys_open (path, oflag, mode);
+}
+
+int
 fchmod (int fd, mode_t mode)
 {
   return 0;
+}
+
+int
+fchmodat (int fd, char const *path, mode_t mode, int flags)
+{
+  /* Rely on a hack: an open directory is modeled as file descriptor 0,
+     as in fstatat.  FIXME: Add proper support for fchmodat.  */
+  char fullname[MAX_UTF8_PATH];
+
+  if (fd != AT_FDCWD)
+    {
+      if (_snprintf (fullname, sizeof fullname, "%s/%s", dir_pathname, path)
+	  < 0)
+	{
+	  errno = ENAMETOOLONG;
+	  return -1;
+	}
+      path = fullname;
+    }
+
+  return
+    flags == AT_SYMLINK_NOFOLLOW ? lchmod (path, mode) : sys_chmod (path, mode);
 }
 
 int
@@ -4964,7 +5037,7 @@ convert_time (FILETIME ft)
 }
 
 static void
-convert_from_time_t (time_t time, FILETIME * pft)
+convert_from_timespec (struct timespec time, FILETIME * pft)
 {
   ULARGE_INTEGER tmp;
 
@@ -4975,7 +5048,8 @@ convert_from_time_t (time_t time, FILETIME * pft)
     }
 
   /* time in 100ns units since 1-Jan-1601 */
-  tmp.QuadPart = (ULONGLONG) time * 10000000L + utc_base;
+  tmp.QuadPart =
+    (ULONGLONG) time.tv_sec * 10000000L + time.tv_nsec / 100 + utc_base;
   pft->dwHighDateTime = tmp.HighPart;
   pft->dwLowDateTime = tmp.LowPart;
 }
@@ -5642,8 +5716,8 @@ fstatat (int fd, char const *name, struct stat *st, int flags)
   return stat_worker (name, st, ! (flags & AT_SYMLINK_NOFOLLOW));
 }
 
-/* Provide fstat and utime as well as stat for consistent handling of
-   file timestamps. */
+/* Provide fstat and utimensat as well as stat for consistent handling
+   of file timestamps. */
 int
 fstat (int desc, struct stat * buf)
 {
@@ -5754,23 +5828,65 @@ fstat (int desc, struct stat * buf)
   return 0;
 }
 
-/* A version of 'utime' which handles directories as well as
-   files.  */
+/* Emulate utimensat.  */
 
 int
-utime (const char *name, struct utimbuf *times)
+utimensat (int fd, const char *name, const struct timespec times[2], int flag)
 {
-  struct utimbuf deftime;
+  struct timespec ltimes[2];
   HANDLE fh;
   FILETIME mtime;
   FILETIME atime;
+  DWORD flags_and_attrs = FILE_FLAG_BACKUP_SEMANTICS;
+
+  /* Rely on a hack: an open directory is modeled as file descriptor 0.
+     This is good enough for the current usage in Emacs, but is fragile.
+
+     FIXME: Add proper support for utimensat.
+     Gnulib does this and can serve as a model.  */
+  char fullname[MAX_UTF8_PATH];
+
+  if (fd != AT_FDCWD)
+    {
+      char lastc = dir_pathname[strlen (dir_pathname) - 1];
+
+      if (_snprintf (fullname, sizeof fullname, "%s%s%s",
+		     dir_pathname, IS_DIRECTORY_SEP (lastc) ? "" : "/", name)
+	  < 0)
+	{
+	  errno = ENAMETOOLONG;
+	  return -1;
+	}
+      name = fullname;
+    }
 
   if (times == NULL)
     {
-      deftime.modtime = deftime.actime = time (NULL);
-      times = &deftime;
+      memset (ltimes, 0, sizeof (ltimes));
+      ltimes[0] = ltimes[1] = current_timespec ();
+    }
+  else
+    {
+      if (times[0].tv_nsec == UTIME_OMIT && times[1].tv_nsec == UTIME_OMIT)
+	return 0;		/* nothing to do */
+      if ((times[0].tv_nsec != UTIME_NOW && times[0].tv_nsec != UTIME_OMIT
+	   && !(0 <= times[0].tv_nsec && times[0].tv_nsec < 1000000000))
+	  || (times[1].tv_nsec != UTIME_NOW && times[1].tv_nsec != UTIME_OMIT
+	      && !(0 <= times[1].tv_nsec && times[1].tv_nsec < 1000000000)))
+	{
+	  errno = EINVAL;	/* reject invalid timespec values */
+	  return -1;
+	}
+
+      memcpy (ltimes, times, sizeof (ltimes));
+      if (ltimes[0].tv_nsec == UTIME_NOW)
+	ltimes[0] = current_timespec ();
+      if (ltimes[1].tv_nsec == UTIME_NOW)
+	ltimes[1] = current_timespec ();
     }
 
+  if (flag == AT_SYMLINK_NOFOLLOW)
+    flags_and_attrs |= FILE_FLAG_OPEN_REPARSE_POINT;
   if (w32_unicode_filenames)
     {
       wchar_t name_utf16[MAX_PATH];
@@ -5784,7 +5900,7 @@ utime (const char *name, struct utimbuf *times)
 			   allows other processes to delete files inside it,
 			   while we have the directory open.  */
 			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-			0, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+			0, OPEN_EXISTING, flags_and_attrs, NULL);
     }
   else
     {
@@ -5795,13 +5911,26 @@ utime (const char *name, struct utimbuf *times)
 
       fh = CreateFileA (name_ansi, FILE_WRITE_ATTRIBUTES,
 			FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-			0, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+			0, OPEN_EXISTING, flags_and_attrs, NULL);
     }
   if (fh != INVALID_HANDLE_VALUE)
     {
-      convert_from_time_t (times->actime, &atime);
-      convert_from_time_t (times->modtime, &mtime);
-      if (!SetFileTime (fh, NULL, &atime, &mtime))
+      FILETIME *patime, *pmtime;
+      if (ltimes[0].tv_nsec == UTIME_OMIT)
+	patime = NULL;
+      else
+	{
+	  convert_from_timespec (ltimes[0], &atime);
+	  patime = &atime;
+	}
+      if (ltimes[1].tv_nsec == UTIME_OMIT)
+	pmtime = NULL;
+      else
+	{
+	  convert_from_timespec (ltimes[1], &mtime);
+	  pmtime = &mtime;
+	}
+      if (!SetFileTime (fh, NULL, patime, pmtime))
 	{
 	  CloseHandle (fh);
 	  errno = EACCES;
@@ -6073,7 +6202,7 @@ is_symlink (const char *filename)
 
 /* If NAME identifies a symbolic link, copy into BUF the file name of
    the symlink's target.  Copy at most BUF_SIZE bytes, and do NOT
-   NUL-terminate the target name, even if it fits.  Return the number
+   null-terminate the target name, even if it fits.  Return the number
    of bytes copied, or -1 if NAME is not a symlink or any error was
    encountered while resolving it.  The file name copied into BUF is
    encoded in the current ANSI codepage.  */
@@ -6177,10 +6306,10 @@ readlink (const char *name, char *buf, size_t buf_size)
 	  size_t size_to_copy = buf_size;
 
 	  /* According to MSDN, PrintNameLength does not include the
-	     terminating NUL character.  */
+	     terminating null character.  */
 	  lwname = alloca ((lwname_len + 1) * sizeof(WCHAR));
 	  memcpy (lwname, lwname_src, lwname_len);
-	  lwname[lwname_len/sizeof(WCHAR)] = 0; /* NUL-terminate */
+	  lwname[lwname_len/sizeof(WCHAR)] = 0; /* null-terminate */
 	  filename_from_utf16 (lwname, resolved);
 	  dostounix_filename (resolved);
 	  lname_size = strlen (resolved) + 1;
@@ -6735,16 +6864,16 @@ w32_copy_file (const char *from, const char *to,
      FIXME?  */
   else if (!keep_time)
     {
-      struct timespec now;
+      struct timespec tnow[2];
       DWORD attributes;
 
+      tnow[0] = tnow[1] = current_timespec ();
       if (w32_unicode_filenames)
 	{
 	  /* Ensure file is writable while its times are set.  */
 	  attributes = GetFileAttributesW (to_w);
 	  SetFileAttributesW (to_w, attributes & ~FILE_ATTRIBUTE_READONLY);
-	  now = current_timespec ();
-	  if (set_file_times (-1, to, now, now))
+	  if (utimensat (AT_FDCWD, to, tnow, 0))
 	    {
 	      /* Restore original attributes.  */
 	      SetFileAttributesW (to_w, attributes);
@@ -6759,8 +6888,7 @@ w32_copy_file (const char *from, const char *to,
 	{
 	  attributes = GetFileAttributesA (to_a);
 	  SetFileAttributesA (to_a, attributes & ~FILE_ATTRIBUTE_READONLY);
-	  now = current_timespec ();
-	  if (set_file_times (-1, to, now, now))
+	  if (utimensat (AT_FDCWD, to, tnow, 0))
 	    {
 	      SetFileAttributesA (to_a, attributes);
 	      if (acl)
@@ -8597,6 +8725,11 @@ pipe2 (int * phandles, int pipe2_flags)
 	{
 	  _close (phandles[0]);
 	  _close (phandles[1]);
+	  /* Since we close the handles, set them to -1, so as to
+	     avoid an assertion violation if the caller then tries to
+	     close the handle again (emacs_close will abort otherwise
+	     if errno is EBADF).  */
+	  phandles[0] = phandles[1] = -1;
 	  errno = EMFILE;
 	  rc = -1;
 	}
@@ -9814,7 +9947,7 @@ w32_read_registry (HKEY rootkey, Lisp_Object lkey, Lisp_Object lname)
       /* Convert input strings to UTF-16.  */
       encoded_key = code_convert_string_norecord (lkey, Qutf_16le, 1);
       memcpy (key_w, SSDATA (encoded_key), SBYTES (encoded_key));
-      /* wchar_t strings need to be terminated by 2 NUL bytes.  */
+      /* wchar_t strings need to be terminated by 2 null bytes.  */
       key_w [SBYTES (encoded_key)/2] = L'\0';
       encoded_vname = code_convert_string_norecord (lname, Qutf_16le, 1);
       memcpy (value_w, SSDATA (encoded_vname), SBYTES (encoded_vname));
@@ -9906,7 +10039,7 @@ w32_read_registry (HKEY rootkey, Lisp_Object lkey, Lisp_Object lname)
       case REG_SZ:
 	if (use_unicode)
 	  {
-	    /* pvalue ends with 2 NUL bytes, but we need only one,
+	    /* pvalue ends with 2 null bytes, but we need only one,
 	       and AUTO_STRING_WITH_LEN will add it.  */
 	    if (pvalue[vsize - 1] == '\0')
 	      vsize -= 2;
@@ -9915,7 +10048,7 @@ w32_read_registry (HKEY rootkey, Lisp_Object lkey, Lisp_Object lname)
 	  }
 	else
 	  {
-	    /* Don't waste a byte on the terminating NUL character,
+	    /* Don't waste a byte on the terminating null character,
 	       since make_unibyte_string will add one anyway.  */
 	    if (pvalue[vsize - 1] == '\0')
 	      vsize--;
@@ -10122,7 +10255,8 @@ check_windows_init_file (void)
 	 need to ENCODE_FILE here, but we do need to convert the file
 	 names from UTF-8 to ANSI.  */
       init_file = build_string ("term/w32-win");
-      fd = openp (Vload_path, init_file, Fget_load_suffixes (), NULL, Qnil, 0);
+      fd =
+	openp (Vload_path, init_file, Fget_load_suffixes (), NULL, Qnil, 0, 0);
       if (fd < 0)
 	{
 	  Lisp_Object load_path_print = Fprin1_to_string (Vload_path, Qnil);
@@ -10188,6 +10322,10 @@ term_ntproc (int ignored)
   term_winsock ();
 
   term_w32select ();
+
+#if HAVE_NATIVE_IMAGE_API
+  w32_gdiplus_shutdown ();
+#endif
 }
 
 void
@@ -10310,6 +10448,13 @@ shutdown_handler (DWORD type)
       || type == CTRL_LOGOFF_EVENT    /* User logs off.  */
       || type == CTRL_SHUTDOWN_EVENT) /* User shutsdown.  */
     {
+      /* If we are being shut down in noninteractive mode, we don't
+	 care about the message stack, so clear it to avoid abort in
+	 shut_down_emacs.  This happens when an noninteractive Emacs
+	 is invoked as a subprocess of Emacs, and the parent wants to
+	 kill us, e.g. because it's about to exit.  */
+      if (noninteractive)
+	clear_message_stack ();
       /* Shut down cleanly, making sure autosave files are up to date.  */
       shut_down_emacs (0, Qnil);
     }
@@ -10528,6 +10673,10 @@ globals_of_w32 (void)
 #endif
 
   w32_crypto_hprov = (HCRYPTPROV)0;
+
+  /* We need to forget about libraries that were loaded during the
+     dumping process (e.g. libgccjit) */
+  Vlibrary_cache = Qnil;
 }
 
 /* For make-serial-process  */

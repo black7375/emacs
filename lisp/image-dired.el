@@ -60,16 +60,16 @@
 ;; =============
 ;;
 ;; * The ImageMagick package.  Currently, `convert' and `mogrify' are
-;; used.  Find it here: http://www.imagemagick.org.
+;; used.  Find it here: https://www.imagemagick.org.
 ;;
 ;; * For non-lossy rotation of JPEG images, the JpegTRAN program is
 ;; needed.
 ;;
 ;; * For `image-dired-get-exif-data' and `image-dired-set-exif-data' to work,
 ;; the command line tool `exiftool' is needed.  It can be found here:
-;; http://www.sno.phy.queensu.ca/~phil/exiftool/.  These two functions
-;; are, among other things, used for writing comments to image files
-;; using `image-dired-thumbnail-set-image-description' and to create
+;; https://exiftool.org/.  These two functions are, among other
+;; things, used for writing comments to image files using
+;; `image-dired-thumbnail-set-image-description' and to create
 ;; "unique" file names using `image-dired-get-exif-file-name' (used by
 ;; `image-dired-copy-with-exif-file-name').
 ;;
@@ -149,7 +149,6 @@
 ;;; Code:
 
 (require 'dired)
-(require 'format-spec)
 (require 'image-mode)
 (require 'widget)
 
@@ -206,7 +205,7 @@ the index.html page that image-dired creates."
   :group 'image-dired)
 
 (defcustom image-dired-gallery-image-root-url
-"http://your.own.server/image-diredpics"
+"https://your.own.server/image-diredpics"
   "URL where the full size images are to be found.
 Note that this path has to be configured in your web server.  Image-Dired
 expects to find pictures in this directory."
@@ -214,7 +213,7 @@ expects to find pictures in this directory."
   :group 'image-dired)
 
 (defcustom image-dired-gallery-thumb-image-root-url
-"http://your.own.server/image-diredthumbs"
+"https://your.own.server/image-diredthumbs"
   "URL where the thumbnail images are to be found.
 Note that this path has to be configured in your web server.  Image-Dired
 expects to find pictures in this directory."
@@ -771,8 +770,8 @@ Increase at own risk.")
          process)
     (when (not (file-exists-p thumbnail-dir))
       (message "Creating thumbnail directory")
-      (make-directory thumbnail-dir t)
-      (set-file-modes thumbnail-dir #o700))
+      (with-file-modes #o700
+	(make-directory thumbnail-dir t)))
 
     ;; Thumbnail file creation processes begin here and are marshaled
     ;; in a queue by `image-dired-create-thumb'.
@@ -2554,7 +2553,6 @@ easy-to-use form."
   (let ((files (dired-get-marked-files)))
     (pop-to-buffer-same-window "*Image-Dired Edit Meta Data*")
     (kill-all-local-variables)
-    (make-local-variable 'widget-example-repeat)
     (let ((inhibit-read-only t))
       (erase-buffer))
     (remove-overlays)

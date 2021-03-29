@@ -1,10 +1,10 @@
-;;; ruler-mode.el --- display a ruler in the header line
+;;; ruler-mode.el --- display a ruler in the header line  -*- lexical-binding: t -*-
 
 ;; Copyright (C) 2001-2021 Free Software Foundation, Inc.
 
 ;; Author: David Ponce <david@dponce.com>
 ;; Created: 24 Mar 2001
-;; Version: 1.6
+;; Old-Version: 1.6
 ;; Keywords: convenience
 
 ;; This file is part of GNU Emacs.
@@ -25,7 +25,7 @@
 ;;; Commentary:
 
 ;; This library provides a minor mode to display a ruler in the header
-;; line.  It works from Emacs 21 onwards.
+;; line.
 ;;
 ;; You can use the mouse to change the `fill-column' `comment-column',
 ;; `goal-column', `window-margins' and `tab-stop-list' settings:
@@ -122,7 +122,6 @@ Also allowing to visually change `tab-stop-list' setting using
 <C-down-mouse-1> and <C-down-mouse-3> on the ruler to respectively add
 or remove a tab stop.  \\[ruler-mode-toggle-show-tab-stops] or
 <C-down-mouse-2> on the ruler toggles showing/editing of tab stops."
-  :group 'ruler-mode
   :type 'boolean)
 
 ;; IMPORTANT: This function must be defined before the following
@@ -140,7 +139,6 @@ or remove a tab stop.  \\[ruler-mode-toggle-show-tab-stops] or
                                            ?\¶
                                          ?\|)
   "Character used at the `fill-column' location."
-  :group 'ruler-mode
   :type '(choice
           (character :tag "Character")
           (integer :tag "Integer char value"
@@ -148,7 +146,6 @@ or remove a tab stop.  \\[ruler-mode-toggle-show-tab-stops] or
 
 (defcustom ruler-mode-comment-column-char ?\#
   "Character used at the `comment-column' location."
-  :group 'ruler-mode
   :type '(choice
           (character :tag "Character")
           (integer :tag "Integer char value"
@@ -156,7 +153,6 @@ or remove a tab stop.  \\[ruler-mode-toggle-show-tab-stops] or
 
 (defcustom ruler-mode-goal-column-char ?G
   "Character used at the `goal-column' location."
-  :group 'ruler-mode
   :type '(choice
           (character :tag "Character")
           (integer :tag "Integer char value"
@@ -166,7 +162,6 @@ or remove a tab stop.  \\[ruler-mode-toggle-show-tab-stops] or
                                               ?\¦
                                             ?\@)
   "Character used at the `current-column' location."
-  :group 'ruler-mode
   :type '(choice
           (character :tag "Character")
           (integer :tag "Integer char value"
@@ -174,7 +169,6 @@ or remove a tab stop.  \\[ruler-mode-toggle-show-tab-stops] or
 
 (defcustom ruler-mode-tab-stop-char ?\T
   "Character used at `tab-stop-list' locations."
-  :group 'ruler-mode
   :type '(choice
           (character :tag "Character")
           (integer :tag "Integer char value"
@@ -182,7 +176,6 @@ or remove a tab stop.  \\[ruler-mode-toggle-show-tab-stops] or
 
 (defcustom ruler-mode-basic-graduation-char ?\.
   "Character used for basic graduations."
-  :group 'ruler-mode
   :type '(choice
           (character :tag "Character")
           (integer :tag "Integer char value"
@@ -190,7 +183,6 @@ or remove a tab stop.  \\[ruler-mode-toggle-show-tab-stops] or
 
 (defcustom ruler-mode-inter-graduation-char ?\!
   "Character used for intermediate graduations."
-  :group 'ruler-mode
   :type '(choice
           (character :tag "Character")
           (integer :tag "Integer char value"
@@ -198,7 +190,6 @@ or remove a tab stop.  \\[ruler-mode-toggle-show-tab-stops] or
 
 (defcustom ruler-mode-set-goal-column-ding-flag t
   "Non-nil means do `ding' when `goal-column' is set."
-  :group 'ruler-mode
   :type 'boolean)
 
 (defface ruler-mode-default
@@ -215,8 +206,7 @@ or remove a tab stop.  \\[ruler-mode-toggle-show-tab-stops] or
                             :line-width 1
                             :style released-button)
                )))
-  "Default face used by the ruler."
-  :group 'ruler-mode)
+  "Default face used by the ruler.")
 
 (defface ruler-mode-pad
   '((((type tty))
@@ -227,64 +217,56 @@ or remove a tab stop.  \\[ruler-mode-toggle-show-tab-stops] or
      (:inherit ruler-mode-default
                :background "grey64"
                )))
-  "Face used to pad inactive ruler areas."
-  :group 'ruler-mode)
+  "Face used to pad inactive ruler areas.")
 
 (defface ruler-mode-margins
   '((t
      (:inherit ruler-mode-default
                :foreground "white"
                )))
-  "Face used to highlight margin areas."
-  :group 'ruler-mode)
+  "Face used to highlight margin areas.")
 
 (defface ruler-mode-fringes
   '((t
      (:inherit ruler-mode-default
                :foreground "green"
                )))
-  "Face used to highlight fringes areas."
-  :group 'ruler-mode)
+  "Face used to highlight fringes areas.")
 
 (defface ruler-mode-column-number
   '((t
      (:inherit ruler-mode-default
                :foreground "black"
                )))
-  "Face used to highlight number graduations."
-  :group 'ruler-mode)
+  "Face used to highlight number graduations.")
 
 (defface ruler-mode-fill-column
   '((t
      (:inherit ruler-mode-default
                :foreground "red"
                )))
-  "Face used to highlight the fill column character."
-  :group 'ruler-mode)
+  "Face used to highlight the fill column character.")
 
 (defface ruler-mode-comment-column
   '((t
      (:inherit ruler-mode-default
                :foreground "red"
                )))
-  "Face used to highlight the comment column character."
-  :group 'ruler-mode)
+  "Face used to highlight the comment column character.")
 
 (defface ruler-mode-goal-column
   '((t
      (:inherit ruler-mode-default
                :foreground "red"
                )))
-  "Face used to highlight the goal column character."
-  :group 'ruler-mode)
+  "Face used to highlight the goal column character.")
 
 (defface ruler-mode-tab-stop
   '((t
      (:inherit ruler-mode-default
                :foreground "steelblue"
                )))
-  "Face used to highlight tab stop characters."
-  :group 'ruler-mode)
+  "Face used to highlight tab stop characters.")
 
 (defface ruler-mode-current-column
   '((t
@@ -292,8 +274,7 @@ or remove a tab stop.  \\[ruler-mode-toggle-show-tab-stops] or
                :weight bold
                :foreground "yellow"
                )))
-  "Face used to highlight the `current-column' character."
-  :group 'ruler-mode)
+  "Face used to highlight the `current-column' character.")
 
 
 (defsubst ruler-mode-full-window-width ()
@@ -429,7 +410,7 @@ dragging.  See also the variable `ruler-mode-dragged-symbol'."
          ;; `ding' flushes the next messages about setting goal
          ;; column.  So here I force fetch the event(mouse-2) and
          ;; throw away.
-         (read-event)
+         (read--potential-mouse-event)
          ;; Ding BEFORE `message' is OK.
          (when ruler-mode-set-goal-column-ding-flag
            (ding))
@@ -460,7 +441,7 @@ the mouse has been clicked."
     (track-mouse
       ;; Signal the display engine to freeze the mouse pointer shape.
       (setq track-mouse 'dragging)
-      (while (mouse-movement-p (setq event (read-event)))
+      (while (mouse-movement-p (setq event (read--potential-mouse-event)))
         (setq drags (1+ drags))
         (when (eq window (posn-window (event-end event)))
           (ruler-mode-mouse-drag-any-column event)
@@ -547,15 +528,15 @@ START-EVENT is the mouse click event."
     (define-key km [header-line (control down-mouse-2)]
       #'ruler-mode-toggle-show-tab-stops)
     (define-key km [header-line (shift mouse-1)]
-      'ignore)
+      #'ignore)
     (define-key km [header-line (shift mouse-3)]
-      'ignore)
+      #'ignore)
     (define-key km [header-line (control mouse-1)]
-      'ignore)
+      #'ignore)
     (define-key km [header-line (control mouse-3)]
-      'ignore)
+      #'ignore)
     (define-key km [header-line (control mouse-2)]
-      'ignore)
+      #'ignore)
     km)
   "Keymap for ruler minor mode.")
 
@@ -572,10 +553,9 @@ This variable is expected to be made buffer-local by modes.")
 Call `ruler-mode-ruler-function' to compute the ruler value.")
 
 ;;;###autoload
-(defvar ruler-mode nil
+(defvar-local ruler-mode nil
   "Non-nil if Ruler mode is enabled.
 Use the command `ruler-mode' to change this variable.")
-(make-variable-buffer-local 'ruler-mode)
 
 (defun ruler--save-header-line-format ()
   "Install the header line format for Ruler mode.
@@ -584,8 +564,8 @@ format first."
   (when (and (not ruler-mode)
 	     (local-variable-p 'header-line-format)
 	     (not (local-variable-p 'ruler-mode-header-line-format-old)))
-    (set (make-local-variable 'ruler-mode-header-line-format-old)
-	 header-line-format))
+    (setq-local ruler-mode-header-line-format-old
+                header-line-format))
   (setq header-line-format ruler-mode-header-line-format))
 
 ;;;###autoload
