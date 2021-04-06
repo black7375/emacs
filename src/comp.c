@@ -4088,9 +4088,11 @@ DEFUN ("comp-el-to-eln-filename", Fcomp_el_to_eln_filename,
        Scomp_el_to_eln_filename, 1, 2, 0,
        doc: /* Return the .eln filename for source FILENAME to used
 for new compilations.
-If BASE-DIR is nil use the first entry in `comp-eln-load-path'.  */)
+If BASE-DIR is non-nil use it as a base directory, look for a suitable
+directory in `comp-eln-load-path' otherwise.  */)
   (Lisp_Object filename, Lisp_Object base_dir)
 {
+  Lisp_Object source_filename = filename;
   filename = Fcomp_el_to_eln_rel_filename (filename);
 
   /* If base_dir was not specified search inside Vcomp_eln_load_path
@@ -4129,9 +4131,18 @@ If BASE-DIR is nil use the first entry in `comp-eln-load-path'.  */)
   if (!file_name_absolute_p (SSDATA (base_dir)))
     base_dir = Fexpand_file_name (base_dir, Vinvocation_directory);
 
-  return Fexpand_file_name (filename,
-			    Fexpand_file_name (Vcomp_native_version_dir,
-					       base_dir));
+  /* In case the file being compiled is found in 'LISP_PRELOADED'
+     target for output the 'preloaded' subfolder.  */
+  Lisp_Object lisp_preloaded =
+    Fgetenv_internal (build_string ("LISP_PRELOADED"), Qnil);
+  base_dir = Fexpand_file_name (Vcomp_native_version_dir, base_dir);
+  if (!NILP (lisp_preloaded)
+      && !NILP (Fmember (CALL1I (file-name-base, source_filename),
+			 Fmapcar (intern_c_string ("file-name-base"),
+				  CALL1I (split-string, lisp_preloaded)))))
+	  base_dir = Fexpand_file_name (build_string ("preloaded"), base_dir);
+
+  return Fexpand_file_name (filename, base_dir);
 }
 
 DEFUN ("comp--install-trampoline", Fcomp__install_trampoline,
@@ -4431,7 +4442,7 @@ DEFUN ("comp--compile-ctxt-to-file", Fcomp__compile_ctxt_to_file,
       gcc_jit_context_set_bool_option (comp.ctxt,
 				       GCC_JIT_BOOL_OPTION_DEBUGINFO,
 				       1);
-  if (comp.debug > 2)
+  if (comp.debug >= 3)
     {
       logfile = emacs_fopen ("libgccjit.log", "w");
       gcc_jit_context_set_logfile (comp.ctxt,
@@ -4493,7 +4504,7 @@ DEFUN ("comp--compile-ctxt-to-file", Fcomp__compile_ctxt_to_file,
 
   add_driver_options ();
 
-  if (comp.debug)
+  if (comp.debug > 1)
       gcc_jit_context_dump_to_file (comp.ctxt,
 				    format_string ("%s.c", SSDATA (ebase_name)),
 				    1);
@@ -4689,7 +4700,8 @@ maybe_defer_native_compilation (Lisp_Object function_name,
       || !NILP (Vpurify_flag)
       || !COMPILEDP (definition)
       || !STRINGP (Vload_true_file_name)
-      || !suffix_p (Vload_true_file_name, ".elc"))
+      || !suffix_p (Vload_true_file_name, ".elc")
+      || !NILP (Fgethash (Vload_true_file_name, V_comp_no_native_file_h, Qnil)))
     return;
 
   Lisp_Object src =
@@ -4738,7 +4750,7 @@ maybe_defer_native_compilation (Lisp_Object function_name,
 /* Fixup the system eln-cache dir.  This is the last entry in
    `comp-eln-load-path'.  */
 void
-fixup_eln_load_path (Lisp_Object directory)
+fixup_eln_load_path (Lisp_Object eln_filename)
 {
   Lisp_Object last_cell = Qnil;
   Lisp_Object tmp = Vcomp_eln_load_path;
@@ -4748,11 +4760,16 @@ fixup_eln_load_path (Lisp_Object directory)
 
   Lisp_Object eln_cache_sys =
     Ffile_name_directory (concat2 (Vinvocation_directory,
-				   directory));
-  /* One directory up...  */
-  eln_cache_sys =
-    Ffile_name_directory (Fsubstring (eln_cache_sys, Qnil,
-				      make_fixnum (-1)));
+				   eln_filename));
+  bool preloaded =
+    !NILP (Fequal (Fsubstring (eln_cache_sys, make_fixnum (-10),
+			       make_fixnum (-1)),
+		   build_string ("preloaded")));
+  /* One or two directories up...  */
+  for (int i = 0; i < (preloaded ? 2 : 1); i++)
+    eln_cache_sys =
+      Ffile_name_directory (Fsubstring (eln_cache_sys, Qnil,
+					make_fixnum (-1)));
   Fsetcar (last_cell, eln_cache_sys);
 }
 
@@ -5253,7 +5270,8 @@ compiled one.  */);
   DEFSYM (Qlate, "late");
   DEFSYM (Qlambda_fixup, "lambda-fixup");
   DEFSYM (Qgccjit, "gccjit");
-  DEFSYM (Qcomp_subr_trampoline_install, "comp-subr-trampoline-install")
+  DEFSYM (Qcomp_subr_trampoline_install, "comp-subr-trampoline-install");
+  DEFSYM (Qcomp_warning_on_missing_source, "comp-warning-on-missing-source");
 
   /* To be signaled by the compiler.  */
   DEFSYM (Qnative_compiler_error, "native-compiler-error");
@@ -5372,6 +5390,13 @@ This makes primitive functions redefinable or advisable effectively.  */);
 This is used to prevent double trampoline instantiation but also to
 protect the trampolines against GC.  */);
   Vcomp_installed_trampolines_h = CALLN (Fmake_hash_table);
+
+  DEFVAR_LISP ("comp-no-native-file-h", V_comp_no_native_file_h,
+	       doc: /* Files for which no deferred compilation has to
+be performed because the bytecode version was explicitly requested by
+the user during load.
+For internal use.  */);
+  V_comp_no_native_file_h = CALLN (Fmake_hash_table, QCtest, Qequal);
 
   Fprovide (intern_c_string ("nativecomp"), Qnil);
 #endif /* #ifdef HAVE_NATIVE_COMP */
