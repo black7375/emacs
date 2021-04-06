@@ -19,6 +19,7 @@ jobs:
       - name: Git Setting
         run: |
           rm -rfv .git/hooks/commit-msg
+          rm -rfv .git/hooks/pre-commit
           git config pull.rebase off
       - name: Git User Setting
         uses: fregante/setup-git-user@v1
@@ -60,6 +61,7 @@ jobs:
       - name: Git Setting
         run: |
           rm -rfv .git/hooks/commit-msg
+          rm -rfv .git/hooks/pre-commit
           git config pull.rebase off
       - name: Git User Setting
         uses: fregante/setup-git-user@v1
@@ -96,6 +98,7 @@ jobs:
       - name: Git Setting
         run: |
           rm -rfv .git/hooks/commit-msg
+          rm -rfv .git/hooks/pre-commit
           git config pull.rebase off
       - name: Git User Setting
         uses: fregante/setup-git-user@v1
