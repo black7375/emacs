@@ -112,11 +112,9 @@ jobs:
         run: |
           git pull --no-edit origin master
       - name: Merge emacs-mac
-        if: ${{ matrix.target.mac }}
         run: |
           git pull --no-edit emacs-mac master
       - name: Merge emacs-mac(work)
-        if: ${{ matrix.target.mac }}
         run: |
           git pull --no-edit emacs-mac work
 
