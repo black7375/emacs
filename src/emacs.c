@@ -62,6 +62,21 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 # include <sys/socket.h>
 #endif
 
+#if defined HAVE_LINUX_SECCOMP_H && defined HAVE_LINUX_FILTER_H \
+  && HAVE_DECL_SECCOMP_SET_MODE_FILTER                          \
+  && HAVE_DECL_SECCOMP_FILTER_FLAG_TSYNC
+# define SECCOMP_USABLE 1
+#else
+# define SECCOMP_USABLE 0
+#endif
+
+#if SECCOMP_USABLE
+# include <linux/seccomp.h>
+# include <linux/filter.h>
+# include <sys/prctl.h>
+# include <sys/syscall.h>
+#endif
+
 #ifdef HAVE_WINDOW_SYSTEM
 #include TERM_HEADER
 #endif /* HAVE_WINDOW_SYSTEM */
@@ -242,6 +257,11 @@ Initialization options:\n\
 --dump-file FILE            read dumped state from FILE\n\
 ",
 #endif
+#if SECCOMP_USABLE
+    "\
+--sandbox=FILE              read Seccomp BPF filter from FILE\n\
+"
+#endif
     "\
 --no-build-details          do not add build details such as time stamps\n\
 --no-desktop                do not load a saved desktop\n\
@@ -420,6 +440,26 @@ terminate_due_to_signal (int sig, int backtrace_limit)
   exit (1);
 }
 
+/* Return the real filename following symlinks in case.
+   The caller should deallocate the returned buffer.  */
+
+static char *
+real_filename (char *filename)
+{
+  char *real_name;
+#ifdef WINDOWSNT
+  /* w32_my_exename resolves symlinks internally, so no need to
+     call realpath.  */
+  real_name = xstrdup (filename);
+#else
+  real_name = realpath (filename, NULL);
+  if (!real_name)
+    fatal ("could not resolve realpath of \"%s\": %s",
+	   filename, strerror (errno));
+#endif
+  return real_name;
+}
+
 /* Set `invocation-name' `invocation-directory'.  */
 
 static void
@@ -454,6 +494,10 @@ set_invocation_vars (char *argv0, char const *original_pwd)
   handler = Ffind_file_name_handler (raw_name, Qt);
   if (! NILP (handler))
     raw_name = concat2 (slash_colon, raw_name);
+
+  char *filename = real_filename (SSDATA (raw_name));
+  raw_name = build_unibyte_string (filename);
+  xfree (filename);
 
   Vinvocation_name = Ffile_name_nondirectory (raw_name);
   Vinvocation_directory = Ffile_name_directory (raw_name);
@@ -868,17 +912,9 @@ load_pdump (int argc, char **argv, char const *original_pwd)
      the dump in the hardcoded location.  */
   if (dump_file && *dump_file)
     {
-#ifdef WINDOWSNT
-      /* w32_my_exename resolves symlinks internally, so no need to
-	 call realpath.  */
-#else
-      char *real_exename = realpath (dump_file, NULL);
-      if (!real_exename)
-        fatal ("could not resolve realpath of \"%s\": %s",
-               dump_file, strerror (errno));
+      char *real_exename = real_filename (dump_file);
       xfree (dump_file);
       dump_file = real_exename;
-#endif
       ptrdiff_t exenamelen = strlen (dump_file);
 #ifndef WINDOWSNT
       bufsize = exenamelen + 1;
@@ -977,12 +1013,195 @@ load_pdump (int argc, char **argv, char const *original_pwd)
 }
 #endif /* HAVE_PDUMPER */
 
+#if SECCOMP_USABLE
+
+/* Wrapper function for the `seccomp' system call on GNU/Linux.  This
+   system call usually doesn't have a wrapper function.  See the
+   manual page of `seccomp' for the signature.  */
+
+static int
+emacs_seccomp (unsigned int operation, unsigned int flags, void *args)
+{
+#ifdef SYS_seccomp
+  return syscall (SYS_seccomp, operation, flags, args);
+#else
+  errno = ENOSYS;
+  return -1;
+#endif
+}
+
+/* Read SIZE bytes into BUFFER.  Return the number of bytes read, or
+   -1 if reading failed altogether.  */
+
+static ptrdiff_t
+read_full (int fd, void *buffer, ptrdiff_t size)
+{
+  eassert (0 <= fd);
+  eassert (buffer != NULL);
+  eassert (0 <= size);
+  enum
+  {
+  /* See MAX_RW_COUNT in sysdep.c.  */
+#ifdef MAX_RW_COUNT
+    max_size = MAX_RW_COUNT
+#else
+    max_size = INT_MAX >> 18 << 18
+#endif
+  };
+  if (PTRDIFF_MAX < size || max_size < size)
+    {
+      errno = EFBIG;
+      return -1;
+    }
+  char *ptr = buffer;
+  ptrdiff_t read = 0;
+  while (size != 0)
+    {
+      ptrdiff_t n = emacs_read (fd, ptr, size);
+      if (n < 0)
+        return -1;
+      if (n == 0)
+        break;  /* Avoid infinite loop on encountering EOF.  */
+      eassert (n <= size);
+      size -= n;
+      ptr += n;
+      read += n;
+    }
+  return read;
+}
+
+/* Attempt to load Secure Computing filters from FILE.  Return false
+   if that doesn't work for some reason.  */
+
+static bool
+load_seccomp (const char *file)
+{
+  bool success = false;
+  void *buffer = NULL;
+  int fd
+    = emacs_open_noquit (file, O_RDONLY | O_CLOEXEC | O_BINARY, 0);
+  if (fd < 0)
+    {
+      emacs_perror ("open");
+      goto out;
+    }
+  struct stat stat;
+  if (fstat (fd, &stat) != 0)
+    {
+      emacs_perror ("fstat");
+      goto out;
+    }
+  if (! S_ISREG (stat.st_mode))
+    {
+      fprintf (stderr, "seccomp file %s is not regular\n", file);
+      goto out;
+    }
+  struct sock_fprog program;
+  if (stat.st_size <= 0 || SIZE_MAX <= stat.st_size
+      || PTRDIFF_MAX <= stat.st_size
+      || stat.st_size % sizeof *program.filter != 0)
+    {
+      fprintf (stderr, "seccomp filter %s has invalid size %ld\n",
+               file, (long) stat.st_size);
+      goto out;
+    }
+  size_t size = stat.st_size;
+  size_t count = size / sizeof *program.filter;
+  eassert (0 < count && count < SIZE_MAX);
+  if (USHRT_MAX < count)
+    {
+      fprintf (stderr, "seccomp filter %s is too big\n", file);
+      goto out;
+    }
+  /* Try reading one more byte to detect file size changes.  */
+  buffer = malloc (size + 1);
+  if (buffer == NULL)
+    {
+      emacs_perror ("malloc");
+      goto out;
+    }
+  ptrdiff_t read = read_full (fd, buffer, size + 1);
+  if (read < 0)
+    {
+      emacs_perror ("read");
+      goto out;
+    }
+  eassert (read <= SIZE_MAX);
+  if (read != size)
+    {
+      fprintf (stderr,
+               "seccomp filter %s changed size while reading\n",
+               file);
+      goto out;
+    }
+  if (emacs_close (fd) != 0)
+    emacs_perror ("close");  /* not a fatal error */
+  fd = -1;
+  program.len = count;
+  program.filter = buffer;
+
+  /* See man page of `seccomp' why this is necessary.  Note that we
+     intentionally don't check the return value: a parent process
+     might have made this call before, in which case it would fail;
+     or, if enabling privilege-restricting mode fails, the `seccomp'
+     syscall will fail anyway.  */
+  prctl (PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
+  /* Install the filter.  Make sure that potential other threads can't
+     escape it.  */
+  if (emacs_seccomp (SECCOMP_SET_MODE_FILTER,
+                     SECCOMP_FILTER_FLAG_TSYNC, &program)
+      != 0)
+    {
+      emacs_perror ("seccomp");
+      goto out;
+    }
+  success = true;
+
+ out:
+  if (0 <= fd)
+    emacs_close (fd);
+  free (buffer);
+  return success;
+}
+
+/* Load Secure Computing filter from file specified with the --seccomp
+   option.  Exit if that fails.  */
+
+static void
+maybe_load_seccomp (int argc, char **argv)
+{
+  int skip_args = 0;
+  char *file = NULL;
+  while (skip_args < argc - 1)
+    {
+      if (argmatch (argv, argc, "-seccomp", "--seccomp", 9, &file,
+                    &skip_args)
+          || argmatch (argv, argc, "--", NULL, 2, NULL, &skip_args))
+        break;
+      ++skip_args;
+    }
+  if (file == NULL)
+    return;
+  if (! load_seccomp (file))
+    fatal ("cannot enable seccomp filter from %s", file);
+}
+
+#endif  /* SECCOMP_USABLE */
+
 int
 main (int argc, char **argv)
 {
   /* Variable near the bottom of the stack, and aligned appropriately
      for pointers.  */
   void *stack_bottom_variable;
+
+  /* First, check whether we should apply a seccomp filter.  This
+     should come at the very beginning to allow the filter to protect
+     the initialization phase.  */
+#if SECCOMP_USABLE
+  maybe_load_seccomp (argc, argv);
+#endif
+
   bool no_loadup = false;
   char *junk = 0;
   char *dname_arg = 0;
@@ -2179,11 +2398,14 @@ static const struct standard_args standard_args[] =
   { "-color", "--color", 5, 0},
   { "-no-splash", "--no-splash", 3, 0 },
   { "-no-desktop", "--no-desktop", 3, 0 },
-  /* The following two must be just above the file-name args, to get
+  /* The following three must be just above the file-name args, to get
      them out of our way, but without mixing them with file names.  */
   { "-temacs", "--temacs", 1, 1 },
 #ifdef HAVE_PDUMPER
   { "-dump-file", "--dump-file", 1, 1 },
+#endif
+#if SECCOMP_USABLE
+  { "-seccomp", "--seccomp", 1, 1 },
 #endif
 #ifdef HAVE_NS
   { "-NSAutoLaunch", 0, 5, 1 },
