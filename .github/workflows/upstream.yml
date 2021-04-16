@@ -68,6 +68,7 @@ jobs:
           git remote add upstream https://github.com/emacs-mirror/emacs
           git fetch upstream
 
+      ## Upstream
       - name: Merge Master
         run: |
           git pull --no-edit origin master
