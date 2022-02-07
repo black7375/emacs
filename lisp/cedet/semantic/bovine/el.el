@@ -1,6 +1,6 @@
 ;;; semantic/bovine/el.el --- Semantic details for Emacs Lisp  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1999-2005, 2007-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2005, 2007-2022 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -585,7 +585,7 @@ Overrides `semantic-nonterminal-static'."
 
 ;;; Context parsing
 ;;
-;; Emacs lisp is very different from C,C++ which most context parsing
+;; Emacs Lisp is very different from C,C++ which most context parsing
 ;; functions are written.  Support them here.
 (define-mode-local-override semantic-up-context emacs-lisp-mode
   (&optional _point _bounds-type)

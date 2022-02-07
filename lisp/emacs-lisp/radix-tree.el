@@ -1,6 +1,6 @@
 ;;; radix-tree.el --- A simple library of radix trees  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2016-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2022 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords:
@@ -240,7 +240,7 @@ PREFIX is only used internally."
 (declare-function map-apply "map" (function map))
 
 (defun radix-tree-from-map (map)
-  ;; Aka (cl-defmethod map-into (map (type (eql radix-tree)))) ...)
+  ;; Aka (cl-defmethod map-into (map (type (eql 'radix-tree)))) ...)
   (require 'map)
   (let ((rt nil))
     (map-apply (lambda (k v) (setq rt (radix-tree-insert rt k v))) map)

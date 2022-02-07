@@ -1,6 +1,6 @@
 ;;; font-core.el --- Core interface to font-lock  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1992-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1992-2022 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: languages, faces
@@ -20,6 +20,8 @@
 
 ;; You should have received a copy of the GNU General Public License
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
+
+;;; Commentary:
 
 ;;; Code:
 
@@ -64,7 +66,6 @@ Other variables include that for syntactic keyword fontification,
 functions, `font-lock-fontify-buffer-function',
 `font-lock-unfontify-buffer-function', `font-lock-fontify-region-function',
 `font-lock-unfontify-region-function', and `font-lock-inhibit-thing-lock'.")
-;;;###autoload
 (put 'font-lock-defaults 'risky-local-variable t)
 
 (defvar font-lock-function 'font-lock-default-function

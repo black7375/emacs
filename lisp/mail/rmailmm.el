@@ -1,6 +1,6 @@
 ;;; rmailmm.el --- MIME decoding and display stuff for RMAIL  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2006-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2022 Free Software Foundation, Inc.
 
 ;; Author: Alexander Pohoyda
 ;;	Alex Schroeder
@@ -254,7 +254,7 @@ TRUNCATED is non-nil if the text of this entity was truncated."))
 	(unless (y-or-n-p "This entity is truncated; save anyway? ")
 	  (error "Aborted")))
     (setq filename (expand-file-name
-		    (read-file-name (format "Save as (default: %s): " filename)
+                    (read-file-name (format-prompt "Save as" filename)
 				    directory
 				    (expand-file-name filename directory))
 		    directory))
@@ -784,9 +784,11 @@ directly."
 	   (let ((encoding (rmail-mime-entity-transfer-encoding entity)))
 	     (setq size (- (aref body 1) (aref body 0)))
 	     (cond ((string= encoding "base64")
-		    (setq size (/ (* size 3) 4)))
+                    ;; https://en.wikipedia.org/wiki/Base64#MIME
+		    (setq size (* size 0.73)))
 		   ((string= encoding "quoted-printable")
-		    (setq size (/ (* size 7) 3)))))))
+                    ;; Assume most of the text is ASCII...
+		    (setq size (/ (* size 5) 7)))))))
 
     (cond
      ((string-match "text/html" content-type)
@@ -1566,9 +1568,5 @@ This is the usual value of `rmail-insert-mime-forwarded-message-function'."
 (setq rmail-search-mime-message-function 'rmail-search-mime-message)
 
 (provide 'rmailmm)
-
-;; Local Variables:
-;; generated-autoload-file: "rmail-loaddefs.el"
-;; End:
 
 ;;; rmailmm.el ends here

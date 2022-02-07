@@ -1,16 +1,15 @@
 ;;; soap-client.el --- Access SOAP web services       -*- lexical-binding: t -*-
 
-;; Copyright (C) 2009-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2009-2022 Free Software Foundation, Inc.
 
 ;; Author: Alexandru Harsanyi <AlexHarsanyi@gmail.com>
 ;; Author: Thomas Fitzsimmons <fitzsim@fitzsim.org>
 ;; Created: December, 2009
-;; Version: 3.2.0
+;; Version: 3.2.1
 ;; Keywords: soap, web-services, comm, hypermedia
 ;; Package: soap-client
-;; Homepage: https://github.com/alex-hhh/emacs-soap-client
-;; Package-Requires: ((cl-lib "0.6.1"))
-;;FIXME: Put in `Package-Requires:' the Emacs version we expect.
+;; URL: https://github.com/alex-hhh/emacs-soap-client
+;; Package-Requires: ((emacs "24.1") (cl-lib "0.6.1"))
 
 ;; This file is part of GNU Emacs.
 
@@ -718,10 +717,9 @@ representing leap seconds."
                 second)
               minute hour day month year second-fraction datatype time-zone)
       (let ((time
-             (apply
-              #'encode-time (list
-                             (if new-decode-time new-decode-time-second second)
-                             minute hour day month year nil nil time-zone))))
+	     (encode-time (list
+			   (if new-decode-time new-decode-time-second second)
+			   minute hour day month year nil nil time-zone))))
         (if new-decode-time
             (with-no-warnings (decode-time time nil t))
           (decode-time time))))))
@@ -860,7 +858,7 @@ contains a reference, retrieve the type of the reference."
             (if complex-type
                 (setq type (soap-xs-parse-complex-type (car complex-type)))
               ;; else
-              (error "Soap-xs-parse-element: missing type or ref"))))))
+              (error "soap-xs-parse-element: Missing type or ref"))))))
 
     (make-soap-xs-element :name name
                           ;; Use the full namespace name for now, we will
@@ -2874,7 +2872,7 @@ decode function to perform the actual decoding."
       (unless wtype
         ;; The node has type info encoded in it, but we don't know how to
         ;; decode it...
-        (error "Soap-decode-array: node has unknown type: %s" type)))
+        (error "soap-decode-array: Node has unknown type: %s" type)))
     (dolist (e contents)
       (when (consp e)
         (push (if wtype

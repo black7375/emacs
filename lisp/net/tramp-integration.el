@@ -1,6 +1,6 @@
 ;;; tramp-integration.el --- Tramp integration into other packages  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2019-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2019-2022 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 ;; Keywords: comm, processes
@@ -42,6 +42,8 @@
 (declare-function tramp-dissect-file-name "tramp")
 (declare-function tramp-file-name-equal-p "tramp")
 (declare-function tramp-tramp-file-p "tramp")
+(declare-function tramp-rename-files "tramp-cmds")
+(declare-function tramp-rename-these-files "tramp-cmds")
 (defvar eshell-path-env)
 (defvar ido-read-file-name-non-ido)
 (defvar info-lookup-alist)
@@ -82,13 +84,6 @@ special handling of `substitute-in-file-name'."
 (defun tramp-rfn-eshadow-update-overlay-regexp ()
   "An overlay covering the shadowed part of the filename."
   (format "[^%s/~]*\\(/\\|~\\)" tramp-postfix-host-format))
-
-;; Package rfn-eshadow is preloaded in Emacs, but for some reason,
-;; it only did (defvar rfn-eshadow-overlay) without giving it a global
-;; value, so it was only declared as dynamically-scoped within the
-;; rfn-eshadow.el file.  This is now fixed in Emacs>26.1 but we still need
-;; this defvar here for older releases.
-(defvar rfn-eshadow-overlay)
 
 (defun tramp-rfn-eshadow-update-overlay ()
   "Update `rfn-eshadow-overlay' to cover shadowed part of minibuffer input.
@@ -184,14 +179,14 @@ NAME must be equal to `tramp-current-connection'."
 ;;; Integration of ido.el:
 
 (with-eval-after-load 'ido
-  (add-to-list 'ido-read-file-name-non-ido 'tramp-rename-files)
-  (add-to-list 'ido-read-file-name-non-ido 'tramp-these-rename-files)
+  (add-to-list 'ido-read-file-name-non-ido #'tramp-rename-files)
+  (add-to-list 'ido-read-file-name-non-ido #'tramp-rename-these-files)
   (add-hook 'tramp-integration-unload-hook
 	    (lambda ()
 	      (setq ido-read-file-name-non-ido
-		    (delq 'tramp-these-rename-files ido-read-file-name-non-ido)
+		    (delq #'tramp-rename-these-files ido-read-file-name-non-ido)
 		    ido-read-file-name-non-ido
-		    (delq 'tramp-rename-files ido-read-file-name-non-ido)))))
+		    (delq #'tramp-rename-files ido-read-file-name-non-ido)))))
 
 ;;; Integration of ivy.el:
 
@@ -199,17 +194,17 @@ NAME must be equal to `tramp-current-connection'."
   (add-to-list 'ivy-completing-read-handlers-alist
 	       '(tramp-rename-files . completing-read-default))
   (add-to-list 'ivy-completing-read-handlers-alist
-	       '(tramp-these-rename-files . completing-read-default))
+	       '(tramp-rename-these-files . completing-read-default))
   (add-hook
    'tramp-integration-unload-hook
    (lambda ()
      (setq ivy-completing-read-handlers-alist
 	   (delete
-	    (assq 'tramp-these-rename-files ivy-completing-read-handlers-alist)
+	    (assq #'tramp-rename-these-files ivy-completing-read-handlers-alist)
 	    ivy-completing-read-handlers-alist)
 	   ivy-completing-read-handlers-alist
 	   (delete
-	    (assq 'tramp-rename-files ivy-completing-read-handlers-alist)
+	    (assq #'tramp-rename-files ivy-completing-read-handlers-alist)
 	    ivy-completing-read-handlers-alist)))))
 
 ;;; Integration of info-look.el:
@@ -279,22 +274,18 @@ NAME must be equal to `tramp-current-connection'."
 	      (remove-hook 'compilation-start-hook
 			   #'tramp-compile-disable-ssh-controlmaster-options))))
 
-;;; Default connection-local variables for Tramp:
-;; `connection-local-set-profile-variables' and
-;; `connection-local-set-profiles' exists since Emacs 26.1.
+;;; Default connection-local variables for Tramp.
 
 (defconst tramp-connection-local-default-system-variables
   '((path-separator . ":")
     (null-device . "/dev/null"))
   "Default connection-local system variables for remote connections.")
 
-(tramp-compat-funcall
- 'connection-local-set-profile-variables
+(connection-local-set-profile-variables
  'tramp-connection-local-default-system-profile
  tramp-connection-local-default-system-variables)
 
-(tramp-compat-funcall
- 'connection-local-set-profiles
+(connection-local-set-profiles
  '(:application tramp)
  'tramp-connection-local-default-system-profile)
 
@@ -303,14 +294,12 @@ NAME must be equal to `tramp-current-connection'."
     (shell-command-switch . "-c"))
   "Default connection-local shell variables for remote connections.")
 
-(tramp-compat-funcall
- 'connection-local-set-profile-variables
+(connection-local-set-profile-variables
  'tramp-connection-local-default-shell-profile
  tramp-connection-local-default-shell-variables)
 
 (with-eval-after-load 'shell
-  (tramp-compat-funcall
-   'connection-local-set-profiles
+  (connection-local-set-profiles
    '(:application tramp)
    'tramp-connection-local-default-shell-profile))
 

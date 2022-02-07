@@ -1,6 +1,6 @@
 ;;; add-log.el --- change log maintenance commands for Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1986, 1988, 1993-1994, 1997-1998, 2000-2021 Free
+;; Copyright (C) 1985-1986, 1988, 1993-1994, 1997-1998, 2000-2022 Free
 ;; Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -590,9 +590,8 @@ Compatibility function for \\[next-error] invocations."
     ["Go To Source" change-log-goto-source
      :help "Go to source location of ChangeLog tag near point"]))
 
-;; It used to be called change-log-time-zone-rule but really should be
-;; called add-log-time-zone-rule since it's only used from add-log-* code.
-(defvaralias 'change-log-time-zone-rule 'add-log-time-zone-rule)
+(define-obsolete-variable-alias 'change-log-time-zone-rule
+  'add-log-time-zone-rule "29.1")
 (defvar add-log-time-zone-rule nil
   "Time zone rule used for calculating change log time stamps.
 If nil, use local time.  If t, use Universal Time.
@@ -930,8 +929,7 @@ non-nil, otherwise in local time."
 			    (not (looking-at "[ \t]+.*<.*>$")))
 			  (setq hit t)))))
             (forward-line 1)
-          (insert (nth (random (length new-entries))
-                       new-entries)
+          (insert (and new-entries (seq-random-elt new-entries))
                   (if use-hard-newlines hard-newline "\n")
                   (if use-hard-newlines hard-newline "\n"))
           (forward-line -1))))
@@ -1070,8 +1068,23 @@ the change log file in another window."
 	    (insert-before-markers "("))
 	(error nil)))))
 
+;; If we're filling a line that has a whole bunch of file names, and
+;; we're still in the file names, then transform this so that it'll
+;; still font-lock properly.
+(defun change-log-fill-file-list ()
+  (save-excursion
+    (unless (bobp)
+      (forward-line -1)
+      (when (looking-at change-log-file-names-re)
+        (goto-char (match-end 0))
+        (while (looking-at "\\=, \\([^ ,:([\n]+\\)")
+          (goto-char (match-end 0)))
+        (when (looking-at ", *\n")
+          (replace-match ":\n *" t t))))))
+
 (defun change-log-indent ()
   (change-log-fill-parenthesized-list)
+  (change-log-fill-file-list)
   (let* ((indent
 	  (save-excursion
 	    (beginning-of-line)
@@ -1194,7 +1207,7 @@ file were isearch was started."
     (forward-paragraph n)))
 
 (defcustom add-log-current-defun-header-regexp
-  "^\\([[:upper:]][[:upper:]_ ]*[[:upper:]_]\\|[-_[:alpha:]]+\\)[ \t]*[:=]"
+  "^\\([[:upper:]][[:upper:]_ ]*[[:upper:]_]\\|[-_[:alnum:]]*[[:alpha:]][-_[:alnum:]]*\\)[ \t]*[:=]"
   "Heuristic regexp used by `add-log-current-defun' for unknown major modes.
 The regexp's first submatch is placed in the ChangeLog entry, in
 parentheses."

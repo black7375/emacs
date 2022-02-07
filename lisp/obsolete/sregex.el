@@ -1,6 +1,6 @@
 ;;; sregex.el --- symbolic regular expressions  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-1998, 2000-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1997-1998, 2000-2022 Free Software Foundation, Inc.
 
 ;; Author: Bob Glickstein <bobg+sregex@zanshin.com>
 ;; Maintainer: emacs-devel@gnu.org
@@ -208,7 +208,7 @@
 ;;   This is a "trapdoor" for including ordinary regular expression
 ;;   strings in the result.  Some regular expressions are clearer when
 ;;   written the old way: "[a-z]" vs. (sregexq (char (?a . ?z))), for
-;;   instance.  However, see the note under "Bugs," below.
+;;   instance.
 
 ;; Each CHAR-CLAUSE that is passed to (char ...) and (not-char ...)
 ;; has one of the following forms:
@@ -235,8 +235,6 @@
 ;; - add support for character classes ([:blank:], ...)
 ;; - add support for non-greedy operators *? and +?
 ;; - bug: (sregexq (opt (opt ?a))) returns "a??" which is a non-greedy "a?"
-
-;;; Bugs:
 
 ;;; Code:
 

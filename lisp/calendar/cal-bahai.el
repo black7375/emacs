@@ -1,6 +1,6 @@
 ;;; cal-bahai.el --- calendar functions for the Bahá’í calendar.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 ;; Keywords: calendar
@@ -126,7 +126,7 @@ Defaults to today's date if DATE is not given."
         ""                              ; pre-Bahai
       (let ((m (calendar-extract-month bahai-date))
             (d (calendar-extract-day bahai-date)))
-        (calendar-dlet*
+        (calendar-dlet
             ((monthname (if (and (= m 19)
                                  (<= d 0))
                             "Ayyám-i-Há"

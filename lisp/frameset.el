@@ -1,6 +1,6 @@
 ;;; frameset.el --- save and restore frame and window setup -*- lexical-binding: t -*-
 
-;; Copyright (C) 2013-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2022 Free Software Foundation, Inc.
 
 ;; Author: Juanma Barranquero <lekktu@gmail.com>
 ;; Keywords: convenience
@@ -436,10 +436,11 @@ Properties can be set with
 
 ;;;###autoload
 (defvar frameset-session-filter-alist
-  '((name            . :never)
-    (left            . frameset-filter-iconified)
-    (minibuffer      . frameset-filter-minibuffer)
-    (top             . frameset-filter-iconified))
+  (append
+   '((left            . frameset-filter-iconified)
+     (minibuffer      . frameset-filter-minibuffer)
+     (top             . frameset-filter-iconified))
+   (mapcar (lambda (p) (cons p :never)) frame-internal-parameters))
   "Minimum set of parameters to filter for live (on-session) framesets.
 DO NOT MODIFY.  See `frameset-filter-alist' for a full description.")
 
@@ -468,14 +469,11 @@ DO NOT MODIFY.  See `frameset-filter-alist' for a full description.")
      (GUI:height                  . frameset-filter-unshelve-param)
      (GUI:width                   . frameset-filter-unshelve-param)
      (height                      . frameset-filter-shelve-param)
-     (outer-window-id             . :never)
      (parent-frame                . :never)
-     (parent-id                   . :never)
      (mouse-wheel-frame           . :never)
      (tty                         . frameset-filter-tty-to-GUI)
      (tty-type                    . frameset-filter-tty-to-GUI)
      (width                       . frameset-filter-shelve-param)
-     (window-id                   . :never)
      (window-system               . :never))
    frameset-session-filter-alist)
   "Parameters to filter for persistent framesets.
@@ -636,7 +634,7 @@ see `frameset-filter-alist'."
       (not (frameset-switch-to-gui-p parameters))
       (let* ((prefix:p (symbol-name (car current)))
 	     (p (intern (substring prefix:p
-				   (1+ (string-match-p ":" prefix:p)))))
+				   (1+ (string-search ":" prefix:p)))))
 	     (val (cdr current))
 	     (found (assq p filtered)))
 	(if (not found)
@@ -882,7 +880,7 @@ For the description of FORCE-ONSCREEN, see `frameset-restore'.
 When forced onscreen, frames wider than the monitor's workarea are converted
 to fullwidth, and frames taller than the workarea are converted to fullheight.
 NOTE: This only works for non-iconified frames."
-  (pcase-let* ((`(,left ,top ,width ,height) (cl-cdadr (frame-monitor-attributes frame)))
+  (pcase-let* ((`(,left ,top ,width ,height) (cdadr (frame-monitor-attributes frame)))
 	       (right (+ left width -1))
 	       (bottom (+ top height -1))
 	       (fr-left (frameset-compute-pos (frame-parameter frame 'left) left right))
@@ -1178,7 +1176,8 @@ FORCE-ONSCREEN can be:
 	   - a list (LEFT TOP WIDTH HEIGHT), describing the workarea.
 	   It must return non-nil to force the frame onscreen, nil otherwise.
 
-CLEANUP-FRAMES allows \"cleaning up\" the frame list after restoring a frameset:
+CLEANUP-FRAMES allows \"cleaning up\" the frame list after
+restoring a frameset:
   t        Delete all frames that were not created or restored upon.
   nil      Keep all frames.
   FUNC     A function called with two arguments:

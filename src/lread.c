@@ -1,6 +1,6 @@
 /* Lisp parsing and input streams.
 
-Copyright (C) 1985-1989, 1993-1995, 1997-2021 Free Software Foundation,
+Copyright (C) 1985-1989, 1993-1995, 1997-2022 Free Software Foundation,
 Inc.
 
 This file is part of GNU Emacs.
@@ -128,9 +128,8 @@ static ptrdiff_t read_from_string_index;
 static ptrdiff_t read_from_string_index_byte;
 static ptrdiff_t read_from_string_limit;
 
-/* Number of characters read in the current call to Fread or
-   Fread_from_string.  */
-static EMACS_INT readchar_count;
+/* Position in object from which characters are being read by `readchar'.  */
+static EMACS_INT readchar_offset;
 
 /* This contains the last string skipped with #@.  */
 static char *saved_doc_string;
@@ -165,6 +164,12 @@ static void readevalloop (Lisp_Object, struct infile *, Lisp_Object, bool,
                           Lisp_Object, Lisp_Object);
 
 static void build_load_history (Lisp_Object, bool);
+
+static Lisp_Object oblookup_considering_shorthand (Lisp_Object, const char *,
+						   ptrdiff_t, ptrdiff_t,
+						   char **, ptrdiff_t *,
+						   ptrdiff_t *);
+
 
 /* Functions that read one byte from the current source READCHARFUN
    or unreads one byte.  If the integer argument C is -1, it returns
@@ -192,7 +197,7 @@ static int readbyte_from_string (int, Lisp_Object);
    Qlambda, or a cons, we use this to keep an unread character because
    a file stream can't handle multibyte-char unreading.  The value -1
    means that there's no unread character.  */
-static int unread_char;
+static int unread_char = -1;
 
 static int
 readchar (Lisp_Object readcharfun, bool *multibyte)
@@ -207,7 +212,7 @@ readchar (Lisp_Object readcharfun, bool *multibyte)
   if (multibyte)
     *multibyte = 0;
 
-  readchar_count++;
+  readchar_offset++;
 
   if (BUFFERP (readcharfun))
     {
@@ -418,7 +423,7 @@ skip_dyn_eof (Lisp_Object readcharfun)
 static void
 unreadchar (Lisp_Object readcharfun, int c)
 {
-  readchar_count--;
+  readchar_offset--;
   if (c == -1)
     /* Don't back up the pointer if we're unreading the end-of-input mark,
        since readchar didn't advance it when we read it.  */
@@ -641,12 +646,12 @@ struct subst
 };
 
 static Lisp_Object read_internal_start (Lisp_Object, Lisp_Object,
-                                        Lisp_Object);
-static Lisp_Object read0 (Lisp_Object);
-static Lisp_Object read1 (Lisp_Object, int *, bool);
+                                        Lisp_Object, bool);
+static Lisp_Object read0 (Lisp_Object, bool);
+static Lisp_Object read1 (Lisp_Object, int *, bool, bool);
 
-static Lisp_Object read_list (bool, Lisp_Object);
-static Lisp_Object read_vector (Lisp_Object, bool);
+static Lisp_Object read_list (bool, Lisp_Object, bool);
+static Lisp_Object read_vector (Lisp_Object, bool, bool);
 
 static Lisp_Object substitute_object_recurse (struct subst *, Lisp_Object);
 static void substitute_in_interval (INTERVAL, void *);
@@ -1039,11 +1044,17 @@ lisp_file_lexically_bound_p (Lisp_Object readcharfun)
    safe to load.  Only files compiled with Emacs can be loaded.  */
 
 static int
-safe_to_load_version (int fd)
+safe_to_load_version (Lisp_Object file, int fd)
 {
+  struct stat st;
   char buf[512];
   int nbytes, i;
   int version = 1;
+
+  /* If the file is not regular, then we cannot safely seek it.
+     Assume that it is not safe to load as a compiled file.  */
+  if (fstat (fd, &st) == 0 && !S_ISREG (st.st_mode))
+    return 0;
 
   /* Read the first few bytes from the file, and look for a line
      specifying the byte compiler version used.  */
@@ -1062,7 +1073,9 @@ safe_to_load_version (int fd)
 	version = 0;
     }
 
-  lseek (fd, 0, SEEK_SET);
+  if (lseek (fd, 0, SEEK_SET) < 0)
+    report_file_error ("Seeking to start of file", file);
+
   return version;
 }
 
@@ -1265,7 +1278,10 @@ Return t if the file exists and loads successfully.  */)
               || suffix_p (file, MODULES_SECONDARY_SUFFIX)
 #endif
 #endif
-              || (NATIVE_COMP_FLAG && suffix_p (file, NATIVE_ELISP_SUFFIX)))
+#ifdef HAVE_NATIVE_COMP
+              || suffix_p (file, NATIVE_ELISP_SUFFIX)
+#endif
+	      )
 	    must_suffix = Qnil;
 	  /* Don't insist on adding a suffix
 	     if the argument includes a directory name.  */
@@ -1345,8 +1361,11 @@ Return t if the file exists and loads successfully.  */)
   bool is_module = false;
 #endif
 
-  bool is_native_elisp =
-    NATIVE_COMP_FLAG && suffix_p (found, NATIVE_ELISP_SUFFIX) ? true : false;
+#ifdef HAVE_NATIVE_COMP
+  bool is_native_elisp = suffix_p (found, NATIVE_ELISP_SUFFIX);
+#else
+  bool is_native_elisp = false;
+#endif
 
   /* Check if we're stuck in a recursive load cycle.
 
@@ -1395,7 +1414,7 @@ Return t if the file exists and loads successfully.  */)
   if (is_elc
       /* version = 1 means the file is empty, in which case we can
 	 treat it as not byte-compiled.  */
-      || (fd >= 0 && (version = safe_to_load_version (fd)) > 1))
+      || (fd >= 0 && (version = safe_to_load_version (file, fd)) > 1))
     /* Load .elc files directly, but not when they are
        remote and have no handler!  */
     {
@@ -1404,11 +1423,8 @@ Return t if the file exists and loads successfully.  */)
 	  struct stat s1, s2;
 	  int result;
 
-	  if (version < 0
-	      && ! (version = safe_to_load_version (fd)))
-	    {
-	      error ("File `%s' was not compiled in Emacs", SDATA (found));
-	    }
+	  if (version < 0 && !(version = safe_to_load_version (file, fd)))
+	    error ("File `%s' was not compiled in Emacs", SDATA (found));
 
 	  compiled = 1;
 
@@ -1507,6 +1523,7 @@ Return t if the file exists and loads successfully.  */)
       input.stream = stream;
       input.lookahead = 0;
       infile = &input;
+      unread_char = -1;
     }
 
   if (! NILP (Vpurify_flag))
@@ -1527,7 +1544,7 @@ Return t if the file exists and loads successfully.  */)
 	message_with_string ("Loading %s...", file, 1);
     }
 
-  specbind (Qload_file_name, found_eff);
+  specbind (Qload_file_name, hist_file_name);
   specbind (Qload_true_file_name, found);
   specbind (Qinhibit_file_name_operation, Qnil);
   specbind (Qload_in_progress, Qt);
@@ -1700,7 +1717,7 @@ maybe_swap_for_eln (bool no_native, Lisp_Object *filename, int *fd,
     return;
 
   /* Search eln in the eln-cache directories.  */
-  Lisp_Object eln_path_tail = Vcomp_eln_load_path;
+  Lisp_Object eln_path_tail = Vnative_comp_eln_load_path;
   Lisp_Object src_name =
     Fsubstring (*filename, Qnil, make_fixnum (-1));
   if (NILP (Ffile_exists_p (src_name)))
@@ -1708,7 +1725,8 @@ maybe_swap_for_eln (bool no_native, Lisp_Object *filename, int *fd,
       src_name = concat2 (src_name, build_string (".gz"));
       if (NILP (Ffile_exists_p (src_name)))
 	{
-	  if (!NILP (find_symbol_value (Qcomp_warning_on_missing_source)))
+	  if (!NILP (find_symbol_value (
+		       Qnative_comp_warning_on_missing_source)))
 	    call2 (intern_c_string ("display-warning"),
 		   Qcomp,
 		   CALLN (Fformat,
@@ -1944,7 +1962,17 @@ openp (Lisp_Object path, Lisp_Object str, Lisp_Object suffixes,
 	      }
 	    else
 	      {
-		fd = emacs_open (pfn, O_RDONLY, 0);
+                /*  In some systems (like Windows) finding out if a
+                    file exists is cheaper to do than actually opening
+                    it.  Only open the file when we are sure that it
+                    exists.  */
+#ifdef WINDOWSNT
+                if (faccessat (AT_FDCWD, pfn, R_OK, AT_EACCESS))
+                  fd = -1;
+                else
+#endif
+                  fd = emacs_open (pfn, O_RDONLY, 0);
+
 		if (fd < 0)
 		  {
 		    if (! (errno == ENOENT || errno == ENOTDIR))
@@ -2180,6 +2208,7 @@ readevalloop (Lisp_Object readcharfun,
   specbind (Qinternal_interpreter_environment,
 	    (NILP (lex_bound) || EQ (lex_bound, Qunbound)
 	     ? Qnil : list1 (Qt)));
+  specbind (Qmacroexp__dynvars, Vmacroexp__dynvars);
 
   /* Ensure sourcename is absolute, except whilst preloading.  */
   if (!will_dump_p ()
@@ -2257,7 +2286,7 @@ readevalloop (Lisp_Object readcharfun,
 			     Qnil, false);
       if (!NILP (Vpurify_flag) && c == '(')
 	{
-	  val = read_list (0, readcharfun);
+	  val = read_list (0, readcharfun, false);
 	}
       else
 	{
@@ -2279,7 +2308,7 @@ readevalloop (Lisp_Object readcharfun,
 	  else if (! NILP (Vload_read_function))
 	    val = call1 (Vload_read_function, readcharfun);
 	  else
-	    val = read_internal_start (readcharfun, Qnil, Qnil);
+	    val = read_internal_start (readcharfun, Qnil, Qnil, false);
 	}
       /* Empty hashes can be reused; otherwise, reset on next call.  */
       if (HASH_TABLE_P (read_objects_map)
@@ -2437,7 +2466,35 @@ STREAM or the value of `standard-input' may be:
     return call1 (intern ("read-minibuffer"),
 		  build_string ("Lisp expression: "));
 
-  return read_internal_start (stream, Qnil, Qnil);
+  return read_internal_start (stream, Qnil, Qnil, false);
+}
+
+DEFUN ("read-positioning-symbols", Fread_positioning_symbols,
+       Sread_positioning_symbols, 0, 1, 0,
+       doc: /* Read one Lisp expression as text from STREAM, return as Lisp object.
+Convert each occurrence of a symbol into a "symbol with pos" object.
+
+If STREAM is nil, use the value of `standard-input' (which see).
+STREAM or the value of `standard-input' may be:
+ a buffer (read from point and advance it)
+ a marker (read from where it points and advance it)
+ a function (call it with no arguments for each character,
+     call it with a char as argument to push a char back)
+ a string (takes text from string, starting at the beginning)
+ t (read text line using minibuffer and use it, or read from
+    standard input in batch mode).  */)
+  (Lisp_Object stream)
+{
+  if (NILP (stream))
+    stream = Vstandard_input;
+  if (EQ (stream, Qt))
+    stream = Qread_char;
+  if (EQ (stream, Qread_char))
+    /* FIXME: ?! When is this used !?  */
+    return call1 (intern ("read-minibuffer"),
+		  build_string ("Lisp expression: "));
+
+  return read_internal_start (stream, Qnil, Qnil, true);
 }
 
 DEFUN ("read-from-string", Fread_from_string, Sread_from_string, 1, 3, 0,
@@ -2453,18 +2510,21 @@ the end of STRING.  */)
   Lisp_Object ret;
   CHECK_STRING (string);
   /* `read_internal_start' sets `read_from_string_index'.  */
-  ret = read_internal_start (string, start, end);
+  ret = read_internal_start (string, start, end, false);
   return Fcons (ret, make_fixnum (read_from_string_index));
 }
 
 /* Function to set up the global context we need in toplevel read
-   calls.  START and END only used when STREAM is a string.  */
+   calls.  START and END only used when STREAM is a string.
+   LOCATE_SYMS true means read symbol occurrences as symbols with
+   position.  */
 static Lisp_Object
-read_internal_start (Lisp_Object stream, Lisp_Object start, Lisp_Object end)
+read_internal_start (Lisp_Object stream, Lisp_Object start, Lisp_Object end,
+                     bool locate_syms)
 {
   Lisp_Object retval;
 
-  readchar_count = 0;
+  readchar_offset = BUFFERP (stream) ? XBUFFER (stream)->pt : 0;
   /* We can get called from readevalloop which may have set these
      already.  */
   if (! HASH_TABLE_P (read_objects_map)
@@ -2477,9 +2537,6 @@ read_internal_start (Lisp_Object stream, Lisp_Object start, Lisp_Object end)
     read_objects_completed
       = make_hash_table (hashtest_eq, DEFAULT_HASH_SIZE, DEFAULT_REHASH_SIZE,
 			 DEFAULT_REHASH_THRESHOLD, Qnil, false);
-  if (EQ (Vread_with_symbol_positions, Qt)
-      || EQ (Vread_with_symbol_positions, stream))
-    Vread_symbol_positions_list = Qnil;
 
   if (STRINGP (stream)
       || ((CONSP (stream) && STRINGP (XCAR (stream)))))
@@ -2500,11 +2557,7 @@ read_internal_start (Lisp_Object stream, Lisp_Object start, Lisp_Object end)
       read_from_string_limit = endval;
     }
 
-  retval = read0 (stream);
-  if (EQ (Vread_with_symbol_positions, Qt)
-      || EQ (Vread_with_symbol_positions, stream))
-    Vread_symbol_positions_list = Fnreverse (Vread_symbol_positions_list);
-  /* Empty hashes can be reused; otherwise, reset on next call.  */
+  retval = read0 (stream, locate_syms);
   if (HASH_TABLE_P (read_objects_map)
       && XHASH_TABLE (read_objects_map)->count > 0)
     read_objects_map = Qnil;
@@ -2519,12 +2572,12 @@ read_internal_start (Lisp_Object stream, Lisp_Object start, Lisp_Object end)
    are not allowed.  */
 
 static Lisp_Object
-read0 (Lisp_Object readcharfun)
+read0 (Lisp_Object readcharfun, bool locate_syms)
 {
   register Lisp_Object val;
   int c;
 
-  val = read1 (readcharfun, &c, 0);
+  val = read1 (readcharfun, &c, 0, locate_syms);
   if (!c)
     return val;
 
@@ -2686,7 +2739,7 @@ read_escape (Lisp_Object readcharfun, bool stringp)
 	c = read_escape (readcharfun, 0);
       if ((c & ~CHAR_MODIFIER_MASK) == '?')
 	return 0177 | (c & CHAR_MODIFIER_MASK);
-      else if (! SINGLE_BYTE_CHAR_P ((c & ~CHAR_MODIFIER_MASK)))
+      else if (! ASCII_CHAR_P ((c & ~CHAR_MODIFIER_MASK)))
 	return c | ctrl_modifier;
       /* ASCII control chars are made from letters (both cases),
 	 as well as the non-letters within 0100...0137.  */
@@ -2944,18 +2997,20 @@ read_integer (Lisp_Object readcharfun, int radix,
   return unbind_to (count, string_to_number (read_buffer, radix, NULL));
 }
 
-
 /* If the next token is ')' or ']' or '.', we store that character
    in *PCH and the return value is not interesting.  Else, we store
    zero in *PCH and we read and return one lisp object.
 
-   FIRST_IN_LIST is true if this is the first element of a list.  */
+   FIRST_IN_LIST is true if this is the first element of a list.
+   LOCATE_SYMS true means read symbol occurrences as symbols with
+   position.  */
 
 static Lisp_Object
-read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
+read1 (Lisp_Object readcharfun, int *pch, bool first_in_list, bool locate_syms)
 {
   int c;
   bool uninterned_symbol = false;
+  bool skip_shorthand = false;
   bool multibyte;
   char stackbuf[stackbufsize];
   current_thread->stack_top = stackbuf;
@@ -2971,10 +3026,10 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
   switch (c)
     {
     case '(':
-      return read_list (0, readcharfun);
+      return read_list (0, readcharfun, locate_syms);
 
     case '[':
-      return read_vector (readcharfun, 0);
+      return read_vector (readcharfun, 0, locate_syms);
 
     case ')':
     case ']':
@@ -2993,7 +3048,7 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 	      /* Accept extended format for hash tables (extensible to
 		 other types), e.g.
 		 #s(hash-table size 2 test equal data (k1 v1 k2 v2))  */
-	      Lisp_Object tmp = read_list (0, readcharfun);
+	      Lisp_Object tmp = read_list (0, readcharfun, false);
 	      Lisp_Object head = CAR_SAFE (tmp);
 	      Lisp_Object data = Qnil;
 	      Lisp_Object val = Qnil;
@@ -3082,7 +3137,7 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 	  if (c == '[')
 	    {
 	      Lisp_Object tmp;
-	      tmp = read_vector (readcharfun, 0);
+	      tmp = read_vector (readcharfun, 0, false);
 	      if (ASIZE (tmp) < CHAR_TABLE_STANDARD_SLOTS)
 		error ("Invalid size char-table");
 	      XSETPVECTYPE (XVECTOR (tmp), PVEC_CHAR_TABLE);
@@ -3095,7 +3150,7 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 		{
 		  /* Sub char-table can't be read as a regular
 		     vector because of a two C integer fields.  */
-		  Lisp_Object tbl, tmp = read_list (1, readcharfun);
+		  Lisp_Object tbl, tmp = read_list (1, readcharfun, false);
 		  ptrdiff_t size = list_length (tmp);
 		  int i, depth, min_char;
 		  struct Lisp_Cons *cell;
@@ -3133,7 +3188,7 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
       if (c == '&')
 	{
 	  Lisp_Object length;
-	  length = read1 (readcharfun, pch, first_in_list);
+	  length = read1 (readcharfun, pch, first_in_list, false);
 	  c = READCHAR;
 	  if (c == '"')
 	    {
@@ -3142,7 +3197,7 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 	      unsigned char *data;
 
 	      UNREAD (c);
-	      tmp = read1 (readcharfun, pch, first_in_list);
+	      tmp = read1 (readcharfun, pch, first_in_list, false);
 	      if (STRING_MULTIBYTE (tmp)
 		  || (size_in_chars != SCHARS (tmp)
 		      /* We used to print 1 char too many
@@ -3170,7 +3225,7 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 	     build them using function calls.  */
 	  Lisp_Object tmp;
 	  struct Lisp_Vector *vec;
-	  tmp = read_vector (readcharfun, 1);
+	  tmp = read_vector (readcharfun, 1, false);
 	  vec = XVECTOR (tmp);
 	  if (! (COMPILED_STACK_DEPTH < ASIZE (tmp)
 		 && (FIXNUMP (AREF (tmp, COMPILED_ARGLIST))
@@ -3182,33 +3237,20 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 		 && FIXNATP (AREF (tmp, COMPILED_STACK_DEPTH))))
 	    invalid_syntax ("Invalid byte-code object", readcharfun);
 
-	  if (STRINGP (AREF (tmp, COMPILED_BYTECODE))
-	      && STRING_MULTIBYTE (AREF (tmp, COMPILED_BYTECODE)))
+	  if (STRINGP (AREF (tmp, COMPILED_BYTECODE)))
 	    {
-	      /* BYTESTR must have been produced by Emacs 20.2 or earlier
-		 because it produced a raw 8-bit string for byte-code and
-		 now such a byte-code string is loaded as multibyte with
-		 raw 8-bit characters converted to multibyte form.
-		 Convert them back to the original unibyte form.  */
-	      ASET (tmp, COMPILED_BYTECODE,
-		    Fstring_as_unibyte (AREF (tmp, COMPILED_BYTECODE)));
-	    }
-
-	  if (COMPILED_DOC_STRING < ASIZE (tmp)
-	      && EQ (AREF (tmp, COMPILED_DOC_STRING), make_fixnum (0)))
-	    {
-	      /* read_list found a docstring like '(#$ . 5521)' and treated it
-		 as 0.  This placeholder 0 would lead to accidental sharing in
-		 purecopy's hash-consing, so replace it with a (hopefully)
-		 unique integer placeholder, which is negative so that it is
-		 not confused with a DOC file offset (the USE_LSB_TAG shift
-		 relies on the fact that VALMASK is one bit narrower than
-		 INTMASK).  Eventually Snarf-documentation should replace the
-		 placeholder with the actual docstring.  */
-	      verify (INTMASK & ~VALMASK);
-	      EMACS_UINT hash = ((XHASH (tmp) >> USE_LSB_TAG)
-				 | (INTMASK - INTMASK / 2));
-	      ASET (tmp, COMPILED_DOC_STRING, make_ufixnum (hash));
+	      if (STRING_MULTIBYTE (AREF (tmp, COMPILED_BYTECODE)))
+		{
+		  /* BYTESTR must have been produced by Emacs 20.2 or earlier
+		     because it produced a raw 8-bit string for byte-code and
+		     now such a byte-code string is loaded as multibyte with
+		     raw 8-bit characters converted to multibyte form.
+		     Convert them back to the original unibyte form.  */
+		  ASET (tmp, COMPILED_BYTECODE,
+			Fstring_as_unibyte (AREF (tmp, COMPILED_BYTECODE)));
+		}
+	      // Bytecode must be immovable.
+	      pin_string (AREF (tmp, COMPILED_BYTECODE));
 	    }
 
 	  XSETPVECTYPE (vec, PVEC_COMPILED);
@@ -3220,7 +3262,7 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 	  int ch;
 
 	  /* Read the string itself.  */
-	  tmp = read1 (readcharfun, &ch, 0);
+	  tmp = read1 (readcharfun, &ch, 0, false);
 	  if (ch != 0 || !STRINGP (tmp))
 	    invalid_syntax ("#", readcharfun);
 	  /* Read the intervals and their properties.  */
@@ -3228,14 +3270,14 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 	    {
 	      Lisp_Object beg, end, plist;
 
-	      beg = read1 (readcharfun, &ch, 0);
+	      beg = read1 (readcharfun, &ch, 0, false);
 	      end = plist = Qnil;
 	      if (ch == ')')
 		break;
 	      if (ch == 0)
-		end = read1 (readcharfun, &ch, 0);
+		end = read1 (readcharfun, &ch, 0, false);
 	      if (ch == 0)
-		plist = read1 (readcharfun, &ch, 0);
+		plist = read1 (readcharfun, &ch, 0, false);
 	      if (ch)
 		invalid_syntax ("Invalid string property list", readcharfun);
 	      Fset_text_properties (beg, end, plist, tmp);
@@ -3346,11 +3388,12 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
       if (c == '$')
 	return Vload_file_name;
       if (c == '\'')
-	return list2 (Qfunction, read0 (readcharfun));
+	return list2 (Qfunction, read0 (readcharfun, locate_syms));
       /* #:foo is the uninterned symbol named foo.  */
       if (c == ':')
 	{
 	  uninterned_symbol = true;
+	read_hash_prefixed_symbol:
 	  c = READCHAR;
 	  if (!(c > 040
 		&& c != NO_BREAK_SPACE
@@ -3363,6 +3406,12 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 	      return Fmake_symbol (empty_unibyte_string);
 	    }
 	  goto read_symbol;
+	}
+      /* #_foo is really the symbol foo, regardless of shorthands  */
+      if (c == '_')
+	{
+	  skip_shorthand = true;
+	  goto read_hash_prefixed_symbol;
 	}
       /* ## is the empty symbol.  */
       if (c == '#')
@@ -3422,7 +3471,7 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 			hash_put (h, number, placeholder, hash);
 
 		      /* Read the object itself.  */
-		      Lisp_Object tem = read0 (readcharfun);
+		      Lisp_Object tem = read0 (readcharfun, locate_syms);
 
 		      /* If it can be recursive, remember it for
 			 future substitutions.  */
@@ -3478,6 +3527,9 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
       else if (c == 'b' || c == 'B')
 	return read_integer (readcharfun, 2, stackbuf);
 
+      char acm_buf[15];		/* FIXME!!! 2021-11-27. */
+      sprintf (acm_buf, "#%c", c);
+      invalid_syntax (acm_buf, readcharfun);
       UNREAD (c);
       invalid_syntax ("#", readcharfun);
 
@@ -3486,10 +3538,10 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
       goto retry;
 
     case '\'':
-      return list2 (Qquote, read0 (readcharfun));
+      return list2 (Qquote, read0 (readcharfun, locate_syms));
 
     case '`':
-      return list2 (Qbackquote, read0 (readcharfun));
+      return list2 (Qbackquote, read0 (readcharfun, locate_syms));
 
     case ',':
       {
@@ -3505,7 +3557,7 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 	    comma_type = Qcomma;
 	  }
 
-	value = read0 (readcharfun);
+	value = read0 (readcharfun, locate_syms);
 	return list2 (comma_type, value);
       }
     case '?':
@@ -3707,7 +3759,7 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 	char *p = read_buffer;
 	char *end = read_buffer + read_buffer_size;
 	bool quoted = false;
-	EMACS_INT start_position = readchar_count - 1;
+	EMACS_INT start_position = readchar_offset - 1;
 
 	do
 	  {
@@ -3744,7 +3796,7 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 	ptrdiff_t nbytes = p - read_buffer;
 	UNREAD (c);
 
-	if (!quoted && !uninterned_symbol)
+	if (!quoted && !uninterned_symbol && !skip_shorthand)
 	  {
 	    ptrdiff_t len;
 	    Lisp_Object result = string_to_number (read_buffer, 10, &len);
@@ -3774,11 +3826,36 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 
 		 Like intern_1 but supports multibyte names.  */
 	      Lisp_Object obarray = check_obarray (Vobarray);
-	      Lisp_Object tem = oblookup (obarray, read_buffer,
-					  nchars, nbytes);
+
+	      char* longhand = NULL;
+	      ptrdiff_t longhand_chars = 0;
+	      ptrdiff_t longhand_bytes = 0;
+
+	      Lisp_Object tem;
+	      if (skip_shorthand
+		  /* The following ASCII characters are used in the
+		     only "core" Emacs Lisp symbols that are comprised
+		     entirely of characters that have the 'symbol
+		     constituent' syntax.  We exempt them from
+		     transforming according to shorthands.  */
+		  || strspn (read_buffer, "^*+-/<=>_|") >= nbytes)
+		tem = oblookup (obarray, read_buffer, nchars, nbytes);
+	      else
+		tem = oblookup_considering_shorthand (obarray, read_buffer,
+						      nchars, nbytes, &longhand,
+						      &longhand_chars,
+						      &longhand_bytes);
 
 	      if (SYMBOLP (tem))
 		result = tem;
+	      else if (longhand)
+		{
+		  Lisp_Object name
+		    = make_specified_string (longhand, longhand_chars,
+					     longhand_bytes, multibyte);
+		  xfree (longhand);
+		  result = intern_driver (name, obarray, tem);
+		}
 	      else
 		{
 		  Lisp_Object name
@@ -3787,12 +3864,12 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list)
 		  result = intern_driver (name, obarray, tem);
 		}
 	    }
+	  if (locate_syms
+	      && !NILP (result)
+	      )
+	    result = build_symbol_with_pos (result,
+					    make_fixnum (start_position));
 
-	  if (EQ (Vread_with_symbol_positions, Qt)
-	      || EQ (Vread_with_symbol_positions, readcharfun))
-	    Vread_symbol_positions_list
-	      = Fcons (Fcons (result, make_fixnum (start_position)),
-		       Vread_symbol_positions_list);
 	  return unbind_to (count, result);
 	}
       }
@@ -3927,8 +4004,7 @@ string_to_number (char const *string, int base, ptrdiff_t *plen)
   bool signedp = negative | positive;
   cp += signedp;
 
-  enum { INTOVERFLOW = 1, LEAD_INT = 2, DOT_CHAR = 4, TRAIL_INT = 8,
-	 E_EXP = 16 };
+  enum { INTOVERFLOW = 1, LEAD_INT = 2, TRAIL_INT = 4, E_EXP = 16 };
   int state = 0;
   int leading_digit = digit_to_number (*cp, base);
   uintmax_t n = leading_digit;
@@ -3948,7 +4024,6 @@ string_to_number (char const *string, int base, ptrdiff_t *plen)
   char const *after_digits = cp;
   if (*cp == '.')
     {
-      state |= DOT_CHAR;
       cp++;
     }
 
@@ -3997,8 +4072,10 @@ string_to_number (char const *string, int base, ptrdiff_t *plen)
 	    cp = ecp;
 	}
 
-      float_syntax = ((state & (DOT_CHAR|TRAIL_INT)) == (DOT_CHAR|TRAIL_INT)
-		      || (state & ~INTOVERFLOW) == (LEAD_INT|E_EXP));
+      /* A float has digits after the dot or an exponent.
+	 This excludes numbers like "1." which are lexed as integers. */
+      float_syntax = ((state & TRAIL_INT)
+		      || ((state & LEAD_INT) && (state & E_EXP)));
     }
 
   if (plen)
@@ -4045,9 +4122,9 @@ string_to_number (char const *string, int base, ptrdiff_t *plen)
 
 
 static Lisp_Object
-read_vector (Lisp_Object readcharfun, bool bytecodeflag)
+read_vector (Lisp_Object readcharfun, bool bytecodeflag, bool locate_syms)
 {
-  Lisp_Object tem = read_list (1, readcharfun);
+  Lisp_Object tem = read_list (1, readcharfun, locate_syms);
   ptrdiff_t size = list_length (tem);
   Lisp_Object vector = make_nil_vector (size);
 
@@ -4119,10 +4196,12 @@ read_vector (Lisp_Object readcharfun, bool bytecodeflag)
   return vector;
 }
 
-/* FLAG means check for ']' to terminate rather than ')' and '.'.  */
+/* FLAG means check for ']' to terminate rather than ')' and '.'.
+   LOCATE_SYMS true means read symbol occurrencess as symbols with
+   position. */
 
 static Lisp_Object
-read_list (bool flag, Lisp_Object readcharfun)
+read_list (bool flag, Lisp_Object readcharfun, bool locate_syms)
 {
   Lisp_Object val, tail;
   Lisp_Object elt, tem;
@@ -4140,37 +4219,19 @@ read_list (bool flag, Lisp_Object readcharfun)
   while (1)
     {
       int ch;
-      elt = read1 (readcharfun, &ch, first_in_list);
+      elt = read1 (readcharfun, &ch, first_in_list, locate_syms);
 
       first_in_list = 0;
 
       /* While building, if the list starts with #$, treat it specially.  */
       if (EQ (elt, Vload_file_name)
-	  && ! NILP (elt)
-	  && !NILP (Vpurify_flag))
+	  && ! NILP (elt))
 	{
-	  if (NILP (Vdoc_file_name))
-	    /* We have not yet called Snarf-documentation, so assume
-	       this file is described in the DOC file
-	       and Snarf-documentation will fill in the right value later.
-	       For now, replace the whole list with 0.  */
-	    doc_reference = 1;
-	  else
-	    /* We have already called Snarf-documentation, so make a relative
-	       file name for this file, so it can be found properly
-	       in the installed Lisp directory.
-	       We don't use Fexpand_file_name because that would make
-	       the directory absolute now.  */
-	    {
-	      AUTO_STRING (dot_dot_lisp, "../lisp/");
-	      elt = concat2 (dot_dot_lisp, Ffile_name_nondirectory (elt));
-	    }
+	  if (!NILP (Vpurify_flag))
+	    doc_reference = 0;
+	  else if (load_force_doc_strings)
+	    doc_reference = 2;
 	}
-      else if (EQ (elt, Vload_file_name)
-	       && ! NILP (elt)
-	       && load_force_doc_strings)
-	doc_reference = 2;
-
       if (ch)
 	{
 	  if (flag > 0)
@@ -4184,15 +4245,13 @@ read_list (bool flag, Lisp_Object readcharfun)
 	  if (ch == '.')
 	    {
 	      if (!NILP (tail))
-		XSETCDR (tail, read0 (readcharfun));
+		XSETCDR (tail, read0 (readcharfun, locate_syms));
 	      else
-		val = read0 (readcharfun);
-	      read1 (readcharfun, &ch, 0);
+		val = read0 (readcharfun, locate_syms);
+	      read1 (readcharfun, &ch, 0, locate_syms);
 
 	      if (ch == ')')
 		{
-		  if (doc_reference == 1)
-		    return make_fixnum (0);
 		  if (doc_reference == 2 && FIXNUMP (XCDR (val)))
 		    {
 		      char *saved = NULL;
@@ -4327,6 +4386,7 @@ intern_sym (Lisp_Object sym, Lisp_Object obarray, Lisp_Object index)
 Lisp_Object
 intern_driver (Lisp_Object string, Lisp_Object obarray, Lisp_Object index)
 {
+  SET_SYMBOL_VAL (XSYMBOL (Qobarray_cache), Qnil);
   return intern_sym (Fmake_symbol (string), obarray, index);
 }
 
@@ -4395,10 +4455,28 @@ it defaults to the value of `obarray'.  */)
   obarray = check_obarray (NILP (obarray) ? Vobarray : obarray);
   CHECK_STRING (string);
 
-  tem = oblookup (obarray, SSDATA (string), SCHARS (string), SBYTES (string));
+
+  char* longhand = NULL;
+  ptrdiff_t longhand_chars = 0;
+  ptrdiff_t longhand_bytes = 0;
+  tem = oblookup_considering_shorthand (obarray, SSDATA (string),
+					SCHARS (string), SBYTES (string),
+					&longhand, &longhand_chars,
+					&longhand_bytes);
+
   if (!SYMBOLP (tem))
-    tem = intern_driver (NILP (Vpurify_flag) ? string : Fpurecopy (string),
-			 obarray, tem);
+    {
+      if (longhand)
+	{
+	  tem = intern_driver (make_specified_string (longhand, longhand_chars,
+						      longhand_bytes, true),
+			       obarray, tem);
+	  xfree (longhand);
+	}
+      else
+	tem = intern_driver (NILP (Vpurify_flag) ? string : Fpurecopy (string),
+			     obarray, tem);
+    }
   return tem;
 }
 
@@ -4417,17 +4495,29 @@ it defaults to the value of `obarray'.  */)
 
   if (!SYMBOLP (name))
     {
+      char *longhand = NULL;
+      ptrdiff_t longhand_chars = 0;
+      ptrdiff_t longhand_bytes = 0;
+
       CHECK_STRING (name);
       string = name;
+      tem = oblookup_considering_shorthand (obarray, SSDATA (string),
+					    SCHARS (string), SBYTES (string),
+					    &longhand, &longhand_chars,
+					    &longhand_bytes);
+      if (longhand)
+	xfree (longhand);
+      return FIXNUMP (tem) ? Qnil : tem;
     }
   else
-    string = SYMBOL_NAME (name);
-
-  tem = oblookup (obarray, SSDATA (string), SCHARS (string), SBYTES (string));
-  if (FIXNUMP (tem) || (SYMBOLP (name) && !EQ (name, tem)))
-    return Qnil;
-  else
-    return tem;
+    {
+      /* If already a symbol, we don't do shorthand-longhand translation,
+	 as promised in the docstring.  */
+      string = SYMBOL_NAME (name);
+      tem
+	= oblookup (obarray, SSDATA (string), SCHARS (string), SBYTES (string));
+      return EQ (name, tem) ? name : Qnil;
+    }
 }
 
 DEFUN ("unintern", Funintern, Sunintern, 1, 2, 0,
@@ -4439,7 +4529,8 @@ OBARRAY, if nil, defaults to the value of the variable `obarray'.
 usage: (unintern NAME OBARRAY)  */)
   (Lisp_Object name, Lisp_Object obarray)
 {
-  register Lisp_Object string, tem;
+  register Lisp_Object tem;
+  Lisp_Object string;
   size_t hash;
 
   if (NILP (obarray)) obarray = Vobarray;
@@ -4453,9 +4544,16 @@ usage: (unintern NAME OBARRAY)  */)
       string = name;
     }
 
-  tem = oblookup (obarray, SSDATA (string),
-		  SCHARS (string),
-		  SBYTES (string));
+  char *longhand = NULL;
+  ptrdiff_t longhand_chars = 0;
+  ptrdiff_t longhand_bytes = 0;
+  tem = oblookup_considering_shorthand (obarray, SSDATA (string),
+					SCHARS (string), SBYTES (string),
+					&longhand, &longhand_chars,
+					&longhand_bytes);
+  if (longhand)
+    xfree(longhand);
+
   if (FIXNUMP (tem))
     return Qnil;
   /* If arg was a symbol, don't delete anything but that symbol itself.  */
@@ -4542,6 +4640,70 @@ oblookup (Lisp_Object obarray, register const char *ptr, ptrdiff_t size, ptrdiff
   XSETINT (tem, hash);
   return tem;
 }
+
+/* Like 'oblookup', but considers 'Vread_symbol_shorthands',
+   potentially recognizing that IN is shorthand for some other
+   longhand name, which is then then placed in OUT.  In that case,
+   memory is malloc'ed for OUT (which the caller must free) while
+   SIZE_OUT and SIZE_BYTE_OUT respectively hold the character and byte
+   sizes of the transformed symbol name.  If IN is not recognized
+   shorthand for any other symbol, OUT is set to point to NULL and
+   'oblookup' is called.  */
+
+Lisp_Object
+oblookup_considering_shorthand (Lisp_Object obarray, const char *in,
+				ptrdiff_t size, ptrdiff_t size_byte, char **out,
+				ptrdiff_t *size_out, ptrdiff_t *size_byte_out)
+{
+  Lisp_Object tail = Vread_symbol_shorthands;
+
+  /* First, assume no transformation will take place.  */
+  *out = NULL;
+  /* Then, iterate each pair in Vread_symbol_shorthands.  */
+  FOR_EACH_TAIL_SAFE (tail)
+    {
+      Lisp_Object pair = XCAR (tail);
+      /* Be lenient to 'read-symbol-shorthands': if some element isn't a
+	 cons, or some member of that cons isn't a string, just skip
+	 to the next element.  */
+      if (!CONSP (pair))
+	continue;
+      Lisp_Object sh_prefix = XCAR (pair);
+      Lisp_Object lh_prefix = XCDR (pair);
+      if (!STRINGP (sh_prefix) || !STRINGP (lh_prefix))
+	continue;
+      ptrdiff_t sh_prefix_size = SBYTES (sh_prefix);
+
+      /* Compare the prefix of the transformation pair to the symbol
+	 name.  If a match occurs, do the renaming and exit the loop.
+	 In other words, only one such transformation may take place.
+	 Calculate the amount of memory to allocate for the longhand
+	 version of the symbol name with xrealloc.  This isn't
+	 strictly needed, but it could later be used as a way for
+	 multiple transformations on a single symbol name.  */
+      if (sh_prefix_size <= size_byte
+	  && memcmp (SSDATA (sh_prefix), in, sh_prefix_size) == 0)
+	{
+	  ptrdiff_t lh_prefix_size = SBYTES (lh_prefix);
+	  ptrdiff_t suffix_size = size_byte - sh_prefix_size;
+	  *out = xrealloc (*out, lh_prefix_size + suffix_size);
+	  memcpy (*out, SSDATA(lh_prefix), lh_prefix_size);
+	  memcpy (*out + lh_prefix_size, in + sh_prefix_size, suffix_size);
+	  *size_out = SCHARS (lh_prefix) - SCHARS (sh_prefix) + size;
+	  *size_byte_out = lh_prefix_size + suffix_size;
+	  break;
+	}
+    }
+  /* Now, as promised, call oblookup with the "final" symbol name to
+     lookup.  That function remains oblivious to whether a
+     transformation happened here or not, but the caller of this
+     function can tell by inspecting the OUT parameter.  */
+  if (*out)
+    return oblookup (obarray, *out, *size_out, *size_byte_out);
+  else
+    return oblookup (obarray, in, size, size_byte);
+}
+
 
 void
 map_obarray (Lisp_Object obarray, void (*fn) (Lisp_Object, Lisp_Object), Lisp_Object arg)
@@ -4758,14 +4920,8 @@ load_path_default (void)
     return decode_env_path (0, PATH_DUMPLOADSEARCH, 0);
 
   Lisp_Object lpath = Qnil;
-  const char *normal = PATH_LOADSEARCH;
-  const char *loadpath = NULL;
 
-#ifdef HAVE_NS
-  loadpath = ns_load_path ();
-#endif
-
-  lpath = decode_env_path (0, loadpath ? loadpath : normal, 0);
+  lpath = decode_env_path (0, PATH_LOADSEARCH, 0);
 
   if (!NILP (Vinstallation_directory))
     {
@@ -4968,6 +5124,7 @@ void
 syms_of_lread (void)
 {
   defsubr (&Sread);
+  defsubr (&Sread_positioning_symbols);
   defsubr (&Sread_from_string);
   defsubr (&Slread__substitute_object_in_subtree);
   defsubr (&Sintern);
@@ -5000,35 +5157,6 @@ This variable is obsolete as of Emacs 28.1 and should not be used.  */);
 	       doc: /* Stream for read to get input from.
 See documentation of `read' for possible values.  */);
   Vstandard_input = Qt;
-
-  DEFVAR_LISP ("read-with-symbol-positions", Vread_with_symbol_positions,
-	       doc: /* If non-nil, add position of read symbols to `read-symbol-positions-list'.
-
-If this variable is a buffer, then only forms read from that buffer
-will be added to `read-symbol-positions-list'.
-If this variable is t, then all read forms will be added.
-The effect of all other values other than nil are not currently
-defined, although they may be in the future.
-
-The positions are relative to the last call to `read' or
-`read-from-string'.  It is probably a bad idea to set this variable at
-the toplevel; bind it instead.  */);
-  Vread_with_symbol_positions = Qnil;
-
-  DEFVAR_LISP ("read-symbol-positions-list", Vread_symbol_positions_list,
-	       doc: /* A list mapping read symbols to their positions.
-This variable is modified during calls to `read' or
-`read-from-string', but only when `read-with-symbol-positions' is
-non-nil.
-
-Each element of the list looks like (SYMBOL . CHAR-POSITION), where
-CHAR-POSITION is an integer giving the offset of that occurrence of the
-symbol from the position where `read' or `read-from-string' started.
-
-Note that a symbol will appear multiple times in this list, if it was
-read multiple times.  The list is in the same order as the symbols
-were read in.  */);
-  Vread_symbol_positions_list = Qnil;
 
   DEFVAR_LISP ("read-circle", Vread_circle,
 	       doc: /* Non-nil means read recursive structures using #N= and #N# syntax.  */);
@@ -5112,12 +5240,9 @@ for symbols and features not associated with any file.
 The remaining ENTRIES in the alist element describe the functions and
 variables defined in that file, the features provided, and the
 features required.  Each entry has the form `(provide . FEATURE)',
-`(require . FEATURE)', `(defun . FUNCTION)', `(autoload . SYMBOL)',
-`(defface . SYMBOL)', `(define-type . SYMBOL)',
-`(cl-defmethod METHOD SPECIALIZERS)', or `(t . SYMBOL)'.
-Entries like `(t . SYMBOL)' may precede a `(defun . FUNCTION)' entry,
-and mean that SYMBOL was an autoload before this file redefined it
-as a function.  In addition, entries may also be single symbols,
+`(require . FEATURE)', `(defun . FUNCTION)', `(defface . SYMBOL)',
+ `(define-type . SYMBOL)', or `(cl-defmethod METHOD SPECIALIZERS)'.
+In addition, entries may also be single symbols,
 which means that symbol was defined by `defvar' or `defconst'.
 
 During preloading, the file name recorded is relative to the main Lisp
@@ -5150,7 +5275,9 @@ of the file, regardless of whether or not it has the `.elc' extension.  */);
   Vcurrent_load_list = Qnil;
 
   DEFVAR_LISP ("load-read-function", Vload_read_function,
-	       doc: /* Function used by `load' and `eval-region' for reading expressions.
+	       doc: /* Function used for reading expressions.
+It is used by `load' and `eval-region'.
+
 Called with a single argument (the stream from which to read).
 The default is to use the function `read'.  */);
   DEFSYM (Qread, "read");
@@ -5304,4 +5431,17 @@ that are loaded before your customizations are read!  */);
   DEFSYM (Qrehash_threshold, "rehash-threshold");
 
   DEFSYM (Qchar_from_name, "char-from-name");
+
+  DEFVAR_LISP ("read-symbol-shorthands", Vread_symbol_shorthands,
+          doc: /* Alist of known symbol-name shorthands.
+This variable's value can only be set via file-local variables.
+See Info node `(elisp)Shorthands' for more details.  */);
+  Vread_symbol_shorthands = Qnil;
+  DEFSYM (Qobarray_cache, "obarray-cache");
+
+  DEFSYM (Qmacroexp__dynvars, "macroexp--dynvars");
+  DEFVAR_LISP ("macroexp--dynvars", Vmacroexp__dynvars,
+        doc:   /* List of variables declared dynamic in the current scope.
+Only valid during macro-expansion.  Internal use only. */);
+  Vmacroexp__dynvars = Qnil;
 }

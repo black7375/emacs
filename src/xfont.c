@@ -1,5 +1,5 @@
 /* xfont.c -- X core font driver.
-   Copyright (C) 2006-2021 Free Software Foundation, Inc.
+   Copyright (C) 2006-2022 Free Software Foundation, Inc.
    Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011
      National Institute of Advanced Industrial Science and Technology (AIST)
      Registration Number H13PRO009
@@ -596,7 +596,10 @@ xfont_list_family (struct frame *f)
   char **names;
   int num_fonts, i;
   Lisp_Object list;
-  char *last_family UNINIT;
+  char const *last_family;
+#if defined GCC_LINT || defined lint
+  last_family = "";
+#endif
   int last_len;
 
   block_input ();
@@ -999,6 +1002,32 @@ xfont_draw (struct glyph_string *s, int from, int to, int x, int y,
       XSetFont (display, gc, xfont->fid);
       unblock_input ();
     }
+
+#if defined HAVE_XRENDER && (RENDER_MAJOR > 0 || (RENDER_MINOR >= 2))
+  if (with_background
+      && FRAME_DISPLAY_INFO (s->f)->alpha_bits
+      && FRAME_CHECK_XR_VERSION (s->f, 0, 2))
+    {
+      x_xr_ensure_picture (s->f);
+
+      if (FRAME_X_PICTURE (s->f) != None)
+	{
+	  XRenderColor xc;
+	  int height = FONT_HEIGHT (s->font), ascent = FONT_BASE (s->font);
+
+	  x_xr_apply_ext_clip (s->f, gc);
+	  x_xrender_color_from_gc_background (s->f, gc, &xc,
+					      s->hl != DRAW_CURSOR);
+	  XRenderFillRectangle (FRAME_X_DISPLAY (s->f),
+				PictOpSrc, FRAME_X_PICTURE (s->f),
+				&xc, x, y - ascent, s->width, height);
+	  x_xr_reset_ext_clip (s->f);
+	  x_mark_frame_dirty (s->f);
+
+	  with_background = false;
+	}
+    }
+#endif
 
   if (xfont->min_byte1 == 0 && xfont->max_byte1 == 0)
     {

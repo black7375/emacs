@@ -1,6 +1,6 @@
 ;;; help-macro.el --- makes command line help such as help-for-help  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993-1994, 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1994, 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: Lynn Slater <lrs@indetech.com>
 ;; Maintainer: emacs-devel@gnu.org
@@ -25,11 +25,12 @@
 
 ;;; Commentary:
 
-;; This file supplies the macro make-help-screen which constructs
-;; single character dispatching with browsable help such as that provided
-;; by help-for-help. This can be used to make many modes easier to use; for
-;; example, the GNU Emacs Empire Tool uses this for every "nested" mode map
-;; called from the main mode map.
+;; This file supplies the macro `make-help-screen' which constructs
+;; single character dispatching with browsable help such as that
+;; provided by `help-for-help'.  This can be used to make many modes
+;; easier to use; for example, the (long-since defunct) GNU Emacs
+;; Empire Tool used this for every "nested" mode map called from the
+;; main mode map.
 
 ;;       The name of this package was changed from help-screen.el to
 ;; help-macro.el in order to fit in a 14-character limit.
@@ -59,12 +60,6 @@
 ;;->  (define-key c-mp "\C-h" 'help-for-empire-redistribute-map)
 ;;->  (define-key c-mp help-character 'help-for-empire-redistribute-map)
 
-;;; Change Log:
-;;
-;; 22-Jan-1991		Lynn Slater x2048
-;;    Last Modified: Mon Oct  1 11:43:52 1990 #3 (Lynn Slater)
-;;    documented better
-
 ;;; Code:
 
 (require 'backquote)
@@ -83,7 +78,8 @@ gives the window that lists the options."
   :type 'boolean
   :group 'help)
 
-(defmacro make-help-screen (fname help-line help-text helped-map)
+(defmacro make-help-screen (fname help-line help-text helped-map
+                                  &optional buffer-name)
   "Construct help-menu function name FNAME.
 When invoked, FNAME shows HELP-LINE and reads a command using HELPED-MAP.
 If the command is the help character, FNAME displays HELP-TEXT
@@ -97,7 +93,8 @@ and then returns."
      "Help command."
      (interactive)
      (let ((line-prompt
-            (substitute-command-keys ,help-line)))
+            (substitute-command-keys ,help-line))
+           (help-buffer-under-preparation t))
        (when three-step-help
          (message "%s" line-prompt))
        (let* ((help-screen ,help-text)
@@ -132,7 +129,7 @@ and then returns."
                (when (or (eq char ??) (eq char help-char)
                          (memq char help-event-list))
                  (setq config (current-window-configuration))
-                 (pop-to-buffer " *Metahelp*" nil t)
+                 (pop-to-buffer (or ,buffer-name " *Metahelp*") nil t)
                  (and (fboundp 'make-frame)
                       (not (eq (window-frame)
                                prev-frame))
@@ -144,29 +141,45 @@ and then returns."
                    (insert (substitute-command-keys help-screen)))
                  (let ((minor-mode-map-alist new-minor-mode-map-alist))
                    (help-mode)
+                   (variable-pitch-mode)
                    (setq new-minor-mode-map-alist minor-mode-map-alist))
                  (goto-char (point-min))
                  (while (or (memq char (append help-event-list
-                                               (cons help-char '(?? ?\C-v ?\s ?\177 delete backspace vertical-scroll-bar ?\M-v))))
+                                               (cons help-char '( ?? ?\C-v ?\s ?\177 ?\M-v ?\S-\s
+                                                                  deletechar backspace vertical-scroll-bar
+                                                                  next prior up down))))
                             (eq (car-safe char) 'switch-frame)
                             (equal key "\M-v"))
                    (condition-case nil
                        (cond
                         ((eq (car-safe char) 'switch-frame)
                          (handle-switch-frame char))
-                        ((memq char '(?\C-v ?\s))
+                        ((memq char '(?\C-v ?\s next))
                          (scroll-up))
-                        ((or (memq char '(?\177 ?\M-v delete backspace))
+                        ((or (memq char '(?\177 ?\M-v ?\S-\s deletechar backspace prior))
                              (equal key "\M-v"))
-                         (scroll-down)))
+                         (scroll-down))
+                        ((memq char '(down))
+                         (scroll-up 1))
+                        ((memq char '(up))
+                         (scroll-down 1)))
                      (error nil))
                    (let ((cursor-in-echo-area t)
                          (overriding-local-map local-map))
                      (setq key (read-key-sequence
-                                (format "Type one of the options listed%s: "
+                                (format "Type one of listed options%s: "
                                         (if (pos-visible-in-window-p
                                              (point-max))
-                                            "" ", or SPACE or DEL to scroll")))
+                                            ""
+                                          (concat  ", or "
+                                                   (help--key-description-fontified (kbd "<PageDown>"))
+                                                   "/"
+                                                   (help--key-description-fontified (kbd "<PageUp>"))
+                                                   "/"
+                                                   (help--key-description-fontified (kbd "SPC"))
+                                                   "/"
+                                                   (help--key-description-fontified (kbd "DEL"))
+                                                   " to scroll"))))
                            char (aref key 0)))
 
                    ;; If this is a scroll bar command, just run it.

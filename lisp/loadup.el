@@ -1,6 +1,6 @@
 ;;; loadup.el --- load up standardly loaded Lisp files for Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1986, 1992, 1994, 2001-2021 Free Software
+;; Copyright (C) 1985-1986, 1992, 1994, 2001-2022 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -128,9 +128,11 @@
 (set-buffer "*scratch*")
 (setq buffer-undo-list t)
 
+(load "emacs-lisp/debug-early")
 (load "emacs-lisp/byte-run")
 (load "emacs-lisp/backquote")
 (load "subr")
+(load "keymap")
 
 ;; Do it after subr, since both after-load-functions and add-hook are
 ;; implemented in subr.el.
@@ -275,7 +277,6 @@
 (load "textmodes/paragraphs")
 (load "progmodes/prog-mode")
 (load "emacs-lisp/lisp-mode")
-(load "progmodes/elisp-mode")
 (load "textmodes/text-mode")
 (load "textmodes/fill")
 (load "newcomment")
@@ -302,6 +303,11 @@
       (load "x-dnd")
       (load "term/common-win")
       (load "term/x-win")))
+
+(if (featurep 'haiku)
+    (progn
+      (load "term/common-win")
+      (load "term/haiku-win")))
 
 (if (or (eq system-type 'windows-nt)
         (featurep 'w32))
@@ -335,10 +341,24 @@
         (load "international/mule-util")
         (load "international/ucs-normalize")
         (load "term/ns-win"))))
+(if (featurep 'pgtk)
+    (progn
+      (load "term/common-win")
+      ;; Don't load ucs-normalize.el unless uni-*.el files were
+      ;; already produced, because it needs uni-*.el files that might
+      ;; not be built early enough during bootstrap.
+      (load "term/pgtk-win")))
 (if (fboundp 'x-create-frame)
     ;; Do it after loading term/foo-win.el since the value of the
     ;; mouse-wheel-*-event vars depends on those files being loaded or not.
     (load "mwheel"))
+
+;; progmodes/elisp-mode.el must be after w32-fns.el, to avoid this:
+;;"Eager macro-expansion failure: (void-function w32-convert-standard-filename)"
+;; which happens while processing 'elisp-flymake-byte-compile', when
+;; elisp-mode.elc is outdated.
+(load "progmodes/elisp-mode")
+
 ;; Preload some constants and floating point functions.
 (load "emacs-lisp/float-sup")
 
@@ -346,6 +366,10 @@
 (load "vc/ediff-hook")
 (load "uniquify")
 (load "electric")
+(load "paren")
+
+(load "emacs-lisp/shorthands")
+
 (load "emacs-lisp/eldoc")
 (load "cus-start") ;Late to reduce customize-rogue (needs loaddefs.el anyway)
 (if (not (eq system-type 'ms-dos))
@@ -449,7 +473,7 @@ lost after dumping")))
 ;; At this point, we're ready to resume undo recording for scratch.
 (buffer-enable-undo "*scratch*")
 
-(when (featurep 'nativecomp)
+(when (featurep 'native-compile)
   ;; Fix the compilation unit filename to have it working when
   ;; installed or if the source directory got moved.  This is set to be
   ;; a pair in the form of:
@@ -520,8 +544,8 @@ lost after dumping")))
                         ((equal dump-mode "dump") "emacs")
                         ((equal dump-mode "bootstrap") "emacs")
                         ((equal dump-mode "pbootstrap") "bootstrap-emacs.pdmp")
-                        (t (error "unrecognized dump mode %s" dump-mode)))))
-      (when (and (featurep 'nativecomp)
+                        (t (error "Unrecognized dump mode %s" dump-mode)))))
+      (when (and (featurep 'native-compile)
                  (equal dump-mode "pdump"))
         ;; Don't enable this before bootstrap is completed, as the
         ;; compiler infrastructure may not be usable yet.
@@ -535,10 +559,13 @@ lost after dumping")))
       (let (success)
         (unwind-protect
              (let ((tmp-dump-mode dump-mode)
-                   (dump-mode nil))
+                   (dump-mode nil)
+                   (lexical-binding nil))
                (if (member tmp-dump-mode '("pdump" "pbootstrap"))
                    (dump-emacs-portable (expand-file-name output invocation-directory))
-                 (dump-emacs output "temacs")
+                 (dump-emacs output (if (eq system-type 'ms-dos)
+                                        "temacs.exe"
+                                      "temacs"))
                  (message "%d pure bytes used" pure-bytes-used))
                (setq success t))
           (unless success
@@ -546,6 +573,7 @@ lost after dumping")))
               (delete-file output)))))
       ;; Recompute NAME now, so that it isn't set when we dump.
       (if (not (or (eq system-type 'ms-dos)
+                   (eq system-type 'haiku) ;; BFS doesn't support hard links
                    ;; Don't bother adding another name if we're just
                    ;; building bootstrap-emacs.
                    (member dump-mode '("pbootstrap" "bootstrap"))))

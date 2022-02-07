@@ -1,6 +1,6 @@
 ;;; mh-print.el --- MH-E printing support  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2003-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2022 Free Software Foundation, Inc.
 
 ;; Author: Jeffrey C Honig <jch@honig.net>
 ;; Maintainer: Bill Wohler <wohler@newt.com>
@@ -23,8 +23,6 @@
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
-
-;;; Change Log:
 
 ;;; Code:
 

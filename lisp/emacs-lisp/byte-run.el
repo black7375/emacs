@@ -1,6 +1,6 @@
 ;;; byte-run.el --- byte-compiler support for inlining  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1992, 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1992, 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: Jamie Zawinski <jwz@lucid.com>
 ;;	Hallvard Furuseth <hbf@ulrik.uio.no>
@@ -30,6 +30,83 @@
 
 ;;; Code:
 
+(defvar byte-run--ssp-seen nil
+  "Which conses/vectors/records have been processed in strip-symbol-positions?
+The value is a hash table, the key being the old element and the value being
+the corresponding new element of the same type.
+
+The purpose of this is to detect circular structures.")
+
+(defalias 'byte-run--circular-list-p
+  #'(lambda (l)
+      "Return non-nil when the list L is a circular list.
+Note that this algorithm doesn't check any circularity in the
+CARs of list elements."
+      (let ((hare l)
+            (tortoise l))
+        (condition-case err
+            (progn
+              (while (progn
+                       (setq hare (cdr (cdr hare))
+                             tortoise (cdr tortoise))
+                       (not (or (eq tortoise hare)
+                                (null hare)))))
+              (eq tortoise hare))
+          (wrong-type-argument nil)
+          (error (signal (car err) (cdr err)))))))
+
+(defalias 'byte-run--strip-s-p-1
+  #'(lambda (arg)
+      "Strip all positions from symbols in ARG, modifying ARG.
+Return the modified ARG."
+      (cond
+       ((symbol-with-pos-p arg)
+        (bare-symbol arg))
+
+       ((consp arg)
+        (let* ((round (byte-run--circular-list-p arg))
+               (hash (and round (gethash arg byte-run--ssp-seen))))
+          (or hash
+              (let ((a arg) new)
+                (while
+                    (progn
+                      (when round
+                        (puthash a new byte-run--ssp-seen))
+                      (setq new (byte-run--strip-s-p-1 (car a)))
+                      (when (not (eq new (car a))) ; For read-only things.
+                        (setcar a new))
+                      (and (consp (cdr a))
+                           (not
+                            (setq hash
+                                  (and round
+                                       (gethash (cdr a) byte-run--ssp-seen))))))
+                  (setq a (cdr a)))
+                (setq new (byte-run--strip-s-p-1 (cdr a)))
+                (when (not (eq new (cdr a)))
+                  (setcdr a (or hash new)))
+                arg))))
+
+       ((or (vectorp arg) (recordp arg))
+        (let ((hash (gethash arg byte-run--ssp-seen)))
+          (or hash
+              (let* ((len (length arg))
+                     (i 0)
+                     new)
+                (puthash arg arg byte-run--ssp-seen)
+                (while (< i len)
+                  (setq new (byte-run--strip-s-p-1 (aref arg i)))
+                  (when (not (eq new (aref arg i)))
+                    (aset arg i new))
+                  (setq i (1+ i)))
+                arg))))
+
+       (t arg))))
+
+(defalias 'byte-run-strip-symbol-positions
+  #'(lambda (arg)
+      (setq byte-run--ssp-seen (make-hash-table :test 'eq))
+      (byte-run--strip-s-p-1 arg)))
+
 (defalias 'function-put
   ;; We don't want people to just use `put' because we can't conveniently
   ;; hook into `put' to remap old properties to new ones.  But for now, there's
@@ -38,7 +115,9 @@
       "Set FUNCTION's property PROP to VALUE.
 The namespace for PROP is shared with symbols.
 So far, FUNCTION can only be a symbol, not a lambda expression."
-      (put function prop value)))
+      (put (bare-symbol function)
+           (byte-run-strip-symbol-positions prop)
+           (byte-run-strip-symbol-positions value))))
 (function-put 'defmacro 'doc-string-elt 3)
 (function-put 'defmacro 'lisp-indent-function 2)
 
@@ -134,6 +213,7 @@ The return value of this function is not used."
              :autoload-end
              (eval-and-compile
                (defun ,cfname (,@(car data) ,@args)
+                 (ignore ,@(delq '&rest (delq '&optional (copy-sequence args))))
                  ,@(cdr data))))))))
 
 (defalias 'byte-run--set-doc-string
@@ -253,7 +333,8 @@ The return value is undefined.
 		  #'(lambda (x)
 		      (let ((f (cdr (assq (car x) macro-declarations-alist))))
 			(if f (apply (car f) name arglist (cdr x))
-			  (macroexp-warn-and-return
+                          (macroexp-warn-and-return
+			   (car x)
 			   (format-message
 			    "Unknown macro property %S in %S"
 			    (car x) name)
@@ -327,6 +408,7 @@ The return value is undefined.
                     nil)
                    (t
                     (macroexp-warn-and-return
+                     (car x)
                      (format-message "Unknown defun property `%S' in %S"
                                      (car x) name)
                      nil)))))
@@ -380,7 +462,7 @@ You don't need this.  (See bytecomp.el commentary for more details.)
   "Define an inline function.  The syntax is just like that of `defun'.
 
 \(fn NAME ARGLIST &optional DOCSTRING DECL &rest BODY)"
-  (declare (debug defun) (doc-string 3))
+  (declare (debug defun) (doc-string 3) (indent 2))
   (or (memq (get name 'byte-optimizer)
 	    '(nil byte-compile-inline-expand))
       (error "`%s' is a primitive" name))
@@ -422,18 +504,19 @@ was first made obsolete, for example a date or a release number."
                                            &optional docstring)
   "Set OBSOLETE-NAME's function definition to CURRENT-NAME and mark it obsolete.
 
-\(define-obsolete-function-alias \\='old-fun \\='new-fun \"22.1\" \"old-fun's doc.\")
+\(define-obsolete-function-alias \\='old-fun \\='new-fun \"28.1\" \
+\"old-fun's doc.\")
 
 is equivalent to the following two lines of code:
 
 \(defalias \\='old-fun \\='new-fun \"old-fun's doc.\")
-\(make-obsolete \\='old-fun \\='new-fun \"22.1\")
+\(make-obsolete \\='old-fun \\='new-fun \"28.1\")
 
 WHEN should be a string indicating when the function was first
 made obsolete, for example a date or a release number.
 
 See the docstrings of `defalias' and `make-obsolete' for more details."
-  (declare (doc-string 4))
+  (declare (doc-string 4) (indent defun))
   `(progn
      (defalias ,obsolete-name ,current-name ,docstring)
      (make-obsolete ,obsolete-name ,current-name ,when)))
@@ -462,7 +545,7 @@ made obsolete, for example a date or a release number.
 This macro evaluates all its parameters, and both OBSOLETE-NAME
 and CURRENT-NAME should be symbols, so a typical usage would look like:
 
-  (define-obsolete-variable-alias 'foo-thing 'bar-thing \"27.1\")
+  (define-obsolete-variable-alias 'foo-thing 'bar-thing \"28.1\")
 
 This macro uses `defvaralias' and `make-obsolete-variable' (which see).
 See the Info node `(elisp)Variable Aliases' for more details.
@@ -482,7 +565,7 @@ For the benefit of Customize, if OBSOLETE-NAME has
 any of the following properties, they are copied to
 CURRENT-NAME, if it does not already have them:
 `saved-value', `saved-variable-comment'."
-  (declare (doc-string 4))
+  (declare (doc-string 4) (indent defun))
   `(progn
      (defvaralias ,obsolete-name ,current-name ,docstring)
      ;; See Bug#4706.
@@ -529,11 +612,11 @@ is enabled."
   (list 'quote (eval (cons 'progn body) lexical-binding)))
 
 (defmacro eval-and-compile (&rest body)
-  "Like `progn', but evaluates the body at compile time and at
-load time.  In interpreted code, this is entirely equivalent to
-`progn', except that the value of the expression may be (but is
-not necessarily) computed at load time if eager macro expansion
-is enabled."
+  "Like `progn', but evaluates the body at compile time and at load time.
+In interpreted code, this is entirely equivalent to `progn',
+except that the value of the expression may be (but is not
+necessarily) computed at load time if eager macro expansion is
+enabled."
   (declare (debug (&rest def-form)) (indent 0))
   ;; When the byte-compiler expands code, this macro is not used, so we're
   ;; either about to run `body' (plain interpretation) or we're doing eager
@@ -573,7 +656,7 @@ For the `mapcar' case, only the `mapcar' function can be used in
 the symbol list.  For `suspicious', only `set-buffer' can be used."
   ;; Note: during compilation, this definition is overridden by the one in
   ;; byte-compile-initial-macro-environment.
-  (declare (debug (sexp &optional body)) (indent 1))
+  (declare (debug (sexp body)) (indent 1))
   (if (not (and (featurep 'macroexp)
                 (boundp 'byte-compile--suppressed-warnings)))
       ;; If `macroexp' is not yet loaded, we're in the middle of

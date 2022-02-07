@@ -1,6 +1,6 @@
 ;;; diff-mode.el --- a mode for viewing/editing context diffs -*- lexical-binding: t -*-
 
-;; Copyright (C) 1998-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2022 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords: convenience patch diff vc
@@ -55,6 +55,7 @@
 ;;; Code:
 (eval-when-compile (require 'cl-lib))
 (eval-when-compile (require 'subr-x))
+(require 'easy-mmode)
 
 (autoload 'vc-find-revision "vc")
 (autoload 'vc-find-revision-no-save "vc")
@@ -162,57 +163,55 @@ and hunk-based syntax highlighting otherwise as a fallback."
 ;;;; keymap, menu, ...
 ;;;;
 
-(easy-mmode-defmap diff-mode-shared-map
-  '(("n" . diff-hunk-next)
-    ("N" . diff-file-next)
-    ("p" . diff-hunk-prev)
-    ("P" . diff-file-prev)
-    ("\t" . diff-hunk-next)
-    ([backtab] . diff-hunk-prev)
-    ("k" . diff-hunk-kill)
-    ("K" . diff-file-kill)
-    ("}" . diff-file-next)	; From compilation-minor-mode.
-    ("{" . diff-file-prev)
-    ("\C-m" . diff-goto-source)
-    ([mouse-2] . diff-goto-source)
-    ("W" . widen)
-    ("o" . diff-goto-source)	; other-window
-    ("A" . diff-ediff-patch)
-    ("r" . diff-restrict-view)
-    ("R" . diff-reverse-direction)
-    ([remap undo] . diff-undo))
-  "Basic keymap for `diff-mode', bound to various prefix keys."
-  :inherit special-mode-map)
+(defvar-keymap diff-mode-shared-map
+  :parent special-mode-map
+  "n" #'diff-hunk-next
+  "N" #'diff-file-next
+  "p" #'diff-hunk-prev
+  "P" #'diff-file-prev
+  "TAB" #'diff-hunk-next
+  "<backtab>" #'diff-hunk-prev
+  "k" #'diff-hunk-kill
+  "K" #'diff-file-kill
+  "}" #'diff-file-next                  ; From compilation-minor-mode.
+  "{" #'diff-file-prev
+  "RET" #'diff-goto-source
+  "<mouse-2>" #'diff-goto-source
+  "W" #'widen
+  "o" #'diff-goto-source                ; other-window
+  "A" #'diff-ediff-patch
+  "r" #'diff-restrict-view
+  "R" #'diff-reverse-direction
+  "<remap> <undo>" #'diff-undo)
 
-(easy-mmode-defmap diff-mode-map
-  `(("\e" . ,(let ((map (make-sparse-keymap)))
-               ;; We want to inherit most bindings from diff-mode-shared-map,
-               ;; but not all since they may hide useful M-<foo> global
-               ;; bindings when editing.
-               (set-keymap-parent map diff-mode-shared-map)
-               (dolist (key '("A" "r" "R" "g" "q" "W" "z"))
-                 (define-key map key nil))
-               map))
-    ;; From compilation-minor-mode.
-    ("\C-c\C-c" . diff-goto-source)
-    ;; By analogy with the global C-x 4 a binding.
-    ("\C-x4A" . diff-add-change-log-entries-other-window)
-    ;; Misc operations.
-    ("\C-c\C-a" . diff-apply-hunk)
-    ("\C-c\C-e" . diff-ediff-patch)
-    ("\C-c\C-n" . diff-restrict-view)
-    ("\C-c\C-s" . diff-split-hunk)
-    ("\C-c\C-t" . diff-test-hunk)
-    ("\C-c\C-r" . diff-reverse-direction)
-    ("\C-c\C-u" . diff-context->unified)
-    ;; `d' because it duplicates the context :-(  --Stef
-    ("\C-c\C-d" . diff-unified->context)
-    ("\C-c\C-w" . diff-ignore-whitespace-hunk)
-    ;; `l' because it "refreshes" the hunk like C-l refreshes the screen
-    ("\C-c\C-l" . diff-refresh-hunk)
-    ("\C-c\C-b" . diff-refine-hunk)  ;No reason for `b' :-(
-    ("\C-c\C-f" . next-error-follow-minor-mode))
-  "Keymap for `diff-mode'.  See also `diff-mode-shared-map'.")
+(defvar-keymap diff-mode-map
+  :doc "Keymap for `diff-mode'.  See also `diff-mode-shared-map'."
+  "ESC" (let ((map (define-keymap :parent diff-mode-shared-map)))
+          ;; We want to inherit most bindings from
+          ;; `diff-mode-shared-map', but not all since they may hide
+          ;; useful `M-<foo>' global bindings when editing.
+          (dolist (key '("A" "r" "R" "g" "q" "W" "z"))
+            (keymap-set map key nil))
+          map)
+  ;; From compilation-minor-mode.
+  "C-c C-c" #'diff-goto-source
+  ;; By analogy with the global C-x 4 a binding.
+  "C-x 4 A" #'diff-add-change-log-entries-other-window
+  ;; Misc operations.
+  "C-c C-a" #'diff-apply-hunk
+  "C-c C-e" #'diff-ediff-patch
+  "C-c C-n" #'diff-restrict-view
+  "C-c C-s" #'diff-split-hunk
+  "C-c C-t" #'diff-test-hunk
+  "C-c C-r" #'diff-reverse-direction
+  "C-c C-u" #'diff-context->unified
+  ;; `d' because it duplicates the context :-(  --Stef
+  "C-c C-d" #'diff-unified->context
+  "C-c C-w" #'diff-ignore-whitespace-hunk
+  ;; `l' because it "refreshes" the hunk like C-l refreshes the screen
+  "C-c C-l" #'diff-refresh-hunk
+  "C-c C-b" #'diff-refine-hunk        ;No reason for `b' :-(
+  "C-c C-f" #'next-error-follow-minor-mode)
 
 (easy-menu-define diff-mode-menu diff-mode-map
   "Menu for `diff-mode'."
@@ -267,11 +266,12 @@ and hunk-based syntax highlighting otherwise as a fallback."
 
 (defcustom diff-minor-mode-prefix "\C-c="
   "Prefix key for `diff-minor-mode' commands."
-  :type '(choice (string "\e") (string "C-c=") string))
+  :type '(choice (string "ESC")
+                 (string "\C-c=") string))
 
-(easy-mmode-defmap diff-minor-mode-map
-  `((,diff-minor-mode-prefix . ,diff-mode-shared-map))
-  "Keymap for `diff-minor-mode'.  See also `diff-mode-shared-map'.")
+(defvar-keymap diff-minor-mode-map
+  :doc "Keymap for `diff-minor-mode'.  See also `diff-mode-shared-map'."
+  (key-description diff-minor-mode-prefix) diff-mode-shared-map)
 
 (define-minor-mode diff-auto-refine-mode
   "Toggle automatic diff hunk finer highlighting (Diff Auto Refine mode).
@@ -357,6 +357,18 @@ well."
      :foreground "green" :extend t))
   "`diff-mode' face used to highlight added lines.")
 
+(defface diff-changed-unspecified
+  '((default
+     :inherit diff-changed)
+    (((class color) (min-colors 88) (background light))
+     :background "grey90" :extend t)
+    (((class color) (min-colors 88) (background dark))
+     :background "grey20" :extend t)
+    (((class color))
+     :foreground "grey" :extend t))
+  "`diff-mode' face used to highlight changed lines."
+  :version "28.1")
+
 (defface diff-changed
   '((t nil))
   "`diff-mode' face used to highlight changed lines."
@@ -436,9 +448,10 @@ well."
 (defvar diff-use-changed-face (and (face-differs-from-default-p 'diff-changed)
 				   (not (face-equal 'diff-changed 'diff-added))
 				   (not (face-equal 'diff-changed 'diff-removed)))
-  "If non-nil, use the face `diff-changed' for changed lines in context diffs.
-Otherwise, use the face `diff-removed' for removed lines,
-and the face `diff-added' for added lines.")
+  "Controls how changed lines are fontified in context diffs.
+If non-nil, use the face `diff-changed-unspecified'.  Otherwise,
+use the face `diff-removed' for removed lines, and the face
+`diff-added' for added lines.")
 
 (defvar diff-font-lock-keywords
   `((,(concat "\\(" diff-hunk-header-re-unified "\\)\\(.*\\)$")
@@ -470,7 +483,7 @@ and the face `diff-added' for added lines.")
 		  diff-indicator-added-face
 		diff-indicator-removed-face)))))
      (2 (if diff-use-changed-face
-	    'diff-changed
+	    'diff-changed-unspecified
 	  ;; Otherwise, use the same method as above.
 	  (save-match-data
 	    (let ((limit (save-excursion (diff-beginning-of-hunk))))
@@ -881,6 +894,9 @@ data such as \"Index: ...\" and such."
       ;; Fix the original hunk-header.
       (diff-fixup-modifs start pos))))
 
+(defun diff--outline-level ()
+  (if (string-match-p diff-hunk-header-re (match-string 0))
+      2 1))
 
 ;;;;
 ;;;; jump to other buffers
@@ -956,11 +972,11 @@ If the OLD prefix arg is passed, tell the file NAME of the old file."
 	       (list (match-string 1)))
 	     header-files
              ;; this assumes that there are no spaces in filenames
-	     (when (re-search-backward
-		    "^diff \\(-\\S-+ +\\)*\\(\\S-+\\)\\( +\\(\\S-+\\)\\)?"
-		    nil t)
-	       (list (if old (match-string 2) (match-string 4))
-		     (if old (match-string 4) (match-string 2)))))))))
+             (and (re-search-backward "^diff " nil t)
+                  (looking-at
+		   "^diff \\(-[^ \t\nL]+ +\\)*\\(-L +\\S-+ +\\)*\\(\\S-+\\)\\( +\\(\\S-+\\)\\)?")
+	          (list (if old (match-string 3) (match-string 5))
+		        (if old (match-string 4) (match-string 3)))))))))
 
 (defun diff-find-file-name (&optional old noprompt prefix)
   "Return the file corresponding to the current patch.
@@ -1342,7 +1358,11 @@ else cover the whole buffer."
 	      (pcase (char-after)
 		(?\s (cl-incf space))
 		(?+ (cl-incf plus))
-		(?- (cl-incf minus))
+		(?- (unless ;; In git format-patch "^-- $" signifies
+                            ;; the end of the patch.
+			(and (eq diff-buffer-type 'git)
+			     (looking-at "^-- $"))
+		      (cl-incf minus)))
 		(?! (cl-incf bang))
 		((or ?\\ ?#) nil)
 		(?\n (if diff-valid-unified-empty-line
@@ -1459,6 +1479,14 @@ See `after-change-functions' for the meaning of BEG, END and LEN."
 (defvar whitespace-style)
 (defvar whitespace-trailing-regexp)
 
+(defvar-local diff-mode-read-only nil
+  "Non-nil when read-only diff buffer uses short keys.")
+
+;; It should be lower than `outline-minor-mode' and `view-mode'.
+(or (assq 'diff-mode-read-only minor-mode-map-alist)
+    (nconc minor-mode-map-alist
+           (list (cons 'diff-mode-read-only diff-mode-shared-map))))
+
 ;;;###autoload
 (define-derived-mode diff-mode fundamental-mode "Diff"
   "Major mode for viewing/editing context diffs.
@@ -1466,7 +1494,7 @@ Supports unified and context diffs as well as (to a lesser extent)
 normal diffs.
 
 When the buffer is read-only, the ESC prefix is not necessary.
-If you edit the buffer manually, diff-mode will try to update the hunk
+If you edit the buffer manually, `diff-mode' will try to update the hunk
 headers for you on-the-fly.
 
 You can also switch between context diff and unified diff with \\[diff-context->unified],
@@ -1477,7 +1505,6 @@ a diff with \\[diff-reverse-direction].
 
   (setq-local font-lock-defaults diff-font-lock-defaults)
   (add-hook 'font-lock-mode-hook #'diff--font-lock-cleanup nil 'local)
-  (setq-local outline-regexp diff-outline-regexp)
   (setq-local imenu-generic-expression
               diff-imenu-generic-expression)
   ;; These are not perfect.  They would be better done separately for
@@ -1497,23 +1524,23 @@ a diff with \\[diff-reverse-direction].
 
   (diff-setup-whitespace)
 
-  (if diff-default-read-only
-      (setq buffer-read-only t))
+  ;; read-only setup
+  (when diff-default-read-only
+    (setq buffer-read-only t))
+  (when buffer-read-only
+    (setq diff-mode-read-only t))
+  (add-hook 'read-only-mode-hook
+            (lambda ()
+              (setq diff-mode-read-only buffer-read-only))
+            nil t)
+
   ;; setup change hooks
   (if (not diff-update-on-the-fly)
       (add-hook 'write-contents-functions #'diff-write-contents-hooks nil t)
     (make-local-variable 'diff-unhandled-changes)
     (add-hook 'after-change-functions #'diff-after-change-function nil t)
     (add-hook 'post-command-hook #'diff-post-command-hook nil t))
-  ;; Neat trick from Dave Love to add more bindings in read-only mode:
-  (let ((ro-bind (cons 'buffer-read-only diff-mode-shared-map)))
-    (add-to-list 'minor-mode-overriding-map-alist ro-bind)
-    ;; Turn off this little trick in case the buffer is put in view-mode.
-    (add-hook 'view-mode-hook
-	      (lambda ()
-		(setq minor-mode-overriding-map-alist
-		      (delq ro-bind minor-mode-overriding-map-alist)))
-	      nil t))
+
   ;; add-log support
   (setq-local add-log-current-defun-function #'diff-current-defun)
   (setq-local add-log-buffer-file-name-function
@@ -1522,11 +1549,7 @@ a diff with \\[diff-reverse-direction].
                 #'diff--filter-substring)
   (unless buffer-file-name
     (hack-dir-local-variables-non-file-buffer))
-  (save-excursion
-    (setq-local diff-buffer-type
-                (if (re-search-forward "^diff --git" nil t)
-                    'git
-                  nil))))
+  (diff-setup-buffer-type))
 
 ;;;###autoload
 (define-minor-mode diff-minor-mode
@@ -1561,6 +1584,21 @@ modified lines of the diff."
                 (if (eq style 'context)
                     "^[-+!] .*?\\([\t ]+\\)$"
                   "^[-+!<>].*?\\([\t ]+\\)$"))))
+
+(defun diff-setup-buffer-type ()
+  "Try to guess the `diff-buffer-type' from content of current Diff mode buffer.
+`outline-regexp' is updated accordingly."
+  (save-excursion
+    (goto-char (point-min))
+    (setq-local diff-buffer-type
+                (if (re-search-forward "^diff --git" nil t)
+                    'git
+                  nil)))
+  (when (eq diff-buffer-type 'git)
+    (setq diff-outline-regexp
+          (concat "\\(^diff --git.*\n\\|" diff-hunk-header-re "\\)"))
+    (setq-local outline-level #'diff--outline-level))
+  (setq-local outline-regexp diff-outline-regexp))
 
 (defun diff-delete-if-empty ()
   ;; An empty diff file means there's no more diffs to integrate, so we
@@ -1767,13 +1805,26 @@ char-offset in TEXT."
 	    (delete-region (point-min) keep))
 	  ;; Remove line-prefix characters, and unneeded lines (unified diffs).
           ;; Also skip lines like "\ No newline at end of file"
-	  (let ((kill-chars (list (if destp ?- ?+) ?\\)))
+	  (let ((kill-chars (list (if destp ?- ?+) ?\\))
+                curr-char last-char)
 	    (goto-char (point-min))
 	    (while (not (eobp))
-	      (if (memq (char-after) kill-chars)
-		  (delete-region (point) (progn (forward-line 1) (point)))
+	      (setq curr-char (char-after))
+	      (if (memq curr-char kill-chars)
+		  (delete-region
+		   ;; Check for "\ No newline at end of file"
+		   (if (and (eq curr-char ?\\)
+			    (not (eq last-char (if destp ?- ?+)))
+			    (save-excursion
+			      (forward-line 1)
+			      (or (eobp) (and (eq last-char ?-)
+					      (eq (char-after) ?+)))))
+		       (max (1- (point)) (point-min))
+		     (point))
+		   (progn (forward-line 1) (point)))
 		(delete-char num-pfx-chars)
-		(forward-line 1)))))
+		(forward-line 1))
+	      (setq last-char curr-char))))
 
 	(let ((text (buffer-substring-no-properties (point-min) (point-max))))
 	  (if char-offset (cons text (- (point) (point-min))) text))))))
@@ -2221,21 +2272,24 @@ Return new point, if it was moved."
   "Iterate over all hunks between point and MAX.
 Call FUN with two args (BEG and END) for each hunk."
   (save-excursion
-    (let* ((beg (or (ignore-errors (diff-beginning-of-hunk))
-                    (ignore-errors (diff-hunk-next) (point))
-                    max)))
-      (while (< beg max)
-        (goto-char beg)
-        (cl-assert (looking-at diff-hunk-header-re))
-        (let ((end
-               (save-excursion (diff-end-of-hunk) (point))))
-          (cl-assert (< beg end))
-          (funcall fun beg end)
-          (goto-char end)
-          (setq beg (if (looking-at diff-hunk-header-re)
-                        end
-                      (or (ignore-errors (diff-hunk-next) (point))
-                          max))))))))
+    (catch 'malformed
+      (let* ((beg (or (ignore-errors (diff-beginning-of-hunk))
+                      (ignore-errors (diff-hunk-next) (point))
+                      max)))
+        (while (< beg max)
+          (goto-char beg)
+          (unless (looking-at diff-hunk-header-re)
+            (throw 'malformed nil))
+          (let ((end
+                 (save-excursion (diff-end-of-hunk) (point))))
+            (unless (< beg end)
+              (throw 'malformed nil))
+            (funcall fun beg end)
+            (goto-char end)
+            (setq beg (if (looking-at diff-hunk-header-re)
+                          end
+                        (or (ignore-errors (diff-hunk-next) (point))
+                            max)))))))))
 
 (defun diff--font-lock-refined (max)
   "Apply hunk refinement from font-lock."
@@ -2252,17 +2306,20 @@ Call FUN with two args (BEG and END) for each hunk."
       ;; same hunk.
       (goto-char (next-single-char-property-change
                   (point) 'diff--font-lock-refined nil max)))
-    (diff--iterate-hunks
-     max
-     (lambda (beg end)
-       (unless (get-char-property beg 'diff--font-lock-refined)
-         (diff--refine-hunk beg end)
-         (let ((ol (make-overlay beg end)))
-           (overlay-put ol 'diff--font-lock-refined t)
-           (overlay-put ol 'diff-mode 'fine)
-           (overlay-put ol 'evaporate t)
-           (overlay-put ol 'modification-hooks
-                        '(diff--overlay-auto-delete))))))))
+    ;; Ignore errors that diff cannot be found so that custom font-lock
+    ;; keywords after `diff--font-lock-refined' can still be evaluated.
+    (ignore-error file-missing
+      (diff--iterate-hunks
+       max
+       (lambda (beg end)
+         (unless (get-char-property beg 'diff--font-lock-refined)
+           (diff--refine-hunk beg end)
+           (let ((ol (make-overlay beg end)))
+             (overlay-put ol 'diff--font-lock-refined t)
+             (overlay-put ol 'diff-mode 'fine)
+             (overlay-put ol 'evaporate t)
+             (overlay-put ol 'modification-hooks
+                          '(diff--overlay-auto-delete)))))))))
 
 (defun diff--overlay-auto-delete (ol _after _beg _end &optional _len)
   (delete-overlay ol))
@@ -2566,17 +2623,17 @@ fixed, visit it in a buffer."
                          "\\(?:index.*\n\\)?"
                          "--- \\(?:" null-device "\\|a/\\(.*\\)\\)\n"
                          "\\+\\+\\+ \\(?:" null-device "\\|b/\\(.*\\)\\)\n"))))
-        (put-text-property (match-beginning 0)
-                           (or (match-beginning 2) (match-beginning 1))
-                           'display (propertize
-                                     (cond
-                                      ((null (match-beginning 1)) "new file  ")
-                                      ((null (match-beginning 2)) "deleted   ")
-                                      (t                          "modified  "))
-                                     'face '(diff-file-header diff-header)))
-        (unless (match-beginning 2)
-          (put-text-property (match-end 1) (1- (match-end 0))
-                             'display "")))))
+        (put-text-property (match-beginning 0) (1- (match-end 0))
+                           'display
+                           (propertize
+                            (cond
+                             ((null (match-string 1))
+                              (concat "new file  " (match-string 2)))
+                             ((null (match-string 2))
+                              (concat "deleted  " (match-string 1)))
+                             (t
+                              (concat "modified  " (match-string 1))))
+                            'face '(diff-file-header diff-header))))))
   nil)
 
 ;;; Syntax highlighting from font-lock
@@ -2621,7 +2678,8 @@ When OLD is non-nil, highlight the hunk from the old source."
          ;; Trim a trailing newline to find hunk in diff-syntax-fontify-props
          ;; in diffs that have no newline at end of diff file.
          (text (string-trim-right
-                (or (with-demoted-errors (diff-hunk-text hunk (not old) nil))
+                (or (with-demoted-errors "Error getting hunk text: %S"
+                      (diff-hunk-text hunk (not old) nil))
                     "")))
 	 (line (if (looking-at "\\(?:\\*\\{15\\}.*\n\\)?[-@* ]*\\([0-9,]+\\)\\([ acd+]+\\([0-9,]+\\)\\)?")
 		   (if old (match-string 1)

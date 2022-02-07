@@ -1,6 +1,6 @@
 ;;; url-ns.el --- Various netscape-ish functions for proxy definitions  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-1999, 2004-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1997-1999, 2004-2022 Free Software Foundation, Inc.
 
 ;; Keywords: comm, data, processes, hypermedia
 ;; Obsolete-since: 27.1
@@ -31,7 +31,7 @@
 
 ;;;###autoload
 (defun isPlainHostName (host)
-  (not (string-match "\\." host)))
+  (not (string-search "." host)))
 
 ;;;###autoload
 (defun dnsDomainIs (host dom)

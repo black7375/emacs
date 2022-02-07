@@ -1,6 +1,6 @@
 ;;; sort.el --- commands to sort text in an Emacs buffer -*- lexical-binding: t -*-
 
-;; Copyright (C) 1986-1987, 1994-1995, 2001-2021 Free Software
+;; Copyright (C) 1986-1987, 1994-1995, 2001-2022 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Howie Kaye
@@ -56,12 +56,12 @@ The variable `sort-fold-case' determines whether alphabetic case affects
 the sort order.
 
 The next four arguments are functions to be called to move point
-across a sort record.  They will be called many times from within sort-subr.
+across a sort record.  They will be called many times from within `sort-subr'.
 
 NEXTRECFUN is called with point at the end of the previous record.
 It moves point to the start of the next record.
 It should move point to the end of the buffer if there are no more records.
-The first record is assumed to start at the position of point when sort-subr
+The first record is assumed to start at the position of point when `sort-subr'
 is called.
 
 ENDRECFUN is called with point within the record.
@@ -286,25 +286,30 @@ FIELD, BEG and END.  BEG and END specify region to sort."
   (interactive "p\nr")
   (let ;; To make `end-of-line' and etc. to ignore fields.
       ((inhibit-field-text-motion t))
-    (sort-fields-1 field beg end
-		   (lambda ()
-		     (sort-skip-fields field)
-		     (let* ((case-fold-search t)
-			    (base
-			     (if (looking-at "\\(0x\\)[0-9a-f]\\|\\(0\\)[0-7]")
-				 (cond ((match-beginning 1)
-					(goto-char (match-end 1))
-					16)
-				       ((match-beginning 2)
-					(goto-char (match-end 2))
-					8)
-				       (t nil)))))
-		       (string-to-number (buffer-substring (point)
-							   (save-excursion
-							     (forward-sexp 1)
-							     (point)))
-					 (or base sort-numeric-base))))
-		   nil)))
+    (sort-fields-1
+     field beg end
+     (lambda ()
+       ;; Don't try to parse blank lines (they'll be
+       ;; sorted at the start).
+       (if (looking-at "[\t ]*$")
+           0
+	 (sort-skip-fields field)
+	 (let* ((case-fold-search t)
+		(base
+		 (if (looking-at "\\(0x\\)[0-9a-f]\\|\\(0\\)[0-7]")
+		     (cond ((match-beginning 1)
+			    (goto-char (match-end 1))
+			    16)
+			   ((match-beginning 2)
+			    (goto-char (match-end 2))
+			    8)
+			   (t nil)))))
+	   (string-to-number (buffer-substring (point)
+					       (save-excursion
+						 (forward-sexp 1)
+						 (point)))
+			     (or base sort-numeric-base)))))
+     nil)))
 
 ;;;;;###autoload
 ;;(defun sort-float-fields (field beg end)
@@ -507,7 +512,8 @@ Use \\[untabify] to convert tabs to spaces before sorting."
       (setq col-start (min col-beg1 col-end1))
       (setq col-end (max col-beg1 col-end1))
       (if (search-backward "\t" beg1 t)
-	  (error "sort-columns does not work with tabs -- use M-x untabify"))
+          (error (substitute-command-keys
+                  "sort-columns does not work with tabs -- use \\[untabify]")))
       (if (not (or (memq system-type '(windows-nt))
 		   (let ((pos beg1) plist fontified)
 		     (catch 'found
@@ -539,8 +545,8 @@ Use \\[untabify] to convert tabs to spaces before sorting."
 	    (narrow-to-region beg1 end1)
 	    (goto-char beg1)
 	    (sort-subr reverse 'forward-line 'end-of-line
-		       #'(lambda () (move-to-column col-start) nil)
-		       #'(lambda () (move-to-column col-end) nil))))))))
+                       (lambda () (move-to-column col-start) nil)
+                       (lambda () (move-to-column col-end) nil))))))))
 
 ;;;###autoload
 (defun reverse-region (beg end)
@@ -587,16 +593,16 @@ is the one that ends before END."
 Non-interactively, arguments BEG and END delimit the region.
 Normally it searches forwards, keeping the first instance of
 each identical line.  If REVERSE is non-nil (interactively, with
-a C-u prefix), it searches backwards and keeps the last instance of
+a \\[universal-argument] prefix), it searches backwards and keeps the last instance of
 each repeated line.
 
 Identical lines need not be adjacent, unless the argument
-ADJACENT is non-nil (interactively, with a C-u C-u prefix).
+ADJACENT is non-nil (interactively, with a \\[universal-argument] \\[universal-argument] prefix).
 This is a more efficient mode of operation, and may be useful
 on large regions that have already been sorted.
 
 If the argument KEEP-BLANKS is non-nil (interactively, with a
-C-u C-u C-u prefix), it retains repeated blank lines.
+\\[universal-argument] \\[universal-argument] \\[universal-argument] prefix), it retains repeated blank lines.
 
 Returns the number of deleted lines.  Interactively, or if INTERACTIVE
 is non-nil, it also prints a message describing the number of deletions."

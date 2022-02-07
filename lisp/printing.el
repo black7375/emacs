@@ -1,11 +1,11 @@
 ;;; printing.el --- printing utilities  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2000-2001, 2003-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2000-2001, 2003-2022 Free Software Foundation, Inc.
 
 ;; Author: Vinicius Jose Latorre <viniciusjl.gnu@gmail.com>
 ;; Keywords: wp, print, PostScript
 ;; Version: 6.9.3
-;; X-URL: https://www.emacswiki.org/cgi-bin/wiki/ViniciusJoseLatorre
+;; URL: https://www.emacswiki.org/cgi-bin/wiki/ViniciusJoseLatorre
 
 (defconst pr-version "6.9.3"
   "printing.el, v 6.9.3 <2007/12/09 vinicius>
@@ -1081,24 +1081,15 @@ Used by `pr-menu-bind' and `pr-update-menus'.")
   "Specify Printing menu-bar entry.")
 
 (defun pr-global-menubar (menu-spec)
-  (let ((menu-file '("menu-bar" "file")))
-    (cond
-     (pr-menu-print-item
-      (easy-menu-add-item global-map menu-file
-                          (easy-menu-create-menu "Print" menu-spec)
-                          "print-buffer")
-      (dolist (item '("print-buffer"          "print-region"
-                      "ps-print-buffer-faces" "ps-print-region-faces"
-                      "ps-print-buffer"       "ps-print-region"))
-        (easy-menu-remove-item global-map menu-file item))
-      (setq pr-menu-print-item nil
-            pr-menu-bar (vector 'menu-bar
-                                (easy-menu-intern (nth 1 menu-file))
-                                (easy-menu-intern "Print"))))
-     (t
-      (easy-menu-add-item global-map menu-file
-                          (easy-menu-create-menu "Print" menu-spec)))
-     )))
+  (let ((menu-file '("menu-bar" "file"))
+        (submenu-path [menu-bar file Print])
+        (submenu (easy-menu-create-menu "Print" menu-spec)))
+    (cond (pr-menu-print-item
+           (easy-menu-add-item global-map menu-file submenu "Print")
+           (easy-menu-remove-item global-map menu-file "print")
+           (setq pr-menu-print-item nil
+                 pr-menu-bar submenu-path))
+          (t (easy-menu-add-item global-map menu-file submenu)))))
 
 (defun pr-menu-position (entry index horizontal)
   (let ((pos (cdr (mouse-pixel-position))))
@@ -1412,7 +1403,7 @@ The printer name symbol should be defined on `pr-txt-printer-alist' (see it for
 documentation).
 
 This variable should be modified by customization engine.  If this variable is
-modified by other means (for example, a lisp function), use `pr-update-menus'
+modified by other means (for example, a Lisp function), use `pr-update-menus'
 function (see it for documentation) to update text printer menu."
   :type 'symbol
   :set 'pr-txt-name-custom-set)
@@ -1498,7 +1489,7 @@ NAME		A string that specifies a text printer name.
 			\"share-name\"
 
 This variable should be modified by customization engine.  If this variable is
-modified by other means (for example, a lisp function), use `pr-update-menus'
+modified by other means (for example, a Lisp function), use `pr-update-menus'
 function (see it for documentation) to update text printer menu.
 
 Examples:
@@ -1553,7 +1544,7 @@ This printer name symbol should be defined on `pr-ps-printer-alist' (see it for
 documentation).
 
 This variable should be modified by customization engine.  If this variable is
-modified by other means (for example, a lisp function), use `pr-update-menus'
+modified by other means (for example, a Lisp function), use `pr-update-menus'
 function (see it for documentation) to update PostScript printer menu."
   :type 'symbol
   :set 'pr-ps-name-custom-set)
@@ -1681,7 +1672,7 @@ DEFAULT		It's a way to set default values when this entry is selected.
 
 		   (set VARIABLE (eval VALUE))
 
-		Note that VALUE can be any valid lisp expression.  So, don't
+                Note that VALUE can be any valid Lisp expression.  So, don't
 		forget to quote symbols and constant lists.
 		If VARIABLE is the special keyword `inherits-from:', VALUE must
 		be a symbol name setting defined in `pr-setting-database' from
@@ -1781,8 +1772,7 @@ Useful links:
   `https://linux.die.net/man/1/lp'
 
 * GNU utilities for w32 (cp.exe)
-  `http://unxutils.sourceforge.net/'
-"
+  `http://unxutils.sourceforge.net/'"
   :type '(repeat
 	  (list
 	   :tag "PostScript Printer"
@@ -2190,7 +2180,7 @@ DEFAULT		It's a way to set default values when this entry is selected.
 
 		   (set (make-local-variable VARIABLE-SYM) (eval VALUE))
 
-		Note that VALUE can be any valid lisp expression.  So, don't
+                Note that VALUE can be any valid Lisp expression.  So, don't
 		forget to quote symbols and constant lists.
 		If VARIABLE is the special keyword `inherits-from:', VALUE must
 		be a symbol name setting defined in `pr-setting-database' from
@@ -2255,7 +2245,7 @@ This utility symbol should be defined on `pr-ps-utility-alist' (see it for
 documentation).
 
 This variable should be modified by customization engine.  If this variable is
-modified by other means (for example, a lisp function), use `pr-update-menus'
+modified by other means (for example, a Lisp function), use `pr-update-menus'
 function (see it for documentation) to update PostScript utility menu.
 
 NOTE: Don't forget to download and install the utilities declared on
@@ -2422,8 +2412,7 @@ Useful links:
 
 * GNU Enscript documentation (Windows, GNU or Unix)
   `https://people.ssh.com/mtr/genscript/enscript.man.html'
-  (on GNU or Unix, type `man enscript')
-"
+  (on GNU or Unix, type `man enscript')"
   :type '(repeat
 	  (list :tag "PS File Utility"
 		(symbol :tag "Utility Symbol")
@@ -2569,7 +2558,7 @@ SETTING		It's a cons like:
 		  * If LOCAL is nil:
 		   (set VARIABLE (eval VALUE))
 
-		Note that VALUE can be any valid lisp expression.  So, don't
+                Note that VALUE can be any valid Lisp expression.  So, don't
 		forget to quote symbols and constant lists.
 		This setting is ignored if VARIABLE is equal to keyword
 		`inherits-from:'.
@@ -2681,7 +2670,7 @@ happens when printing:
   "Non-nil means list directory when processing a directory.
 
 That is, any subdirectories (and the superdirectory) of the directory (given as
-argument of functions below) are also printed (as dired-mode listings).
+argument of functions below) are also printed (as `dired-mode' listings).
 
 It's used by `pr-ps-directory-preview', `pr-ps-directory-using-ghostscript',
 `pr-ps-directory-print', `pr-ps-directory-ps-print', `pr-printify-directory'
@@ -3485,7 +3474,7 @@ For more information, type \\[pr-interface-help]."
   "Preview directory using ghostview.
 
 Interactively, the command prompts for N-UP printing number, a directory, a
-file name regexp for matching and, when you use a prefix argument (C-u), the
+file name regexp for matching and, when you use a prefix argument (\\[universal-argument]), the
 command prompts the user for a file name, and saves the PostScript image in
 that file instead of saving it in a temporary file.
 
@@ -3514,7 +3503,7 @@ See also documentation for `pr-list-directory'."
   "Print directory using PostScript through ghostscript.
 
 Interactively, the command prompts for N-UP printing number, a directory, a
-file name regexp for matching and, when you use a prefix argument (C-u), the
+file name regexp for matching and, when you use a prefix argument (\\[universal-argument]), the
 command prompts the user for a file name, and saves the PostScript image in
 that file instead of saving it in a temporary file.
 
@@ -3544,7 +3533,7 @@ See also documentation for `pr-list-directory'."
   "Print directory using PostScript printer.
 
 Interactively, the command prompts for N-UP printing number, a directory, a
-file name regexp for matching and, when you use a prefix argument (C-u), the
+file name regexp for matching and, when you use a prefix argument (\\[universal-argument]), the
 command prompts the user for a file name, and saves the PostScript image in
 that file instead of saving it in a temporary file.
 
@@ -3576,7 +3565,7 @@ See also documentation for `pr-list-directory'."
 It depends on `pr-print-using-ghostscript'.
 
 Interactively, the command prompts for N-UP printing number, a directory, a
-file name regexp for matching and, when you use a prefix argument (C-u), the
+file name regexp for matching and, when you use a prefix argument (\\[universal-argument]), the
 command prompts the user for a file name, and saves the PostScript image in
 that file instead of saving it in a temporary file.
 
@@ -3607,7 +3596,7 @@ See also documentation for `pr-list-directory'."
   "Preview buffer using ghostview.
 
 Interactively, the command prompts for N-UP printing number and, when you use a
-prefix argument (C-u), the command prompts the user for a file name, and saves
+prefix argument (\\[universal-argument]), the command prompts the user for a file name, and saves
 the PostScript image in that file instead of saving it in a temporary file.
 
 Noninteractively, if N-UP is nil, prompts for N-UP printing number.  The
@@ -3626,7 +3615,7 @@ with that name.  If FILENAME is t, prompts for a file name."
   "Print buffer using PostScript through ghostscript.
 
 Interactively, the command prompts for N-UP printing number and, when you use a
-prefix argument (C-u), the command prompts the user for a file name, and saves
+prefix argument (\\[universal-argument]), the command prompts the user for a file name, and saves
 the PostScript image in that file instead of sending it to the printer.
 
 Noninteractively, if N-UP is nil, prompts for N-UP printing number.  The
@@ -3645,7 +3634,7 @@ that name.  If FILENAME is t, prompts for a file name."
   "Print buffer using PostScript printer.
 
 Interactively, the command prompts for N-UP printing number and, when you use a
-prefix argument (C-u), the command prompts the user for a file name, and saves
+prefix argument (\\[universal-argument]), the command prompts the user for a file name, and saves
 the PostScript image in that file instead of sending it to the printer.
 
 Noninteractively, if N-UP is nil, prompts for N-UP printing number.  The
@@ -3666,7 +3655,7 @@ that name.  If FILENAME is t, prompts for a file name."
 It depends on `pr-print-using-ghostscript'.
 
 Interactively, the command prompts for N-UP printing number and, when you use a
-prefix argument (C-u), the command prompts the user for a file name, and saves
+prefix argument (\\[universal-argument]), the command prompts the user for a file name, and saves
 the PostScript image in that file instead of sending it to the printer.
 
 Noninteractively, if N-UP is nil, prompts for N-UP printing number.  The
@@ -3886,7 +3875,7 @@ See also documentation for `pr-list-directory'."
 (defun pr-despool-preview (&optional filename)
   "Preview spooled PostScript.
 
-Interactively, when you use a prefix argument (C-u), the command prompts the
+Interactively, when you use a prefix argument (\\[universal-argument]), the command prompts the
 user for a file name, and saves the spooled PostScript image in that file
 instead of saving it in a temporary file.
 
@@ -3904,7 +3893,7 @@ PostScript image in a file with that name."
 (defun pr-despool-using-ghostscript (&optional filename)
   "Print spooled PostScript using ghostscript.
 
-Interactively, when you use a prefix argument (C-u), the command prompts the
+Interactively, when you use a prefix argument (\\[universal-argument]), the command prompts the
 user for a file name, and saves the spooled PostScript image in that file
 instead of sending it to the printer.
 
@@ -3923,7 +3912,7 @@ image in a file with that name."
 (defun pr-despool-print (&optional filename)
   "Send the spooled PostScript to the printer.
 
-Interactively, when you use a prefix argument (C-u), the command prompts the
+Interactively, when you use a prefix argument (\\[universal-argument]), the command prompts the
 user for a file name, and saves the spooled PostScript image in that file
 instead of sending it to the printer.
 
@@ -3943,7 +3932,7 @@ image in a file with that name."
 (defun pr-despool-ps-print (&optional filename)
   "Send the spooled PostScript to the printer or use ghostscript to print it.
 
-Interactively, when you use a prefix argument (C-u), the command prompts the
+Interactively, when you use a prefix argument (\\[universal-argument]), the command prompts the
 user for a file name, and saves the spooled PostScript image in that file
 instead of sending it to the printer.
 
@@ -4044,7 +4033,7 @@ image in a file with that name."
   "Process a PostScript file IFILENAME and send it to printer.
 
 Interactively, the command prompts for N-UP printing number, for an input
-PostScript file IFILENAME and, when you use a prefix argument (C-u), the
+PostScript file IFILENAME and, when you use a prefix argument (\\[universal-argument]), the
 command prompts the user for an output PostScript file name OFILENAME, and
 saves the PostScript image in that file instead of sending it to the printer.
 
@@ -4285,22 +4274,22 @@ printed using `pr-ps-mode-ps-print'.
 
 Interactively, you have the following situations:
 
-   M-x pr-ps-fast-fire RET
+   \\[pr-ps-fast-fire]
       The command prompts the user for a N-UP value and printing will
       immediately be done using the current active printer.
 
-   C-u   M-x pr-ps-fast-fire RET
-   C-u 0 M-x pr-ps-fast-fire RET
+   \\[universal-argument]   \\[pr-ps-fast-fire]
+   \\[universal-argument] 0 \\[pr-ps-fast-fire]
       The command prompts the user for a N-UP value and also for a current
       PostScript printer, then printing will immediately be done using the new
       current active printer.
 
-   C-u 1 M-x pr-ps-fast-fire RET
+   \\[universal-argument] 1 \\[pr-ps-fast-fire]
       The command prompts the user for a N-UP value and also for a file name,
       and saves the PostScript image in that file instead of sending it to the
       printer.
 
-   C-u 2 M-x pr-ps-fast-fire RET
+   \\[universal-argument] 2 \\[pr-ps-fast-fire]
       The command prompts the user for a N-UP value, then for a current
       PostScript printer and, finally, for a file name.  Then change the active
       printer to that chosen by user and saves the PostScript image in
@@ -4369,7 +4358,7 @@ Also if the current major-mode is defined in `pr-mode-alist', the settings in
 `pr-mode-alist' will be used, that is, the current buffer or region will be
 printed using `pr-txt-mode'.
 
-Interactively, when you use a prefix argument (C-u), the command prompts the
+Interactively, when you use a prefix argument (\\[universal-argument]), the command prompts the
 user for a new active text printer.
 
 Noninteractively, the argument SELECT-PRINTER is treated as follows:
@@ -4775,13 +4764,13 @@ If menu binding was not done, calls `pr-menu-bind'."
 (defun pr-menu-create (name alist var-sym fun entry index)
   (cons name
 	(mapcar
-	 #'(lambda (elt)
-	     (let ((sym (car elt)))
-	       (vector
-		(symbol-name sym)
-		`(,fun ',sym nil ',entry ',index)
-		:style 'radio
-		:selected `(eq ,var-sym ',sym))))
+         (lambda (elt)
+           (let ((sym (car elt)))
+             (vector
+              (symbol-name sym)
+              `(,fun ',sym nil ',entry ',index)
+              :style 'radio
+              :selected `(eq ,var-sym ',sym))))
 	 alist)))
 
 
@@ -4883,23 +4872,23 @@ If menu binding was not done, calls `pr-menu-bind'."
 					       (cons inherits old)))))
 	   (mapc
 	    (cond ((not local)		; global settings
-		   #'(lambda (option)
-		       (let ((var-sym (car option)))
-			 (or (eq var-sym 'inherits-from:)
-			     (set var-sym (eval (cdr option)))))))
+                   (lambda (option)
+                     (let ((var-sym (car option)))
+                       (or (eq var-sym 'inherits-from:)
+                           (set var-sym (eval (cdr option)))))))
 		  (kill			; local settings with killing
-		   #'(lambda (option)
-		       (let ((var-sym (car option)))
-			 (unless (eq var-sym 'inherits-from:)
-			   (setq local-list (cons var-sym local-list))
-			   (set (make-local-variable var-sym)
-				(eval (cdr option)))))))
+                   (lambda (option)
+                     (let ((var-sym (car option)))
+                       (unless (eq var-sym 'inherits-from:)
+                         (setq local-list (cons var-sym local-list))
+                         (set (make-local-variable var-sym)
+                              (eval (cdr option)))))))
 		  (t			; local settings without killing
-		   #'(lambda (option)
-		       (let ((var-sym (car option)))
-			 (or (eq var-sym 'inherits-from:)
-			     (set (make-local-variable var-sym)
-				  (eval (cdr option))))))))
+                   (lambda (option)
+                     (let ((var-sym (car option)))
+                       (or (eq var-sym 'inherits-from:)
+                           (set (make-local-variable var-sym)
+                                (eval (cdr option))))))))
 	    (nthcdr 3 setting))
 	   local-list))))
 
@@ -5077,9 +5066,9 @@ If menu binding was not done, calls `pr-menu-bind'."
 
 
 (defun pr-complete-alist (prompt alist default)
-  (let ((collection (mapcar #'(lambda (elt)
-				(setq elt (car elt))
-				(cons (symbol-name elt) elt))
+  (let ((collection (mapcar (lambda (elt)
+                              (setq elt (car elt))
+                              (cons (symbol-name elt) elt))
 			    alist)))
     (cdr (assoc (completing-read (concat prompt ": ")
 				 collection nil t
@@ -5144,7 +5133,7 @@ If menu binding was not done, calls `pr-menu-bind'."
   (and (eq (symbol-value infile-sym) t)
        (set infile-sym (pr-ps-infile-preprint prompt)))
   (or (symbol-value infile-sym)
-      (error "%s: input PostScript file name is missing" prompt))
+      (error "%s: Input PostScript file name is missing" prompt))
   ;; output file
   (and (eq (symbol-value outfile-sym) t)
        (set outfile-sym (and current-prefix-arg
@@ -5413,19 +5402,19 @@ If menu binding was not done, calls `pr-menu-bind'."
 
 
 (defun pr-file-list (dir file-regexp fun)
-  (mapcar #'(lambda (file)
-	      (and (or pr-list-directory
-		       (not (file-directory-p file)))
-		   (let ((buffer (pr-find-buffer-visiting file))
-			 pop-up-windows
-			 pop-up-frames)
-		     (and (or buffer
-			      (file-readable-p file))
-			  (with-current-buffer (or buffer
-                                                   (find-file-noselect file))
-			    (funcall fun)
-			    (or buffer
-				(kill-buffer (current-buffer))))))))
+  (mapcar (lambda (file)
+            (and (or pr-list-directory
+                     (not (file-directory-p file)))
+                 (let ((buffer (pr-find-buffer-visiting file))
+                       pop-up-windows
+                       pop-up-frames)
+                   (and (or buffer
+                            (file-readable-p file))
+                        (with-current-buffer (or buffer
+                                                 (find-file-noselect file))
+                          (funcall fun)
+                          (or buffer
+                              (kill-buffer (current-buffer))))))))
 	  (directory-files dir t file-regexp)))
 
 
@@ -5438,10 +5427,10 @@ If menu binding was not done, calls `pr-menu-bind'."
   (pr-delete-file-if-exists (setq filename (expand-file-name filename)))
   (let ((pr-spool-p t))
     (pr-file-list dir file-regexp
-		  #'(lambda ()
-		      (if (pr-auto-mode-p)
-			  (pr-ps-mode n-up filename)
-			(pr-text2ps 'buffer n-up filename)))))
+                  (lambda ()
+                    (if (pr-auto-mode-p)
+                        (pr-ps-mode n-up filename)
+                      (pr-text2ps 'buffer n-up filename)))))
   (or pr-spool-p
       (pr-despool-print filename)))
 
@@ -5586,7 +5575,7 @@ COMMAND.exe, COMMAND.bat and COMMAND.com in this order."
     (define-key map "q" 'pr-interface-quit)
     (define-key map "?" 'pr-interface-help)
     map)
-  "Keymap for pr-interface.")
+  "Keymap for `pr-interface'.")
 
 (defmacro pr-interface-save (&rest body)
   `(with-current-buffer pr-i-buffer
@@ -5672,44 +5661,44 @@ COMMAND.exe, COMMAND.bat and COMMAND.com in this order."
        (pr-insert-checkbox
 	"\n               "
 	'pr-i-region
-	#'(lambda (widget &rest _ignore)
-	    (let ((region-p (pr-interface-save
-			     (ps-mark-active-p))))
-	      (cond ((null (widget-value widget)) ; widget is nil
-		     (setq pr-i-region nil))
-		    (region-p		; widget is true and there is a region
-		     (setq pr-i-region t)
-		     (widget-value-set widget t)
-		     (widget-setup))	; MUST be called after widget-value-set
-		    (t			; widget is true and there is no region
-		     (ding)
-		     (message "There is no region active")
-		     (setq pr-i-region nil)
-		     (widget-value-set widget nil)
-		     (widget-setup)))))	; MUST be called after widget-value-set
+        (lambda (widget &rest _ignore)
+          (let ((region-p (pr-interface-save
+                           (ps-mark-active-p))))
+            (cond ((null (widget-value widget)) ; widget is nil
+                   (setq pr-i-region nil))
+                  (region-p		; widget is true and there is a region
+                   (setq pr-i-region t)
+                   (widget-value-set widget t)
+                   (widget-setup))	; MUST be called after widget-value-set
+                  (t			; widget is true and there is no region
+                   (ding)
+                   (message "There is no region active")
+                   (setq pr-i-region nil)
+                   (widget-value-set widget nil)
+                   (widget-setup)))))	; MUST be called after widget-value-set
 	" Region"))
   ;;    1a. Buffer: Mode
   (put 'pr-i-mode 'pr-widget
        (pr-insert-checkbox
 	"    "
 	'pr-i-mode
-	#'(lambda (widget &rest _ignore)
-	    (let ((mode-p (pr-interface-save
-			   (pr-mode-alist-p))))
-	      (cond
-	       ((null (widget-value widget)) ; widget is nil
-		(setq pr-i-mode nil))
-	       (mode-p			; widget is true and there is a `mode'
-		(setq pr-i-mode t)
-		(widget-value-set widget t)
-		(widget-setup))		; MUST be called after widget-value-set
-	       (t			; widget is true and there is no `mode'
-		(ding)
-		(message
-		 "This buffer isn't in a mode that printing treats specially.")
-		(setq pr-i-mode nil)
-		(widget-value-set widget nil)
-		(widget-setup)))))	; MUST be called after widget-value-set
+        (lambda (widget &rest _ignore)
+          (let ((mode-p (pr-interface-save
+                         (pr-mode-alist-p))))
+            (cond
+             ((null (widget-value widget)) ; widget is nil
+              (setq pr-i-mode nil))
+             (mode-p			; widget is true and there is a `mode'
+              (setq pr-i-mode t)
+              (widget-value-set widget t)
+              (widget-setup))		; MUST be called after widget-value-set
+             (t			; widget is true and there is no `mode'
+              (ding)
+              (message
+               "This buffer isn't in a mode that printing treats specially.")
+              (setq pr-i-mode nil)
+              (widget-value-set widget nil)
+              (widget-setup)))))	; MUST be called after widget-value-set
 	" Mode\n"))
 
   ;;    1b. Directory:
@@ -5769,14 +5758,14 @@ COMMAND.exe, COMMAND.bat and COMMAND.com in this order."
        (pr-insert-checkbox
 	"    "
 	'pr-i-despool
-	#'(lambda (widget &rest _ignore)
-	    (if pr-spool-p
-		(setq pr-i-despool (not pr-i-despool))
-	      (ding)
-	      (message "Can despool only when spooling is actually selected")
-	      (setq pr-i-despool nil))
-	    (widget-value-set widget pr-i-despool)
-	    (widget-setup))		; MUST be called after widget-value-set
+        (lambda (widget &rest _ignore)
+          (if pr-spool-p
+              (setq pr-i-despool (not pr-i-despool))
+            (ding)
+            (message "Can despool only when spooling is actually selected")
+            (setq pr-i-despool nil))
+          (widget-value-set widget pr-i-despool)
+          (widget-setup))		; MUST be called after widget-value-set
 	" Despool   "))
   ;; 2. PostScript Printer: Preview    Print    Quit
   (pr-insert-button 'pr-interface-preview "Preview" "   ")
@@ -5835,9 +5824,9 @@ COMMAND.exe, COMMAND.bat and COMMAND.com in this order."
   ;; 4. Settings:
   ;; 4. Settings: Landscape             Auto Region    Verbose
   (pr-insert-checkbox "\n\n  " 'ps-landscape-mode
-		      #'(lambda (&rest _ignore)
-			  (setq ps-landscape-mode (not ps-landscape-mode)
-				pr-file-landscape ps-landscape-mode))
+                      (lambda (&rest _ignore)
+                        (setq ps-landscape-mode (not ps-landscape-mode)
+                              pr-file-landscape ps-landscape-mode))
 		      " Landscape             ")
   (pr-insert-toggle 'pr-auto-region " Auto Region                ")
   (pr-insert-toggle 'pr-buffer-verbose " Verbose\n  ")
@@ -5857,28 +5846,28 @@ COMMAND.exe, COMMAND.bat and COMMAND.com in this order."
   (pr-insert-toggle 'ps-zebra-stripes " Zebra Stripes")
   (pr-insert-checkbox "         "
 		      'pr-spool-p
-		      #'(lambda (&rest _ignore)
-			  (setq pr-spool-p (not pr-spool-p))
-			  (unless pr-spool-p
-			    (setq pr-i-despool nil)
-			    (pr-update-checkbox 'pr-i-despool)))
+                      (lambda (&rest _ignore)
+                        (setq pr-spool-p (not pr-spool-p))
+                        (unless pr-spool-p
+                          (setq pr-i-despool nil)
+                          (pr-update-checkbox 'pr-i-despool)))
 		      " Spool Buffer")
 
   ;; 4. Settings: Duplex                Print with faces
   (pr-insert-checkbox "\n  "
 		      'ps-spool-duplex
-		      #'(lambda (&rest _ignore)
-			  (setq ps-spool-duplex (not ps-spool-duplex)
-				pr-file-duplex  ps-spool-duplex))
+                      (lambda (&rest _ignore)
+                        (setq ps-spool-duplex (not ps-spool-duplex)
+                              pr-file-duplex  ps-spool-duplex))
 		      " Duplex                ")
   (pr-insert-toggle 'pr-faces-p " Print with faces")
 
   ;; 4. Settings: Tumble                Print via Ghostscript
   (pr-insert-checkbox "\n  "
 		      'ps-spool-tumble
-		      #'(lambda (&rest _ignore)
-			  (setq ps-spool-tumble (not ps-spool-tumble)
-				pr-file-tumble  ps-spool-tumble))
+                      (lambda (&rest _ignore)
+                        (setq ps-spool-tumble (not ps-spool-tumble)
+                              pr-file-tumble  ps-spool-tumble))
 		      " Tumble                ")
   (pr-insert-toggle 'pr-print-using-ghostscript " Print via Ghostscript\n  ")
 
@@ -5886,11 +5875,11 @@ COMMAND.exe, COMMAND.bat and COMMAND.com in this order."
   (pr-insert-toggle 'ps-print-upside-down " Upside-Down")
   (pr-insert-italic "\n\nSelect Pages  :   " 2 14)
   (pr-insert-menu "Page Parity" 'ps-even-or-odd-pages
-		  (mapcar #'(lambda (alist)
-                              (list 'choice-item
-                                    :format "%[%t%]"
-                                    :tag (cdr alist)
-                                    :value (car alist)))
+                  (mapcar (lambda (alist)
+                            (list 'choice-item
+                                  :format "%[%t%]"
+                                  :tag (cdr alist)
+                                  :value (car alist)))
 			  pr-even-or-odd-alist)))
 
 
@@ -5898,7 +5887,7 @@ COMMAND.exe, COMMAND.bat and COMMAND.com in this order."
   ;; 5. Customize:
   (pr-insert-italic "\n\nCustomize     :   " 2 11)
   (pr-insert-button 'pr-customize "printing" "   ")
-  (pr-insert-button #'(lambda (&rest _ignore) (ps-print-customize))
+  (pr-insert-button (lambda (&rest _ignore) (ps-print-customize))
 		    "ps-print" "   ")
   (pr-insert-button 'lpr-customize "lpr"))
 
@@ -5942,7 +5931,7 @@ COMMAND.exe, COMMAND.bat and COMMAND.com in this order."
 
 
 (defun pr-interface-help (&rest _ignore)
-  "printing buffer interface help."
+  "Printing buffer interface help."
   (interactive)
   (pr-show-setup pr-interface-help-message "*Printing Interface Help*"))
 
@@ -6207,18 +6196,18 @@ COMMAND.exe, COMMAND.bat and COMMAND.com in this order."
 
 
 (defun pr-choice-alist (alist)
-  (let ((max (apply #'max (mapcar #'(lambda (alist)
-                                      (length (symbol-name (car alist))))
+  (let ((max (apply #'max (mapcar (lambda (alist)
+                                    (length (symbol-name (car alist))))
                                   alist))))
-    (mapcar #'(lambda (alist)
-		(let* ((sym  (car alist))
-		       (name (symbol-name sym)))
-                  (list
-                   'choice-item
-                   :format "%[%t%]"
-                   :tag (concat name
-                                (make-string (- max (length name)) ?_))
-                   :value sym)))
+    (mapcar (lambda (alist)
+              (let* ((sym  (car alist))
+                     (name (symbol-name sym)))
+                (list
+                 'choice-item
+                 :format "%[%t%]"
+                 :tag (concat name
+                              (make-string (- max (length name)) ?_))
+                 :value sym)))
 	    alist)))
 
 
@@ -6226,6 +6215,5 @@ COMMAND.exe, COMMAND.bat and COMMAND.com in this order."
 
 
 (provide 'printing)
-
 
 ;;; printing.el ends here

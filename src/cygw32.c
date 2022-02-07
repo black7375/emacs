@@ -1,5 +1,5 @@
 /* Cygwin support routines.
-   Copyright (C) 2011-2021 Free Software Foundation, Inc.
+   Copyright (C) 2011-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -115,7 +115,7 @@ For the reverse operation, see `cygwin-convert-file-name-from-windows'.  */)
   (Lisp_Object file, Lisp_Object absolute_p)
 {
   return from_unicode (
-    conv_filename_to_w32_unicode (file, EQ (absolute_p, Qnil) ? 0 : 1));
+    conv_filename_to_w32_unicode (file, NILP (absolute_p) ? 0 : 1));
 }
 
 DEFUN ("cygwin-convert-file-name-from-windows",
@@ -128,7 +128,7 @@ For the reverse operation, see `cygwin-convert-file-name-to-windows'.  */)
   (Lisp_Object file, Lisp_Object absolute_p)
 {
   return conv_filename_from_w32_unicode (to_unicode (file, &file),
-                                         EQ (absolute_p, Qnil) ? 0 : 1);
+					 NILP (absolute_p) ? 0 : 1);
 }
 
 void

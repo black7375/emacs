@@ -1,6 +1,6 @@
 ;;; semantic/fw.el --- Framework for Semantic  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1999-2021  Free Software Foundation, Inc.
+;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -66,8 +66,6 @@
 
 (defalias 'semantic-mode-line-update #'force-mode-line-update)
 
-;; Since Emacs 22 major mode functions should use `run-mode-hooks' to
-;; run major mode hooks.
 (define-obsolete-function-alias 'semantic-run-mode-hooks #'run-mode-hooks "28.1")
 
 ;; Fancy compat usage now handled in cedet-compat
@@ -193,12 +191,20 @@ will throw a warning when it encounters this symbol."
 	     (not (string-match "cedet" (macroexp-file-name)))
 	     )
     (make-obsolete-overload oldfnalias newfn when)
-    (byte-compile-warn
-     "%s: `%s' obsoletes overload `%s'"
-     (macroexp-file-name)
-     newfn
-     (with-suppressed-warnings ((obsolete semantic-overload-symbol-from-function))
-       (semantic-overload-symbol-from-function oldfnalias)))))
+    (if (fboundp 'byte-compile-warn-x)
+        (byte-compile-warn-x
+         newfn
+         "%s: `%s' obsoletes overload `%s'"
+         (macroexp-file-name)
+         newfn
+         (with-suppressed-warnings ((obsolete semantic-overload-symbol-from-function))
+           (semantic-overload-symbol-from-function oldfnalias)))
+      (byte-compile-warn
+       "%s: `%s' obsoletes overload `%s'"
+       (macroexp-file-name)
+       newfn
+       (with-suppressed-warnings ((obsolete semantic-overload-symbol-from-function))
+         (semantic-overload-symbol-from-function oldfnalias))))))
 
 (defun semantic-varalias-obsolete (oldvaralias newvar when)
   "Make OLDVARALIAS an alias for variable NEWVAR.
@@ -211,10 +217,14 @@ will throw a warning when it encounters this symbol."
     (error
      ;; Only throw this warning when byte compiling things.
      (when (macroexp-compiling-p)
-       (byte-compile-warn
-        "variable `%s' obsoletes, but isn't alias of `%s'"
-        newvar oldvaralias)
-     ))))
+       (if (fboundp 'byte-compile-warn-x)
+           (byte-compile-warn-x
+            newvar
+            "variable `%s' obsoletes, but isn't alias of `%s'"
+            newvar oldvaralias)
+         (byte-compile-warn
+          "variable `%s' obsoletes, but isn't alias of `%s'"
+          newvar oldvaralias))))))
 
 ;;; Help debugging
 ;;
@@ -284,7 +294,7 @@ later installation should be done in MODE hook."
 (defvar semantic-current-input-throw-symbol nil
   "The current throw symbol for `semantic-exit-on-input'.")
 (defvar semantic--on-input-start-marker nil
-  "The marker when starting a semantic-exit-on-input form.")
+  "The marker when starting a `semantic-exit-on-input' form.")
 
 (defmacro semantic-exit-on-input (symbol &rest forms)
   "Using SYMBOL as an argument to `throw', execute FORMS.

@@ -1,6 +1,6 @@
 ;;; wid-browse.el --- functions for browsing widgets  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1997, 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1997, 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: Per Abrahamsen <abraham@dina.kvl.dk>
 ;; Keywords: extensions
@@ -218,7 +218,7 @@ Nothing is assumed about value."
 	      (error (prin1-to-string signal)))))
     (when (string-match "\n\\'" pp)
       (setq pp (substring pp 0 (1- (length pp)))))
-    (if (cond ((string-match "\n" pp)
+    (if (cond ((string-search "\n" pp)
 	       nil)
 	      ((> (length pp) (- (window-width) (current-column)))
 	       nil)

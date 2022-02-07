@@ -1,5 +1,5 @@
 /* Common functions for Microsoft Windows builds of Emacs
-   Copyright (C) 2012-2021 Free Software Foundation, Inc.
+   Copyright (C) 2012-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -41,8 +41,8 @@ extern int    	      w32_minor_version;
 extern int    	      w32_build_number;
 
 enum {
-  OS_9X = 1,
-  OS_NT
+  OS_SUBTYPE_9X = 1,
+  OS_SUBTYPE_NT
 };
 
 extern int os_subtype;

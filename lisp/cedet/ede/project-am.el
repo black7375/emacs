@@ -1,6 +1,6 @@
 ;;; project-am.el --- A project management scheme based on automake files.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1998-2000, 2003, 2005, 2007-2021 Free Software
+;; Copyright (C) 1998-2000, 2003, 2005, 2007-2022 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
@@ -130,7 +130,7 @@ other meta-variable based on this name.")
 (defclass project-am-program (project-am-objectcode)
   ((ldadd :initarg :ldadd :documentation "Additional LD args."
 	  :initform nil))
-  "A top level program to build")
+  "A top level program to build.")
 
 (defclass project-am-header (project-am-target)
   ()
@@ -154,7 +154,7 @@ other meta-variable based on this name.")
 
 (defclass project-am-lib (project-am-objectcode)
   nil
-  "A top level library to build")
+  "A top level library to build.")
 
 (defclass project-am-lisp (project-am-target)
   ()
@@ -191,8 +191,9 @@ other meta-variable based on this name.")
   "Encode one makefile.")
 
 ;;; Code:
-(cl-defmethod project-add-file ((ot project-am-target))
+(cl-defmethod project-add-file ((ot project-am-target) &optional _file)
   "Add the current buffer into a project.
+_FILE is ignored.
 OT is the object target.  DIR is the directory to start in."
   (let* ((target (if ede-object (error "Already associated w/ a target")
 		   (let ((amf (project-am-load default-directory)))
@@ -705,7 +706,7 @@ Strip out duplicates, and recurse on variables."
   (oset this source (makefile-macro-file-list (project-am-macro this))))
 
 (cl-defmethod project-rescan ((this project-am-lisp))
-  "Rescan the lisp sources."
+  "Rescan the Lisp sources."
   (oset this source (makefile-macro-file-list (project-am-macro this))))
 
 (cl-defmethod project-rescan ((this project-am-header))

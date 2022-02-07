@@ -1,6 +1,6 @@
 ;;; supercite.el --- minor mode for citing mail and news replies  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993, 1997, 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1993, 1997, 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: 1993 Barry A. Warsaw <bwarsaw@python.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -1128,6 +1128,8 @@ selection but before querying is performed.  During
 auto-selected citation string and the variable `attribution' is bound
 to the auto-selected attribution string."
   (run-hooks 'sc-attribs-preselect-hook)
+  (with-suppressed-warnings ((lexical citation attribution))
+    (defvar citation) (defvar attribution))
   (let ((query-p sc-confirm-always-p)
 	attribution citation
 	(attriblist sc-preferred-attribution-list))
@@ -1297,7 +1299,7 @@ use it instead of `sc-citation-root-regexp'."
 (defvar sc-fill-begin 1
   "Buffer position to begin filling.")
 (defvar sc-fill-line-prefix ""
-  "Fill prefix of previous line")
+  "Fill prefix of previous line.")
 
 ;; filling
 (defun sc-fill-if-different (&optional prefix)
@@ -1765,7 +1767,7 @@ is determined non-interactively.  The value is queried for in the
 minibuffer exactly the same way that `set-variable' does it.
 
 You can see the current value of the variable when the minibuffer is
-querying you by typing `C-h'.  Note that the format is changed
+querying you by typing \\`C-h'.  Note that the format is changed
 slightly from that used by `set-variable' -- the current value is
 printed just after the variable's name instead of at the bottom of the
 help window."

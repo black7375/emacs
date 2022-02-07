@@ -1,6 +1,6 @@
 ;;; semantic/db-ebrowse.el --- Semanticdb backend using ebrowse.  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2005-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2022 Free Software Foundation, Inc.
 
 ;; Authors: Eric M. Ludlam <zappo@gnu.org>
 ;;	Joakim Verona
@@ -79,7 +79,7 @@ be searched."
 ;;; SEMANTIC Database related Code
 ;;; Classes:
 (defclass semanticdb-table-ebrowse (semanticdb-table)
-  ((major-mode :initform c++-mode)
+  ((major-mode :initform #'c++-mode)
    (ebrowse-tree :initform nil
 		 :initarg :ebrowse-tree
 		 :documentation
@@ -95,7 +95,7 @@ This table is composited from the ebrowse *Globals* section.")
 
 (defclass semanticdb-project-database-ebrowse
   (semanticdb-project-database)
-  ((new-table-class :initform semanticdb-table-ebrowse
+  ((new-table-class :initform 'semanticdb-table-ebrowse
 		    :type class
 		    :documentation
 		    "New tables created for this database are of this class.")
@@ -222,7 +222,7 @@ warn instead."
 
 ;JAVE this just instantiates a default empty ebrowse struct?
 ; how would new instances wind up here?
-; the ebrowse class isn't singleton, unlike the emacs lisp one
+; the ebrowse class isn't singleton, unlike the Emacs Lisp one
 (defvar-mode-local c++-mode semanticdb-project-system-databases
   ()
   "Search Ebrowse for symbols.")

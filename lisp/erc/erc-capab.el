@@ -1,10 +1,10 @@
 ;;; erc-capab.el --- support for dancer-ircd and hyperion's CAPAB  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2006-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2022 Free Software Foundation, Inc.
 
-;; Maintainer: Amin Bandali <bandali@gnu.org>
+;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
 
-; This file is part of GNU Emacs.
+;; This file is part of GNU Emacs.
 
 ;; GNU Emacs is free software: you can redistribute it and/or modify
 ;; it under the terms of the GNU General Public License as published by

@@ -1,5 +1,5 @@
 /* Menu support for GNU Emacs on the Microsoft Windows API.
-   Copyright (C) 1986, 1988, 1993-1994, 1996, 1998-1999, 2001-2021 Free
+   Copyright (C) 1986, 1988, 1993-1994, 1996, 1998-1999, 2001-2022 Free
    Software Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -188,7 +188,7 @@ menubar_selection_callback (struct frame *f, void * client_data)
   i = 0;
   while (i < f->menu_bar_items_used)
     {
-      if (EQ (AREF (vector, i), Qnil))
+      if (NILP (AREF (vector, i)))
 	{
 	  subprefix_stack[submenu_depth++] = prefix;
 	  prefix = entry;
@@ -587,7 +587,7 @@ w32_menu_show (struct frame *f, int x, int y, int menuflags,
   i = 0;
   while (i < menu_items_used)
     {
-      if (EQ (AREF (menu_items, i), Qnil))
+      if (NILP (AREF (menu_items, i)))
 	{
 	  submenu_stack[submenu_depth++] = save_wv;
 	  save_wv = prev_wv;
@@ -779,7 +779,7 @@ w32_menu_show (struct frame *f, int x, int y, int menuflags,
       i = 0;
       while (i < menu_items_used)
 	{
-	  if (EQ (AREF (menu_items, i), Qnil))
+	  if (NILP (AREF (menu_items, i)))
 	    {
 	      subprefix_stack[submenu_depth++] = prefix;
 	      prefix = entry;

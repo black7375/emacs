@@ -1,6 +1,6 @@
 ;;; python-tests.el --- Test suite for python.el  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2013-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2022 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -22,6 +22,7 @@
 ;;; Code:
 
 (require 'ert)
+(require 'ert-x)
 (require 'python)
 
 ;; Dependencies for testing:
@@ -48,17 +49,17 @@ BODY is code to be executed within the temp buffer.  Point is
 always located at the beginning of buffer."
   (declare (indent 1) (debug t))
   ;; temp-file never actually used for anything?
-  `(let* ((temp-file (make-temp-file "python-tests" nil ".py"))
-          (buffer (find-file-noselect temp-file))
-          (python-indent-guess-indent-offset nil))
-     (unwind-protect
-         (with-current-buffer buffer
-           (python-mode)
-           (insert ,contents)
-           (goto-char (point-min))
-           ,@body)
-       (and buffer (kill-buffer buffer))
-       (delete-file temp-file))))
+  `(ert-with-temp-file temp-file
+     :suffix "-python.py"
+     (let ((buffer (find-file-noselect temp-file))
+           (python-indent-guess-indent-offset nil))
+       (unwind-protect
+           (with-current-buffer buffer
+             (python-mode)
+             (insert ,contents)
+             (goto-char (point-min))
+             ,@body)
+         (and buffer (kill-buffer buffer))))))
 
 (defun python-tests-look-at (string &optional num restore-point)
   "Move point at beginning of STRING in the current buffer.
@@ -193,7 +194,6 @@ aliqua."
 
 (ert-deftest python-syntax-after-python-backspace ()
   ;; `python-indent-dedent-line-backspace' garbles syntax
-  :expected-result :failed
   (python-tests-with-temp-buffer
       "\"\"\""
     (goto-char (point-max))
@@ -2634,58 +2634,59 @@ if x:
   "Test `python-shell-process-environment' modification."
   (let* ((python-shell-process-environment
           '("TESTVAR1=value1" "TESTVAR2=value2"))
-         (process-environment (python-shell-calculate-process-environment)))
-    (should (equal (getenv "TESTVAR1") "value1"))
-    (should (equal (getenv "TESTVAR2") "value2"))))
+         (env (python-shell--calculate-process-environment)))
+    (should (equal (getenv-internal "TESTVAR1" env) "value1"))
+    (should (equal (getenv-internal "TESTVAR2" env) "value2"))))
 
 (ert-deftest python-shell-calculate-process-environment-2 ()
   "Test `python-shell-extra-pythonpaths' modification."
   (let* ((process-environment process-environment)
          (_original-pythonpath (setenv "PYTHONPATH" "/path0"))
          (python-shell-extra-pythonpaths '("/path1" "/path2"))
-         (process-environment (python-shell-calculate-process-environment)))
-    (should (equal (getenv "PYTHONPATH")
+         (env (python-shell--calculate-process-environment)))
+    (should (equal (getenv-internal "PYTHONPATH" env)
                    (concat "/path1" path-separator
                            "/path2" path-separator "/path0")))))
 
 (ert-deftest python-shell-calculate-process-environment-3 ()
   "Test `python-shell-virtualenv-root' modification."
   (let* ((python-shell-virtualenv-root "/env")
-         (process-environment
+         (env
           (let ((process-environment process-environment))
             (setenv "PYTHONHOME" "/home")
             (setenv "VIRTUAL_ENV")
-            (python-shell-calculate-process-environment))))
-    (should (not (getenv "PYTHONHOME")))
-    (should (string= (getenv "VIRTUAL_ENV") "/env"))))
+            (python-shell--calculate-process-environment))))
+    (should (member "PYTHONHOME" env))
+    (should (string= (getenv-internal "VIRTUAL_ENV" env) "/env"))))
 
 (ert-deftest python-shell-calculate-process-environment-4 ()
   "Test PYTHONUNBUFFERED when `python-shell-unbuffered' is non-nil."
   (let* ((python-shell-unbuffered t)
-         (process-environment
+         (env
           (let ((process-environment process-environment))
             (setenv "PYTHONUNBUFFERED")
-            (python-shell-calculate-process-environment))))
-    (should (string= (getenv "PYTHONUNBUFFERED") "1"))))
+            (python-shell--calculate-process-environment))))
+    (should (string= (getenv-internal "PYTHONUNBUFFERED" env) "1"))))
 
 (ert-deftest python-shell-calculate-process-environment-5 ()
   "Test PYTHONUNBUFFERED when `python-shell-unbuffered' is nil."
   (let* ((python-shell-unbuffered nil)
-         (process-environment
+         (env
           (let ((process-environment process-environment))
             (setenv "PYTHONUNBUFFERED")
-            (python-shell-calculate-process-environment))))
-    (should (not (getenv "PYTHONUNBUFFERED")))))
+            (python-shell--calculate-process-environment))))
+    (should (not (getenv-internal "PYTHONUNBUFFERED" env)))))
 
 (ert-deftest python-shell-calculate-process-environment-6 ()
   "Test PYTHONUNBUFFERED=1 when `python-shell-unbuffered' is nil."
   (let* ((python-shell-unbuffered nil)
-         (process-environment
+         (env
           (let ((process-environment process-environment))
             (setenv "PYTHONUNBUFFERED" "1")
-            (python-shell-calculate-process-environment))))
+            (append (python-shell--calculate-process-environment)
+                    process-environment))))
     ;; User default settings must remain untouched:
-    (should (string= (getenv "PYTHONUNBUFFERED") "1"))))
+    (should (string= (getenv-internal "PYTHONUNBUFFERED" env) "1"))))
 
 (ert-deftest python-shell-calculate-process-environment-7 ()
   "Test no side-effects on `process-environment'."
@@ -2695,7 +2696,7 @@ if x:
          (python-shell-unbuffered t)
          (python-shell-extra-pythonpaths'("/path1" "/path2"))
          (original-process-environment (copy-sequence process-environment)))
-    (python-shell-calculate-process-environment)
+    (python-shell--calculate-process-environment)
     (should (equal process-environment original-process-environment))))
 
 (ert-deftest python-shell-calculate-process-environment-8 ()
@@ -2708,7 +2709,7 @@ if x:
          (python-shell-extra-pythonpaths'("/path1" "/path2"))
          (original-process-environment
           (copy-sequence tramp-remote-process-environment)))
-    (python-shell-calculate-process-environment)
+    (python-shell--calculate-process-environment)
     (should (equal tramp-remote-process-environment original-process-environment))))
 
 (ert-deftest python-shell-calculate-exec-path-1 ()
@@ -2780,23 +2781,43 @@ if x:
       (should (string= (getenv "VIRTUAL_ENV") "/env")))
     (should (equal exec-path original-exec-path))))
 
+(defun python--tests-process-env-canonical (pe)
+  ;; `process-environment' can contain various entries for the same
+  ;; var, and the first in the list hides the others.
+  (let ((process-environment '()))
+    (dolist (x (reverse pe))
+      (if (string-match "=" x)
+          (setenv (substring x 0 (match-beginning 0))
+                  (substring x (match-end 0)))
+        (setenv x nil)))
+    process-environment))
+
+(defun python--tests-process-env-eql (pe1 pe2)
+  (equal (python--tests-process-env-canonical pe1)
+         (python--tests-process-env-canonical pe2)))
+
 (ert-deftest python-shell-with-environment-2 ()
   "Test environment with remote `default-directory'."
   (let* ((default-directory "/ssh::/example/dir/")
          (python-shell-remote-exec-path '("/remote1" "/remote2"))
          (python-shell-exec-path '("/path1" "/path2"))
          (tramp-remote-process-environment '("EMACS=t"))
-         (original-process-environment (copy-sequence tramp-remote-process-environment))
+         (original-process-environment
+          (copy-sequence tramp-remote-process-environment))
          (python-shell-virtualenv-root "/env"))
     (python-shell-with-environment
       (should (equal (python-shell-calculate-exec-path)
                      (list (python-virt-bin)
                            "/path1" "/path2" "/remote1" "/remote2")))
-      (let ((process-environment (python-shell-calculate-process-environment)))
+      (let ((process-environment
+             (append (python-shell--calculate-process-environment)
+                     tramp-remote-process-environment)))
         (should (not (getenv "PYTHONHOME")))
         (should (string= (getenv "VIRTUAL_ENV") "/env"))
-        (should (equal tramp-remote-process-environment process-environment))))
-    (should (equal tramp-remote-process-environment original-process-environment))))
+        (should (python--tests-process-env-eql
+                 tramp-remote-process-environment process-environment))))
+    (should (equal tramp-remote-process-environment
+                   original-process-environment))))
 
 (ert-deftest python-shell-with-environment-3 ()
   "Test `python-shell-with-environment' is idempotent."
@@ -2805,11 +2826,14 @@ if x:
          (python-shell-virtualenv-root "/home/user/env")
          (single-call
           (python-shell-with-environment
-            (list exec-path process-environment)))
+            (list exec-path
+                  (python--tests-process-env-canonical process-environment))))
          (nested-call
           (python-shell-with-environment
             (python-shell-with-environment
-              (list exec-path process-environment)))))
+              (list exec-path
+                    (python--tests-process-env-canonical
+                     process-environment))))))
     (should (equal single-call nested-call))))
 
 (ert-deftest python-shell-make-comint-1 ()
@@ -5283,7 +5307,7 @@ urlpatterns = patterns('',
            (should (= (current-indentation) 23))))
       (or eim (electric-indent-mode -1)))))
 
-(ert-deftest python-triple-quote-pairing ()
+(ert-deftest python-triple-double-quote-pairing ()
   (let ((epm electric-pair-mode))
     (unwind-protect
         (progn
@@ -5308,6 +5332,33 @@ urlpatterns = patterns('',
            (should (= (point) (1- (point-max))))
            (should (string= (buffer-string)
                             "\"\n\"\"\"\n"))))
+      (or epm (electric-pair-mode -1)))))
+
+(ert-deftest python-triple-single-quote-pairing ()
+  (let ((epm electric-pair-mode))
+    (unwind-protect
+        (progn
+          (python-tests-with-temp-buffer
+           "''\n"
+           (or epm (electric-pair-mode 1))
+           (goto-char (1- (point-max)))
+           (python-tests-self-insert ?')
+           (should (string= (buffer-string)
+                            "''''''\n"))
+           (should (= (point) 4)))
+          (python-tests-with-temp-buffer
+           "\n"
+           (python-tests-self-insert (list ?' ?' ?'))
+           (should (string= (buffer-string)
+                            "''''''\n"))
+           (should (= (point) 4)))
+          (python-tests-with-temp-buffer
+           "'\n''\n"
+           (goto-char (1- (point-max)))
+           (python-tests-self-insert ?')
+           (should (= (point) (1- (point-max))))
+           (should (string= (buffer-string)
+                            "'\n'''\n"))))
       (or epm (electric-pair-mode -1)))))
 
 
@@ -5422,15 +5473,45 @@ buffer with overlapping strings."
                     (python-nav-end-of-statement)))
     (should (eolp))))
 
-;; After call `run-python' the buffer running the python process is current.
-(ert-deftest python-tests--bug31398 ()
-  "Test for https://debbugs.gnu.org/31398 ."
+;; Interactively, `run-python' focuses the buffer running the
+;; interpreter.
+(ert-deftest python-tests--run-python-selects-window ()
+  "Test for bug#31398.  See also bug#44421 and bug#52380."
   (skip-unless (executable-find python-tests-shell-interpreter))
-  (let ((buffer (process-buffer (run-python nil nil 'show))))
-    (should (eq buffer (current-buffer)))
+  (let* ((buffer (process-buffer (run-python nil nil 'show)))
+         (window (get-buffer-window buffer)))
+    ;; We look at `selected-window' rather than `current-buffer'
+    ;; because as `(elisp)Current buffer' says, the latter will only
+    ;; be synchronized with the former when returning to the "command
+    ;; loop"; until then, `current-buffer' can change arbitrarily.
+    (should (eq window (selected-window)))
     (pop-to-buffer (other-buffer))
     (run-python nil nil 'show)
-    (should (eq buffer (current-buffer)))))
+    (should (eq window (selected-window)))))
+
+(ert-deftest python-tests--fill-long-first-line ()
+  (should
+   (equal
+    (with-temp-buffer
+      (insert "def asdf():
+    \"\"\"123 123 123 123 123 123 123 123 123 123 123 123 123 SHOULDBEWRAPPED 123 123 123 123
+
+    \"\"\"
+    a = 1
+")
+      (python-mode)
+      (goto-char (point-min))
+      (forward-line 1)
+      (end-of-line)
+      (fill-paragraph)
+      (buffer-substring-no-properties (point-min) (point-max)))
+    "def asdf():
+    \"\"\"123 123 123 123 123 123 123 123 123 123 123 123 123
+    SHOULDBEWRAPPED 123 123 123 123
+
+    \"\"\"
+    a = 1
+")))
 
 (provide 'python-tests)
 

@@ -1,6 +1,6 @@
 ;;; epa.el --- the EasyPG Assistant -*- lexical-binding: t -*-
 
-;; Copyright (C) 2006-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2022 Free Software Foundation, Inc.
 
 ;; Author: Daiki Ueno <ueno@unixuser.org>
 ;; Keywords: PGP, GnuPG
@@ -20,8 +20,9 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
+;;; Commentary:
+
 ;;; Code:
-;;; Dependencies
 
 (require 'epg)
 (eval-when-compile (require 'subr-x))
@@ -30,7 +31,7 @@
 ;;; Options
 
 (defgroup epa nil
-  "The EasyPG Assistant"
+  "The EasyPG Assistant."
   :version "23.1"
   :link '(custom-manual "(epa) Top")
   :group 'epg)
@@ -234,11 +235,6 @@ You should bind this variable with `let', but do not set it globally.")
     (define-key keymap "q" 'epa-exit-buffer)
     keymap))
 
-(defvar epa-info-mode-map
-  (let ((keymap (make-sparse-keymap)))
-    (define-key keymap "q" 'delete-window)
-    keymap))
-
 (defvar epa-exit-buffer-function #'quit-window)
 
 (defun epa--button-key-text (key)
@@ -333,7 +329,10 @@ If ARG is non-nil, mark the key."
     (insert
      (propertize
       (concat "  " (epa--button-key-text key))
-      'epa-key key))
+      'epa-key key
+      ;; Allow TAB to tab to the key.
+      'button t
+      'category t))
     (insert "\n")))
 
 (defun epa--list-keys (name secret &optional doc)
@@ -458,7 +457,7 @@ q  trust status questionable.  -  trust status unspecified.
 ;;;###autoload
 (defun epa-select-keys (context prompt &optional names secret)
   "Display a user's keyring and ask him to select keys.
-CONTEXT is an epg-context.
+CONTEXT is an `epg-context'.
 PROMPT is a string to prompt with.
 NAMES is a list of strings to be matched with keys.  If it is nil, all
 the keys are listed.
@@ -603,7 +602,11 @@ If SECRET is non-nil, list secret keys instead of public keys."
 		       (_ "Error while executing \"%s\":\n\n"))
 		     (epg-context-program context))
 		    "\n\n"
-		    (epg-context-error-output context)))
+		    (epg-context-error-output context)
+                    (if (string-search "Unexpected error"
+                                       (epg-context-error-output context))
+                        "\n(File possibly not an encrypted file, but is perhaps a key ring file?)\n"
+                      "")))
 	  (epa-info-mode)
 	  (goto-char (point-min)))
 	(display-buffer buffer)))))
@@ -644,7 +647,7 @@ If SECRET is non-nil, list secret keys instead of public keys."
   (setq input (file-name-sans-extension (expand-file-name input)))
   (expand-file-name
    (read-file-name
-    (concat "To file (default " (file-name-nondirectory input) ") ")
+    (format-prompt "To file" (file-name-nondirectory input))
     (file-name-directory input)
     input)))
 
@@ -965,8 +968,7 @@ For example:
 
 ;;;###autoload
 (defun epa-verify-cleartext-in-region (start end)
-  "Verify OpenPGP cleartext signed messages in the current region
-between START and END.
+  "Verify OpenPGP cleartext signed messages in current region from START to END.
 
 Don't use this command in Lisp programs!
 See the reason described in the `epa-verify-region' documentation."
@@ -1199,8 +1201,7 @@ If no one is selected, symmetric encryption will be performed.  ")
 
 ;;;###autoload
 (defun epa-import-armor-in-region (start end)
-  "Import keys in the OpenPGP armor format in the current region
-between START and END."
+  "Import keys in the OpenPGP armor format in the current region from START to END."
   (interactive "r")
   (save-excursion
     (save-restriction
@@ -1234,9 +1235,7 @@ between START and END."
      (list keys
 	   (expand-file-name
 	    (read-file-name
-	     (concat "To file (default "
-		     (file-name-nondirectory default-name)
-		     ") ")
+             (format-prompt "To file" (file-name-nondirectory default-name))
 	     (file-name-directory default-name)
 	     default-name)))))
   (let ((context (epg-make-context epa-protocol)))
