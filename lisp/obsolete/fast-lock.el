@@ -1,6 +1,6 @@
 ;;; fast-lock.el --- automagic text properties caching for fast Font Lock mode  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1994-1998, 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1994-1998, 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: Simon Marshall <simon@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -751,8 +751,6 @@ See `fast-lock-get-face-properties'."
 ;;;###dont-autoload
 (unless (assq 'fast-lock-mode minor-mode-alist)
   (setq minor-mode-alist (append minor-mode-alist '((fast-lock-mode nil)))))
-
-;; Provide ourselves:
 
 (provide 'fast-lock)
 

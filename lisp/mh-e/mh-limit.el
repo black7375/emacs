@@ -1,6 +1,6 @@
 ;;; mh-limit.el --- MH-E display limits  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2003, 2006-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2003, 2006-2022 Free Software Foundation, Inc.
 
 ;; Author: Peter S. Galbraith <psg@debian.org>
 ;; Keywords: mail
@@ -24,8 +24,6 @@
 ;;; Commentary:
 
 ;; "Poor man's threading" by psg.
-
-;;; Change Log:
 
 ;;; Code:
 

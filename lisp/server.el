@@ -1,6 +1,6 @@
 ;;; server.el --- Lisp code for GNU Emacs running as server process -*- lexical-binding: t -*-
 
-;; Copyright (C) 1986-1987, 1992, 1994-2021 Free Software Foundation,
+;; Copyright (C) 1986-1987, 1992, 1994-2022 Free Software Foundation,
 ;; Inc.
 
 ;; Author: William Sommerfeld <wesommer@athena.mit.edu>
@@ -413,9 +413,14 @@ If CLIENT is non-nil, add a description of it to the logged message."
   ;; for possible servers before doing anything, so it *should* be ours.
   (and (process-contact proc :server)
        (eq (process-status proc) 'closed)
+       ;; If this variable is non-nil, the socket was passed in to
+       ;; Emacs, and not created by Emacs itself (for instance,
+       ;; created by systemd).  In that case, don't delete the socket.
+       (not internal--daemon-sockname)
        (ignore-errors
 	 (delete-file (process-get proc :server-file))))
-  (server-log (format "Status changed to %s: %s" (process-status proc) msg) proc)
+  (server-log (format "Status changed to %s: %s"
+                      (process-status proc) msg) proc)
   (server-delete-client proc))
 
 (defun server--on-display-p (frame display)
@@ -876,7 +881,7 @@ This handles splitting the command if it would be bigger than
 						  &optional parameters)
   (let* ((display (or display
                       (frame-parameter nil 'display)
-                      (error "Please specify display.")))
+                      (error "Please specify display")))
          (w (or (cdr (assq 'window-system parameters))
                 (window-system-for-display display))))
 
@@ -1076,7 +1081,7 @@ The following commands are accepted by the client:
 
 `-suspend'
   Suspend this terminal, i.e., stop the client process.
-  Sent when the user presses C-z."
+  Sent when the user presses \\[suspend-frame]."
   (server-log (concat "Received " string) proc)
   ;; First things first: let's check the authentication
   (unless (process-get proc :authenticated)
@@ -1307,7 +1312,17 @@ The following commands are accepted by the client:
 						       frame-parameters))
 		   ;; When resuming on a tty, tty-name is nil.
 		   (tty-name
-		    (server-create-tty-frame tty-name tty-type proc))))
+		    (server-create-tty-frame tty-name tty-type proc))
+
+                   ;; If there won't be a current frame to use, fall
+                   ;; back to trying to create a new one.
+		   ((and use-current-frame
+			 (daemonp)
+			 (null (cdr (frame-list)))
+			 (eq (selected-frame) terminal-frame)
+			 display)
+		    (setq tty-name nil tty-type nil)
+		    (server-select-display display))))
 
             (process-put
              proc 'continuation
@@ -1602,7 +1617,9 @@ prevent a backup for it.)  The variable `server-temp-file-regexp' controls
 which filenames are considered temporary.
 
 If invoked with a prefix argument, or if there is no server process running,
-starts server process and that is all.  Invoked by \\[server-edit]."
+starts server process and that is all.  Invoked by \\[server-edit].
+
+To abort an edit instead of saying \"Done\", use \\[server-edit-abort]."
   (interactive "P")
   (cond
    ((or arg
@@ -1611,6 +1628,17 @@ starts server process and that is all.  Invoked by \\[server-edit]."
     (server-mode 1))
    (server-clients (apply #'server-switch-buffer (server-done)))
    (t (message "No server editing buffers exist"))))
+
+(defun server-edit-abort ()
+  "Abort editing the current client buffer."
+  (interactive)
+  (if server-clients
+      (mapc (lambda (proc)
+              (server-send-string
+               proc (concat "-error "
+                            (server-quote-arg "Aborted by the user"))))
+            server-clients)
+    (message "This buffer has no clients")))
 
 (defun server-switch-buffer (&optional next-buffer killed-one filepos
                                        this-frame-only)

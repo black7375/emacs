@@ -7,7 +7,7 @@
 @c %**end of header
 
 @copying
-Copyright @copyright{} 1991--2021 Free Software Foundation, Inc.
+Copyright @copyright{} 1991--2022 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -839,7 +839,7 @@ files.
 @item f
 Find the file that the cursor points to (@code{cvs-mode-find-file}).  If
 the cursor points to a directory, run @code{dired} on that directory;
-@inforef{Dired, , emacs}.
+@pxref{Dired, Emacs Manual, , emacs}.
 
 @item o
 Like @kbd{f}, but use another window

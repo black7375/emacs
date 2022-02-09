@@ -1,6 +1,6 @@
 ;;; meta-mode.el --- major mode for editing Metafont or MetaPost sources -*- lexical-binding:t -*-
 
-;; Copyright (C) 1997, 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1997, 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: Ulrik Vieth <vieth@thphy.uni-duesseldorf.de>
 ;; Version: 1.0
@@ -941,9 +941,6 @@ The environment marked is the one that contains point or follows point."
   (setq-local meta-complete-list
               (list (list "\\<\\(\\sw+\\)" 1 'meta-symbol-list)
                     (list "" 'ispell-complete-word))))
-
-
-;;; Just in case ...
 
 (provide 'meta-mode)
 (run-hooks 'meta-mode-load-hook)

@@ -1,6 +1,6 @@
 ;;; gnus-kill.el --- kill commands for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1995-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1995-2022 Free Software Foundation, Inc.
 
 ;; Author: Masanobu UMEDA <umerin@flab.flab.fujitsu.junet>
 ;;	Lars Magne Ingebrigtsen <larsi@gnus.org>
@@ -435,7 +435,7 @@ Returns the number of articles marked as read."
 	;; The "f:+" command marks everything *but* the matches as read,
 	;; so we simply first match everything as read, and then unmark
 	;; PATTERN later.
-	(when (string-match "\\+" commands)
+	(when (string-search "+" commands)
 	  (gnus-kill "from" ".")
 	  (setq commands "m"))
 

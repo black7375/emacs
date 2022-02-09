@@ -1,6 +1,6 @@
 ;;; image-mode.el --- support for visiting image files  -*- lexical-binding: t -*-
 ;;
-;; Copyright (C) 2005-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2005-2022 Free Software Foundation, Inc.
 ;;
 ;; Author: Richard Stallman <rms@gnu.org>
 ;; Keywords: multimedia
@@ -843,16 +843,6 @@ was inserted."
 		      (- (nth 2 edges) (nth 0 edges))))
 	 (max-height (when edges
 		       (- (nth 3 edges) (nth 1 edges))))
-	 (type (if (featurep 'mac)
-                   (let ((image-type (image-type file-or-data nil data-p)))
-                     (if (and (image--imagemagick-wanted-p filename)
-                              (memq (intern (upcase (symbol-name image-type)))
-                                    (imagemagick-types)))
-                         'imagemagick
-                       image-type))
-	         (if (image--imagemagick-wanted-p filename)
-		     'imagemagick
-		   (image-type file-or-data nil data-p))))
 	 (inhibit-read-only t)
 	 (buffer-undo-list t)
 	 (modified (buffer-modified-p))
@@ -865,9 +855,16 @@ was inserted."
     (when (and data-p filename)
       (setq data-p (intern (format "image/%s"
                                    (file-name-extension filename)))))
-    (setq type (if (image--imagemagick-wanted-p filename)
-		   'imagemagick
-		 (image-type file-or-data nil data-p)))
+    (setq type (if (featurep 'mac)
+                   (let ((image-type (image-type file-or-data nil data-p)))
+                     (if (and (image--imagemagick-wanted-p filename)
+                              (memq (intern (upcase (symbol-name image-type)))
+                                    (imagemagick-types)))
+                         'imagemagick
+                       image-type))
+                 (if (image--imagemagick-wanted-p filename)
+                     'imagemagick
+                   (image-type file-or-data nil data-p))))
 
     ;; Get the rotation data from the file, if any.
     (when (zerop image-transform-rotation) ; don't reset modified value
@@ -1251,7 +1248,7 @@ will have the line where the image appears (if any) marked.
 If no such buffer exists, it will be opened."
   (interactive)
   (unless buffer-file-name
-    (error "The current buffer doesn't visit a file."))
+    (error "Current buffer is not visiting a file"))
   (image-mode--mark-file buffer-file-name #'dired-mark "marked"))
 
 (defun image-mode-unmark-file ()
@@ -1263,7 +1260,7 @@ any).
 If no such buffer exists, it will be opened."
   (interactive)
   (unless buffer-file-name
-    (error "The current buffer doesn't visit a file."))
+    (error "Current buffer is not visiting a file"))
   (image-mode--mark-file buffer-file-name #'dired-unmark "unmarked"))
 
 (declare-function dired-mark "dired" (arg &optional interactive))

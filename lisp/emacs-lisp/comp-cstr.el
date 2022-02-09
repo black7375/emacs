@@ -1,9 +1,8 @@
 ;;; comp-cstr.el --- native compiler constraint library -*- lexical-binding: t -*-
 
+;; Copyright (C) 2020-2022 Free Software Foundation, Inc.
+
 ;; Author: Andrea Corallo <akrl@sdf.com>
-
-;; Copyright (C) 2020-2021 Free Software Foundation, Inc.
-
 ;; Keywords: lisp
 ;; Package: emacs
 
@@ -135,7 +134,7 @@ Integer values are handled in the `range' slot.")
                     :neg (neg cstr))))
 
 (defsubst comp-cstr-empty-p (cstr)
-  "Return t if CSTR is equivalent to the `nil' type specifier or nil otherwise."
+  "Return t if CSTR is equivalent to the nil type specifier or nil otherwise."
   (with-comp-cstr-accessors
     (and (null (typeset cstr))
          (null (valset cstr))
@@ -153,7 +152,7 @@ Integer values are handled in the `range' slot.")
 (defun comp-cstrs-homogeneous (cstrs)
   "Check if constraints CSTRS are all homogeneously negated or non-negated.
 Return `pos' if they are all positive, `neg' if they are all
-negated or nil othewise."
+negated or nil otherwise."
   (cl-loop
    for cstr in cstrs
    unless (comp-cstr-neg cstr)
@@ -176,6 +175,10 @@ Return them as multiple value."
      collect cstr into positives
    finally return (cl-values positives negatives)))
 
+;; So we can load comp-cstr.el and comp.el in non native compiled
+;; builds.
+(defvar comp-ctxt nil)
+
 (defvar comp-cstr-one (comp-value-to-cstr 1)
   "Represent the integer immediate one.")
 
@@ -187,13 +190,18 @@ Return them as multiple value."
 
 (defun comp-normalize-valset (valset)
   "Sort and remove duplicates from VALSET then return it."
-  (cl-remove-duplicates
-   (cl-sort valset (lambda (x y)
-                     ;; We might want to use `sxhash-eql' for speed but
-                     ;; this is safer to keep tests stable.
-                     (< (sxhash-equal x)
-			(sxhash-equal y))))
-   :test #'eq))
+  (cl-sort (cl-remove-duplicates valset :test #'eq)
+           (lambda (x y)
+             (cond
+              ((and (symbolp x) (symbolp y))
+               (string< x y))
+              ((and (symbolp x) (not (symbolp y)))
+               t)
+              ((and (not (symbolp x)) (symbolp y))
+               nil)
+              (t
+               (< (sxhash-equal x)
+                  (sxhash-equal y)))))))
 
 (defun comp-union-valsets (&rest valsets)
   "Union values present into VALSETS."
@@ -787,7 +795,9 @@ Non memoized version of `comp-cstr-intersection-no-mem'."
 
             (setf (range pos)
                   (comp-range-intersection (range pos)
-                                           (comp-range-negation (range neg))))
+                                           (comp-range-negation (range neg)))
+                  (valset pos)
+                  (cl-set-difference (valset pos) (valset neg)))
 
             ;; Return a non negated form.
             (setf (typeset dst) (typeset pos)

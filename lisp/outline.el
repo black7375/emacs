@@ -1,6 +1,6 @@
 ;;; outline.el --- outline mode commands for Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1986, 1993-1995, 1997, 2000-2021 Free Software
+;; Copyright (C) 1986, 1993-1995, 1997, 2000-2022 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -175,24 +175,45 @@ in the file it applies to.")
 				   outline-mode-menu-bar-map))))))
     map))
 
-(defvar outline-mode-cycle-map
+(defcustom outline-minor-mode-cycle-filter nil
+  "Filter out positions on the heading available for cycling."
+  :type '(choice (const :tag "Everywhere" nil)
+                 (const :tag "At line beginning" bolp)
+                 (const :tag "Not at line beginning"
+                        (lambda () (not (bolp))))
+                 (const :tag "At line end" eolp)
+                 (function :tag "Custom filter"))
+  :version "28.1")
+
+(defun outline-minor-mode-cycle--bind (map key binding &optional filter)
+  (define-key map key
+    `(menu-item
+      "" ,binding
+      ;; Filter out specific positions on the heading.
+      :filter
+      ,(or filter
+           (lambda (cmd)
+             (when (or (not (functionp outline-minor-mode-cycle-filter))
+                       (funcall outline-minor-mode-cycle-filter))
+               cmd))))))
+
+(defvar outline-minor-mode-cycle-map
   (let ((map (make-sparse-keymap)))
-    (let ((tab-binding `(menu-item
-                         "" outline-cycle
-                         ;; Only takes effect if point is on a heading.
-                         :filter ,(lambda (cmd)
-                                    (when (outline-on-heading-p) cmd)))))
-      (define-key map [tab]       tab-binding)
-      (define-key map (kbd "TAB") tab-binding)
-      (define-key map (kbd "<backtab>") #'outline-cycle-buffer))
+    (outline-minor-mode-cycle--bind map (kbd "TAB") #'outline-cycle)
+    (outline-minor-mode-cycle--bind map (kbd "<backtab>") #'outline-cycle-buffer)
     map)
-  "Keymap used by `outline-mode-map' and `outline-minor-mode-cycle'.")
+  "Keymap used by `outline-minor-mode-cycle'.")
 
 (defvar outline-mode-map
   (let ((map (make-sparse-keymap)))
-    (set-keymap-parent map outline-mode-cycle-map)
     (define-key map "\C-c" outline-mode-prefix-map)
     (define-key map [menu-bar] outline-mode-menu-bar-map)
+    ;; Only takes effect if point is on a heading.
+    (define-key map (kbd "TAB")
+      `(menu-item "" outline-cycle
+                  :filter ,(lambda (cmd)
+                             (when (outline-on-heading-p) cmd))))
+    (define-key map (kbd "<backtab>") #'outline-cycle-buffer)
     map))
 
 (defvar outline-font-lock-keywords
@@ -203,9 +224,11 @@ in the file it applies to.")
                          (if outline-minor-mode-cycle
                              (if outline-minor-mode-highlight
                                  (list 'face (outline-font-lock-face)
-                                       'keymap outline-mode-cycle-map)
+                                       'keymap outline-minor-mode-cycle-map)
                                (list 'face nil
-                                     'keymap outline-mode-cycle-map)))
+                                     'keymap outline-minor-mode-cycle-map))
+                           (if outline-minor-mode-highlight
+                               (list 'face (outline-font-lock-face))))
                        (outline-font-lock-face))
                   (when outline-minor-mode
                     (pcase outline-minor-mode-highlight
@@ -349,7 +372,7 @@ faces to major mode's faces."
                  (const :tag "Append outline faces to major mode faces" append)
                  (const :tag "Highlight separately from major mode faces" t))
   :version "28.1")
-;;;###autoload(put 'outline-minor-mode-highlight 'safe-local-variable 'booleanp)
+;;;###autoload(put 'outline-minor-mode-highlight 'safe-local-variable 'symbolp)
 
 (defun outline-minor-mode-highlight-buffer ()
   ;; Fallback to overlays when font-lock is unsupported.
@@ -366,7 +389,7 @@ faces to major mode's faces."
                          (not (get-text-property (point) 'face))))
             (overlay-put overlay 'face (outline-font-lock-face)))
           (when outline-minor-mode-cycle
-            (overlay-put overlay 'keymap outline-mode-cycle-map)))
+            (overlay-put overlay 'keymap outline-minor-mode-cycle-map)))
         (goto-char (match-end 0))))))
 
 ;;;###autoload
@@ -1273,6 +1296,45 @@ Return either 'hide-all, 'headings-only, or 'show-all."
       (outline-show-all)
       (setq outline--cycle-buffer-state 'show-all)
       (message "Show all")))))
+
+(defvar outline-navigation-repeat-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-b") #'outline-backward-same-level)
+    (define-key map (kbd "b") #'outline-backward-same-level)
+    (define-key map (kbd "C-f") #'outline-forward-same-level)
+    (define-key map (kbd "f") #'outline-forward-same-level)
+    (define-key map (kbd "C-n") #'outline-next-visible-heading)
+    (define-key map (kbd "n") #'outline-next-visible-heading)
+    (define-key map (kbd "C-p") #'outline-previous-visible-heading)
+    (define-key map (kbd "p") #'outline-previous-visible-heading)
+    (define-key map (kbd "C-u") #'outline-up-heading)
+    (define-key map (kbd "u") #'outline-up-heading)
+    map))
+
+(dolist (command '(outline-backward-same-level
+                   outline-forward-same-level
+                   outline-next-visible-heading
+                   outline-previous-visible-heading
+                   outline-up-heading))
+  (put command 'repeat-map 'outline-navigation-repeat-map))
+
+(defvar outline-editing-repeat-map
+  (let ((map (make-sparse-keymap)))
+    (define-key map (kbd "C-v") #'outline-move-subtree-down)
+    (define-key map (kbd "v") #'outline-move-subtree-down)
+    (define-key map (kbd "C-^") #'outline-move-subtree-up)
+    (define-key map (kbd "^") #'outline-move-subtree-up)
+    (define-key map (kbd "C->") #'outline-demote)
+    (define-key map (kbd ">") #'outline-demote)
+    (define-key map (kbd "C-<") #'outline-promote)
+    (define-key map (kbd "<") #'outline-promote)
+    map))
+
+(dolist (command '(outline-move-subtree-down
+                   outline-move-subtree-up
+                   outline-demote
+                   outline-promote))
+  (put command 'repeat-map 'outline-editing-repeat-map))
 
 (provide 'outline)
 (provide 'noutline)

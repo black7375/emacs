@@ -1,6 +1,6 @@
 ;;; rmail.el --- main code of "RMAIL" mail reader for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1988, 1993-1998, 2000-2021 Free Software
+;; Copyright (C) 1985-1988, 1993-1998, 2000-2022 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -207,8 +207,7 @@ or `-k' to enable Kerberos authentication."
 
 (defvar rmail-remote-password-error "invalid usercode or password\\|
 unknown user name or bad password\\|Authentication failed\\|MU_ERR_AUTH_FAILURE"
-  "Regular expression matching incorrect-password POP or IMAP server error
-messages.
+  "Regexp matching incorrect-password POP or IMAP server error messages.
 If you get an incorrect-password error that this expression does not match,
 please report it with \\[report-emacs-bug].")
 
@@ -1960,7 +1959,7 @@ Value is the size of the newly read mail after conversion."
 			    (file-name-nondirectory
 			     (if (memq system-type '(windows-nt cygwin ms-dos))
 				 ;; cannot have colons in file name
-				 (replace-regexp-in-string ":" "-" file)
+				 (string-replace ":" "-" file)
 			       file)))
 		    ;; Use the directory of this rmail file
 		    ;; because it's a nuisance to use the homedir
@@ -3357,6 +3356,11 @@ removing prefixes such as Re:, Fwd: and so on and mailing list
 tags such as [tag]."
   (let ((subject (or (rmail-get-header "Subject" msgnum) ""))
 	(regexp "\\`[ \t\n]*\\(\\(\\w\\{1,4\\}\u00a0*[:：]\\|\\[[^]]+]\\)[ \t\n]+\\)*"))
+    ;; Corporate mailing systems sometimes add `[External] :'; if that happened,
+    ;; delete everything up thru there.  Empirically, that deletion makes
+    ;; the Subject match the other messages in the thread.
+    (if (string-match "\\[external][ \t\n]*:" subject)
+        (setq subject (substring subject (match-end 0))))
     (setq subject (rfc2047-decode-string subject))
     (setq subject (replace-regexp-in-string regexp "" subject))
     (replace-regexp-in-string "[ \t\n]+" " " subject)))
@@ -3369,7 +3373,7 @@ The idea is to match it against simplified subjects of other messages."
     ;; Hide commas so it will work ok if parsed as a comma-separated list
     ;; of regexps.
     (setq subject
-	  (replace-regexp-in-string "," "\054" subject t t))
+	  (string-replace "," "\054" subject))
     (concat "\\`" subject "\\'")))
 
 (defun rmail-next-same-subject (n)
@@ -3762,32 +3766,61 @@ use \\[mail-yank-original] to yank the original message into it."
     (rmail-apply-in-message
      rmail-current-message
      (lambda ()
-       (search-forward "\n\n" nil 'move)
-       (narrow-to-region (point-min) (point))
-       (setq from (mail-fetch-field "from")
-	     reply-to (or (mail-fetch-field "mail-reply-to" nil t)
-			  (mail-fetch-field "reply-to" nil t)
-			  from)
-	     subject (mail-fetch-field "subject")
-	     date (mail-fetch-field "date")
-	     message-id (mail-fetch-field "message-id")
-	     references (mail-fetch-field "references" nil nil t)
-	     ;; Bug#512.  It's inappropriate to reply to these addresses.
-	     ;;resent-reply-to (mail-fetch-field "resent-reply-to" nil t)
-	     ;;resent-cc (and (not just-sender)
-	     ;;   	    (mail-fetch-field "resent-cc" nil t))
-	     ;;resent-to (or (mail-fetch-field "resent-to" nil t) "")
-	     ;;resent-subject (mail-fetch-field "resent-subject")
-	     ;;resent-date (mail-fetch-field "resent-date")
-	     ;;resent-message-id (mail-fetch-field "resent-message-id")
-	     )
-       (unless just-sender
-	 (if (mail-fetch-field "mail-followup-to" nil t)
-	     ;; If this header field is present, use it instead of the
-	     ;; To and Cc fields.
-	     (setq to (mail-fetch-field "mail-followup-to" nil t))
-	   (setq cc (or (mail-fetch-field "cc" nil t) "")
-		 to (or (mail-fetch-field "to" nil t) ""))))))
+       (let ((end (point-max))
+             subheader)
+         ;; Find the message's real header.
+         (search-forward "\n\n" nil 'move)
+         (narrow-to-region (point-min) (point))
+
+         (goto-char (point-min))
+
+         ;; If this is an encrypted message, search for other header fields
+         ;; inside the encrypted part, and use them instead of the real header.
+
+         ;; First, find a From: field after a plausible section start.
+         (when (and (search-forward "\nContent-Type: multipart/encrypted;\n" nil t)
+                    (save-restriction
+                      (narrow-to-region (point-min) end)
+                      (and (search-forward "\nFrom: " nil t)
+                           (setq subheader (point)))))
+           ;; We found one, so widen up to end of message and go there.
+           (narrow-to-region (point-min) end)
+           (goto-char subheader)
+
+           ;; Find the start of the inner header.
+           (search-backward "\n--")
+           (forward-line 2)
+
+           ;; Find the end of it.
+           (let ((subheader-start (point)))
+             (goto-char subheader)
+             (search-forward "\n\n" nil 'move)
+             (narrow-to-region subheader-start (point))))
+
+         (setq from (mail-fetch-field "from")
+               reply-to (or (mail-fetch-field "mail-reply-to" nil t)
+                            (mail-fetch-field "reply-to" nil t)
+                            from)
+               subject (mail-fetch-field "subject")
+               date (mail-fetch-field "date")
+               message-id (mail-fetch-field "message-id")
+               references (mail-fetch-field "references" nil nil t)
+               ;; Bug#512.  It's inappropriate to reply to these addresses.
+               ;;resent-reply-to (mail-fetch-field "resent-reply-to" nil t)
+               ;;resent-cc (and (not just-sender)
+               ;;   	    (mail-fetch-field "resent-cc" nil t))
+               ;;resent-to (or (mail-fetch-field "resent-to" nil t) "")
+               ;;resent-subject (mail-fetch-field "resent-subject")
+               ;;resent-date (mail-fetch-field "resent-date")
+               ;;resent-message-id (mail-fetch-field "resent-message-id")
+               )
+         (unless just-sender
+           (if (mail-fetch-field "mail-followup-to" nil t)
+               ;; If this header field is present, use it instead of the
+               ;; To and Cc fields.
+               (setq to (mail-fetch-field "mail-followup-to" nil t))
+             (setq cc (or (mail-fetch-field "cc" nil t) "")
+                   to (or (mail-fetch-field "to" nil t) "")))))))
     ;; Merge the resent-to and resent-cc into the to and cc.
     ;; Bug#512.  It's inappropriate to reply to these addresses.
     ;;(if (and resent-to (not (equal resent-to "")))
@@ -4449,7 +4482,7 @@ TEXT and INDENT are not used."
 
 (defun rmail-get-remote-password (imap user host)
   "Get the password for retrieving mail from a POP or IMAP server.
-If none has been set, the password is found via auth-source. If
+If none has been set, the password is found via auth-source.  If
 you use ~/.authinfo as your auth-source backend, then put
 something like the following in that file:
 
@@ -4585,8 +4618,9 @@ Argument MIME is non-nil if this is a mime message."
   ;; change it in one of the calls to `epa-decrypt-region'.
 
   (save-excursion
-    (let (decrypts (mime (rmail-mime-message-p))
-                   mime-disabled)
+    (let (decrypts
+          (mime (and (eq major-mode 'rmail-mode) (rmail-mime-message-p)))
+          mime-disabled)
       (goto-char (point-min))
 
       ;; Turn off mime processing.

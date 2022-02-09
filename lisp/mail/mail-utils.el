@@ -1,6 +1,6 @@
 ;;; mail-utils.el --- utility functions used both by rmail and rnews  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985, 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1985, 2001-2022 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: mail, news
@@ -252,7 +252,7 @@ comma-separated list, and return the pruned list."
       (setq cur-pos (string-match "[,\"]" destinations cur-pos))
       (if (and cur-pos (equal (match-string 0 destinations) "\""))
 	  ;; Search for matching quote.
-	  (let ((next-pos (string-match "\"" destinations (1+ cur-pos))))
+	  (let ((next-pos (string-search "\"" destinations (1+ cur-pos))))
 	    (if next-pos
 		(setq cur-pos (1+ next-pos))
 	      ;; If the open-quote has no close-quote,

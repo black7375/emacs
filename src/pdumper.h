@@ -1,6 +1,6 @@
 /* Header file for the portable dumper.
 
-Copyright (C) 2016, 2018-2021 Free Software Foundation, Inc.
+Copyright (C) 2016, 2018-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -140,8 +140,7 @@ enum pdumper_load_result
     PDUMPER_LOAD_ERROR /* Must be last, as errno may be added.  */
   };
 
-int pdumper_load (const char *dump_filename, char *argv0,
-		  char const *original_pwd);
+int pdumper_load (const char *dump_filename, char *argv0);
 
 struct pdumper_loaded_dump
 {

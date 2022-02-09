@@ -1,6 +1,6 @@
 ;;; mule-cmds.el --- commands for multilingual environment  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1997-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2022 Free Software Foundation, Inc.
 ;; Copyright (C) 1995, 1996, 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004,
 ;;   2005, 2006, 2007, 2008, 2009, 2010, 2011
 ;;   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -662,6 +662,26 @@ overrides that argument.")
                   (delq 'no-conversion (copy-sequence codings))))
       codings))
 
+(defun select-safe-coding-system--format-list (list)
+  (let ((spec1 "  %-20s %6s  %-10s %s\n")
+        (spec2 "  %-20s %6s  #x%-8X %c\n")
+        (nmax 5))
+    (insert (format spec1 "Coding System" "Pos" "Codepoint" "Char"))
+    (cl-loop for (coding . pairs) in list
+             do (cl-loop for pair in pairs
+                         ;; If there's a lot, only do the first five.
+                         for i from 1 upto nmax
+                         do (insert
+                             (format spec2
+                                     (if (= i 1) coding "")
+                                     (car pair)
+                                     (cdr pair)
+                                     (cdr pair))))
+             (if (> (length pairs) nmax)
+                 (insert (format spec1 "" "..." "" "")))))
+
+  (insert "\n"))
+
 (defun select-safe-coding-system-interactively (from to codings unsafe
 						&optional rejected default)
   "Select interactively a coding system for the region FROM ... TO.
@@ -720,21 +740,18 @@ DEFAULT is the coding system to use by default in the query."
 		 (concat " \"" (if (> (length from) 10)
 				   (concat (substring from 0 10) "...\"")
 				 (concat from "\"")))
-	       (format-message " text\nin the buffer `%s'" bufname))
+	       (format-message
+                " the following\nproblematic characters in the buffer `%s'"
+                bufname))
 	     ":\n")
-	    (let ((pos (point))
-		  (fill-prefix "  "))
-	      (dolist (x (append rejected unsafe))
-		(princ "  ") (princ x))
-	      (insert "\n")
-	      (fill-region-as-paragraph pos (point)))
+            (select-safe-coding-system--format-list unsafe)
 	    (when rejected
 	      (insert "These safely encode the text in the buffer,
 but are not recommended for encoding text in this context,
 e.g., for sending an email message.\n ")
-	      (dolist (x rejected)
-		(princ " ") (princ x))
-	      (insert "\n"))
+              (dolist (x rejected)
+                (princ " ") (princ x))
+              (insert "\n"))
 	    (when unsafe
 	      (insert (if rejected "The other coding systems"
 			"However, each of them")
@@ -1856,7 +1873,7 @@ The default status is as follows:
   (set-default-coding-systems nil)
   (setq default-sendmail-coding-system 'utf-8)
   (setq default-file-name-coding-system (if (memq system-type
-                                                  '(window-nt ms-dos))
+                                                  '(windows-nt ms-dos))
                                             'iso-latin-1-unix
                                           'utf-8-unix))
   ;; Preserve eol-type from existing default-process-coding-systems.
@@ -1875,9 +1892,9 @@ The default status is as follows:
 	 (condition-case nil
 	     (coding-system-change-text-conversion
 	      (cdr default-process-coding-system)
-	      (if (memq system-type '(window-nt ms-dos)) 'iso-latin-1 'utf-8))
+	      (if (memq system-type '(windows-nt ms-dos)) 'iso-latin-1 'utf-8))
 	   (coding-system-error
-	    (if (memq system-type '(window-nt ms-dos)) 'iso-latin-1 'utf-8)))))
+	    (if (memq system-type '(windows-nt ms-dos)) 'iso-latin-1 'utf-8)))))
     (setq default-process-coding-system
 	  (cons output-coding input-coding)))
 
@@ -2166,7 +2183,7 @@ See `set-language-info-alist' for use in programs."
 	    (let ((str (eval (get-language-info language-name 'sample-text))))
 	      (if (stringp str)
 		  (insert "Sample text:\n  "
-			  (replace-regexp-in-string "\n" "\n  " str)
+			  (string-replace "\n" "\n  " str)
 			  "\n\n")))
 	  (error nil))
 	(let ((input-method (get-language-info language-name 'input-method))
@@ -2610,6 +2627,31 @@ is returned.  Thus, for instance, if charset \"ISO8859-2\",
 (declare-function w32-get-console-codepage "w32proc.c" ())
 (declare-function w32-get-console-output-codepage "w32proc.c" ())
 
+(defun get-locale-names ()
+  "Return a list of locale names."
+  (cond
+   ;; On Windows we have a built-in method to get the names.
+   ((and (fboundp 'w32-get-locale-info)
+         (fboundp 'w32-get-valid-locale-ids))
+    (delete-dups (mapcar #'w32-get-locale-info (w32-get-valid-locale-ids))))
+   ;; Unix-ey hosts should have a command to output locales currently
+   ;; defined by the OS.
+   ((executable-find "locale")
+    (split-string (shell-command-to-string "locale -a")))
+   ;; Fall back on the list of all defined locales.
+   ((and locale-translation-file-name
+         (file-exists-p locale-translation-file-name))
+    (with-temp-buffer
+      (insert-file-contents locale-translation-file-name)
+      (let ((locales nil))
+        (while (not (eobp))
+          (unless (looking-at-p "#")
+            (push (cadr (split-string (buffer-substring
+                                       (point) (line-end-position))))
+                  locales))
+          (forward-line 1))
+        (nreverse locales))))))
+
 (defun locale-translate (locale)
   "Expand LOCALE according to `locale-translation-file-name', if possible.
 For example, translate \"swedish\" into \"sv_SE.ISO8859-1\"."
@@ -2650,8 +2692,8 @@ touch session-global parameters like the language environment.
 
 See also `locale-charset-language-names', `locale-language-names',
 `locale-preferred-coding-systems' and `locale-coding-system'."
-  (interactive "sSet environment for locale: ")
-
+  (interactive (list (completing-read "Set environment for locale: "
+                                      (get-locale-names))))
   ;; Do this at runtime for the sake of binaries possibly transported
   ;; to a system without X.
   (setq locale-translation-file-name
@@ -2906,8 +2948,14 @@ See also the documentation of `get-char-code-property' and
     (or (stringp table)
 	(error "Not a char-table nor a file name: %s" table)))
   (if (stringp table) (setq table (purecopy table)))
-  (setf (alist-get name char-code-property-alist) table)
-  (put name 'char-code-property-documentation (purecopy docstring)))
+  (if (and (stringp table)
+           (char-table-p (alist-get name char-code-property-alist)))
+      ;; The table is already setup and we're apparently trying to
+      ;; undo that, probably because `charprop.el' is being re-loaded.
+      ;; Just skip it, in order to work around a recursive load (bug#52945).
+      nil
+    (setf (alist-get name char-code-property-alist) table)
+    (put name 'char-code-property-documentation (purecopy docstring))))
 
 (defvar char-code-property-table
   (make-char-table 'char-code-property-table)
@@ -2975,18 +3023,22 @@ STR should be a unibyte string."
    str " "))
 
 (defun encode-coding-char (char coding-system &optional charset)
-  "Encode CHAR by CODING-SYSTEM and return the resulting string.
+  "Encode CHAR by CODING-SYSTEM and return the resulting string of bytes.
 If CODING-SYSTEM can't safely encode CHAR, return nil.
 The 3rd optional argument CHARSET, if non-nil, is a charset preferred
 on encoding."
   (let* ((str1 (string char))
 	 (str2 (string char char))
 	 (found (find-coding-systems-string str1))
-	enc1 enc2 i1 i2)
-    (if (eq (car-safe found) 'undecided) ;Aka (not (multibyte-string-p str1))
-        ;; `char' is ASCII.
+         (bom-p (coding-system-get coding-system :bom))
+	 enc1 enc2 i0 i1 i2)
+    ;; If CHAR is ASCII and CODING-SYSTEM doesn't prepend a BOM, just
+    ;; encode CHAR.
+    (if (and (eq (car-safe found) 'undecided)
+             (null bom-p))
 	(encode-coding-string str1 coding-system)
-      (when (memq (coding-system-base coding-system) found)
+      (when (or (eq (car-safe found) 'undecided)
+                (memq (coding-system-base coding-system) found))
 	;; We must find the encoded string of CHAR.  But, just encoding
 	;; CHAR will put extra control sequences (usually to designate
 	;; ASCII charset) at the tail if type of CODING is ISO 2022.
@@ -3007,7 +3059,19 @@ on encoding."
 	;; Now (substring enc1 i1) and (substring enc2 i2) are the same,
 	;; and they are the extra control sequences at the tail to
 	;; exclude.
-	(substring enc2 0 i2)))))
+
+        ;; We also need to exclude the leading 2 or 3 bytes if they
+        ;; come from a BOM.
+        (setq i0
+              (if bom-p
+                  (cond
+                   ((eq (coding-system-type coding-system) 'utf-8)
+                    3)
+                   ((eq (coding-system-type coding-system) 'utf-16)
+                    2)
+                   (t 0))
+                0))
+	(substring enc2 i0 i2)))))
 
 ;; Backwards compatibility.  These might be better with :init-value t,
 ;; but that breaks loadup.
@@ -3048,18 +3112,18 @@ on encoding."
                ;; (#x18800 . #x18AFF) Tangut Components
                ;; (#x18B00 . #x18CFF) Khitan Small Script
                ;; (#x18D00 . #x18D0F) Tangut Ideograph Supplement
-	       ;; (#x18D10 . #x1AFFF) unused
-	       (#x1B000 . #x1B11F)
-               ;; (#x1B120 . #x1B14F) unused
+	       ;; (#x18D10 . #x1AFEF) unused
+	       (#x1AFF0 . #x1B12F)
+               ;; (#x1B130 . #x1B14F) unused
                (#x1B150 . #x1B16F)
                (#x1B170 . #x1B2FF)
 	       ;; (#x1B300 . #x1BBFF) unused
                (#x1BC00 . #x1BCAF)
-	       ;; (#x1BCB0 . #x1CFFF) unused
-	       (#x1D000 . #x1FFFF)
+	       ;; (#x1BCB0 . #x1CEFF) unused
+	       (#x1CF00 . #x1FFFF)
 	       ;; (#x20000 . #xDFFFF) CJK Ideograph Extension A, B, etc, unused
 	       (#xE0000 . #xE01FF)))
-	    (gc-cons-threshold 10000000)
+            (gc-cons-threshold (max gc-cons-threshold 10000000))
 	    (names (make-hash-table :size 42943 :test #'equal)))
         (dolist (range ranges)
           (let ((c (car range))
@@ -3100,35 +3164,12 @@ on encoding."
               (list name (concat (if char (list char) " ") "\t") "")))
           names))
 
-(defun mule--ucs-names-group (names)
-  (let* ((codes-and-names
-          (mapcar (lambda (name) (cons (gethash name ucs-names) name)) names))
-         (grouped
-          (seq-group-by
-           (lambda (code-name)
-             (let ((script (aref char-script-table (car code-name))))
-               (if script (symbol-name script) "ungrouped")))
-           codes-and-names))
-         names-with-header header)
-    (dolist (group (sort grouped (lambda (a b) (string< (car a) (car b)))))
-      (setq header t)
-      (dolist (code-name (cdr group))
-        (push (list
-               (cdr code-name)
-               (concat
-                (if header
-                    (progn
-                      (setq header nil)
-                      (concat "\n" (propertize
-                                    (format "* %s\n" (car group))
-                                    'face 'header-line)))
-                  "")
-                ;; prefix
-                (if (car code-name) (format "%c" (car code-name)) " ") "\t")
-               ;; suffix
-               "")
-              names-with-header)))
-    (nreverse names-with-header)))
+(defun mule--ucs-names-group (name transform)
+  (if transform
+      name
+    (let* ((char (gethash name ucs-names))
+           (script (and char (aref char-script-table char))))
+      (if script (symbol-name script) "ungrouped"))))
 
 (defun char-from-name (string &optional ignore-case)
   "Return a character as a number from its Unicode name STRING.
@@ -3160,14 +3201,6 @@ Defines the sorting order either by character names or their codepoints."
   :group 'mule
   :version "28.1")
 
-(defcustom read-char-by-name-group nil
-  "How to group characters for `read-char-by-name' completion.
-When t, split characters to sections of Unicode blocks
-sorted alphabetically."
-  :type 'boolean
-  :group 'mule
-  :version "28.1")
-
 (defun read-char-by-name (prompt)
   "Read a character by its Unicode name or hex number string.
 Display PROMPT and read a string that represents a character by its
@@ -3181,8 +3214,9 @@ preceded by an asterisk `*' and use completion, it will show all
 the characters whose names include that substring, not necessarily
 at the beginning of the name.
 
-The options `read-char-by-name-sort' and `read-char-by-name-group'
-define the sorting order of completion characters and how to group them.
+The options `read-char-by-name-sort', `completions-group', and
+`completions-group-sort' define the sorting order of completion characters,
+whether to group them, and how to sort groups.
 
 Accept a name like \"CIRCULATION FUNCTION\", a hexadecimal
 number like \"2A10\", or a number in hash notation (e.g.,
@@ -3200,11 +3234,12 @@ as names, not numbers."
 		 `(metadata
 		   (display-sort-function
 		    . ,(when (eq read-char-by-name-sort 'code)
-                         #'mule--ucs-names-sort-by-code))
+			 #'mule--ucs-names-sort-by-code))
 		   (affixation-function
-		    . ,(if read-char-by-name-group
-                           #'mule--ucs-names-group
-                         #'mule--ucs-names-affixation))
+		    . ,#'mule--ucs-names-affixation)
+		   (group-function
+		    . ,(when completions-group
+			 #'mule--ucs-names-group))
 		   (category . unicode-name))
 	       (complete-with-action action (ucs-names) string pred)))))
 	 (char

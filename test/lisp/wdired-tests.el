@@ -1,6 +1,6 @@
 ;;; wdired-tests.el --- tests for wdired.el          -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2018-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2018-2022 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -31,7 +31,7 @@ Partially modifying a file name should succeed."
   (let* ((test-dir (make-temp-file "test-dir-" t))
 	 (test-file (concat (file-name-as-directory test-dir) "foo.c"))
 	 (replace "bar")
-	 (new-file (replace-regexp-in-string "foo" replace test-file))
+	 (new-file (string-replace "foo" replace test-file))
 	 (wdired-use-interactive-rename t))
     (write-region "" nil test-file nil 'silent)
     (advice-add 'dired-query ; Don't ask confirmation to overwrite a file.
@@ -109,7 +109,7 @@ wdired-mode."
   (let* ((test-dir (make-temp-file "test-dir-" t))
 	 (test-file (concat (file-name-as-directory test-dir) "foo.c"))
 	 (replace "bar")
-	 (new-file (replace-regexp-in-string "foo" replace test-file)))
+	 (new-file (string-replace "foo" replace test-file)))
     (write-region "" nil test-file nil 'silent)
     (let ((buf (find-file-noselect test-dir)))
       (unwind-protect

@@ -1,6 +1,6 @@
 ;;; mh-speed.el --- MH-E speedbar support  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2022 Free Software Foundation, Inc.
 
 ;; Author: Satyaki Das <satyaki@theforce.stanford.edu>
 ;; Maintainer: Bill Wohler <wohler@newt.com>
@@ -25,8 +25,6 @@
 ;;; Commentary:
 
 ;; Future versions should only use flists.
-
-;;; Change Log:
 
 ;;; Code:
 
@@ -443,7 +441,7 @@ be handled next."
         (position 0)
         line-end line folder unseen total)
     (unwind-protect
-        (while (setq line-end (string-match "\n" output position))
+        (while (setq line-end (string-search "\n" output position))
           (setq line (format "%s%s"
                              mh-speed-partial-line
                              (substring output position line-end))

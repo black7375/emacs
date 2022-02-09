@@ -1,6 +1,6 @@
-;;; todo-mode.el --- major mode for editing TODO list files  -*- lexical-binding: t; -*-
+;;; otodo-mode.el --- major mode for editing TODO list files  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997, 1999, 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1997, 1999, 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: Oliver Seidel <privat@os10000.net>
 ;; Maintainer: Stephen Berman <stephen.berman@gmx.net>
@@ -963,4 +963,4 @@ If INCLUDE-SEP is non-nil, return point after the separator."
 
 (provide 'todo-mode)
 
-;;; todo-mode.el ends here
+;;; otodo-mode.el ends here

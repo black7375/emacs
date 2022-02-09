@@ -1,6 +1,6 @@
 ;;; check-declare-tests.el --- Tests for check-declare.el  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2020-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2020-2022 Free Software Foundation, Inc.
 
 ;; Author: Simen Heggestøyl <simenheg@gmail.com>
 ;; Keywords:
@@ -106,11 +106,11 @@
       (let ((res (buffer-string)))
         ;; Don't care too much about the format of the output, but
         ;; check that key information is present.
-        (should (string-match-p "foo-file" res))
-        (should (string-match-p "foo-fun" res))
-        (should (string-match-p "bar-file" res))
-        (should (string-match-p "it wasn't" res))
-        (should (string-match-p "999" res))))))
+        (should (string-search "foo-file" res))
+        (should (string-search "foo-fun" res))
+        (should (string-search "bar-file" res))
+        (should (string-search "it wasn't" res))
+        (should (string-search "999" res))))))
 
 (provide 'check-declare-tests)
 ;;; check-declare-tests.el ends here

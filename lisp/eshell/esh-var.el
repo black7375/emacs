@@ -1,6 +1,6 @@
 ;;; esh-var.el --- handling of variables  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -45,7 +45,7 @@
 ;;
 ;;   $(lisp)
 ;;
-;; Returns result of lisp evaluation.  Note: Used alone like this, it
+;; Returns result of Lisp evaluation.  Note: Used alone like this, it
 ;; is identical to just saying (lisp); but with the variable expansion
 ;; form, the result may be interpolated a larger string, such as
 ;; '$(lisp)/other'.
@@ -381,7 +381,7 @@ This function is explicit for adding to `eshell-parse-argument-hook'."
 (defun eshell-envvar-names (&optional environment)
   "Return a list of currently visible environment variable names."
   (mapcar (lambda (x)
-            (substring x 0 (string-match "=" x)))
+            (substring x 0 (string-search "=" x)))
 	  (or environment process-environment)))
 
 (defun eshell-environment-variables ()

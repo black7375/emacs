@@ -1,6 +1,6 @@
 ;;; menu-bar.el --- define a default menu bar  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993-1995, 2000-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1995, 2000-2022 Free Software Foundation, Inc.
 
 ;; Author: Richard M. Stallman
 ;; Maintainer: emacs-devel@gnu.org
@@ -79,9 +79,6 @@
                   :help "Print current buffer with page headings"))
     menu))
 
-;; Only declared obsolete (and only made a proper alias) in 23.3.
-(define-obsolete-variable-alias
-  'menu-bar-files-menu 'menu-bar-file-menu "22.1")
 (defvar menu-bar-file-menu
   (let ((menu (make-sparse-keymap "File")))
 
@@ -459,9 +456,6 @@
 (defvar menu-bar-edit-menu
   (let ((menu (make-sparse-keymap "Edit")))
 
-    (bindings--define-key menu [props]
-      '(menu-item "Text Properties" facemenu-menu))
-
     ;; ns-win.el said: Add spell for platform consistency.
     (if (featurep 'ns)
         (bindings--define-key menu [spell]
@@ -495,7 +489,7 @@
       '(menu-item "Select All" mark-whole-buffer
                   :help "Mark the whole buffer for a subsequent cut/copy"))
     (bindings--define-key menu [clear]
-      '(menu-item "Clear" delete-region
+      '(menu-item "Clear" delete-active-region
                   :enable (and mark-active
                                (not buffer-read-only))
                   :help
@@ -576,7 +570,9 @@
 (defun clipboard-yank ()
   "Insert the clipboard contents, or the last stretch of killed text."
   (interactive "*")
-  (let ((select-enable-clipboard t))
+  (let ((select-enable-clipboard t)
+        ;; Ensure that we defeat the DWIM login in `gui-selection-value'.
+        (gui--last-selected-text-clipboard nil))
     (yank)))
 
 (defun clipboard-kill-ring-save (beg end &optional region)
@@ -1319,6 +1315,11 @@ mail status in mode line"))
                   :visible (and (display-graphic-p) (fboundp 'x-show-tip))
                   :button (:toggle . tooltip-mode)))
 
+    (bindings--define-key menu [showhide-context-menu]
+      '(menu-item "Context Menus" context-menu-mode
+                  :help "Turn mouse-3 context menus on/off"
+                  :button (:toggle . context-menu-mode)))
+
     (bindings--define-key menu [menu-bar-mode]
       '(menu-item "Menu Bar" toggle-menu-bar-mode-from-frame
                   :help "Turn menu bar on/off"
@@ -1882,6 +1883,9 @@ they ran"))
     (bindings--define-key menu [describe-function]
       '(menu-item "Describe Function..." describe-function
                   :help "Display documentation of function/command"))
+    (bindings--define-key menu [describe-command]
+      '(menu-item "Describe Command..." describe-command
+                  :help "Display documentation of command"))
     (bindings--define-key menu [shortdoc-display-group]
       '(menu-item "Function Group Overview..." shortdoc-display-group
                   :help "Display a function overview for a specific topic"))
@@ -1956,6 +1960,9 @@ key, a click, or a menu-item"))
                   :help "Find commands whose names match a regexp"))
     (bindings--define-key menu [sep1]
       menu-bar-separator)
+    (bindings--define-key menu [lookup-symbol-in-manual]
+      '(menu-item "Look Up Symbol in Manual..." info-lookup-symbol
+                  :help "Display manual section that describes a symbol"))
     (bindings--define-key menu [lookup-command-in-manual]
       '(menu-item "Look Up Command in User Manual..." Info-goto-emacs-command-node
                   :help "Display manual section that describes a command"))
@@ -2152,7 +2159,7 @@ otherwise it could decide to silently do nothing."
     (> count 1)))
 
 (defcustom yank-menu-length 20
-  "Maximum length to display in the yank-menu."
+  "Text of items in `yank-menu' longer than this will be truncated."
   :type 'integer
   :group 'menu)
 
@@ -2244,6 +2251,7 @@ Buffers menu is regenerated."
   "String to display in buffer listings for buffers not visiting a file.")
 
 (defun menu-bar-select-buffer ()
+  (declare (obsolete nil "28.1"))
   (interactive)
   (switch-to-buffer last-command-event))
 
@@ -2284,20 +2292,21 @@ Buffers menu is regenerated."
 It must accept a buffer as its only required argument.")
 
 (defun menu-bar-buffer-vector (alist)
-  ;; turn ((name . buffer) ...) into a menu
+  "Turn ((name . buffer) ...) into a menu."
   (let ((buffers-vec (make-vector (length alist) nil))
         (i (length alist)))
     (dolist (pair alist)
       (setq i (1- i))
       (aset buffers-vec i
             (cons (car pair)
-                  `(lambda ()
-                     (interactive)
-                     (funcall menu-bar-select-buffer-function ,(cdr pair))))))
+                  (let ((buf (cdr pair)))
+                    (lambda ()
+                      (interactive)
+                      (funcall menu-bar-select-buffer-function buf))))))
     buffers-vec))
 
 (defun menu-bar-update-buffers (&optional force)
-  ;; If user discards the Buffers item, play along.
+  "If user discards the Buffers item, play along."
   (and (lookup-key (current-global-map) [menu-bar buffer])
        (or force (frame-or-buffer-changed-p))
        (let ((buffers (buffer-list))
@@ -2348,8 +2357,8 @@ It must accept a buffer as its only required argument.")
                (aset frames-vec i
                      (cons
                       (frame-parameter frame 'name)
-                      `(lambda ()
-                         (interactive) (menu-bar-select-frame ,frame))))
+                      (lambda ()
+                        (interactive) (menu-bar-select-frame frame))))
                (setq i (1+ i)))
 	     ;; Put it after the normal buffers
 	     (setq buffers-menu
@@ -2481,7 +2490,9 @@ created in the future."
   ;; after this function returns, overwriting any message we do here.
   (when (and (called-interactively-p 'interactive) (not menu-bar-mode))
     (run-with-idle-timer 0 nil 'message
-			 "Menu Bar mode disabled.  Use M-x menu-bar-mode to make the menu bar appear.")))
+                         (substitute-command-keys
+                          "Menu Bar mode disabled.  \
+Use \\[menu-bar-mode] to make the menu bar appear."))))
 
 ;;;###autoload
 ;; (This does not work right unless it comes after the above definition.)
@@ -2687,10 +2698,13 @@ This command is to be used when you click the mouse in the menubar."
                        (cdr menu-bar-item-cons)
                      0))))
 
-(defun menu-bar-keymap ()
+(defun menu-bar-keymap (&optional keymap)
   "Return the current menu-bar keymap.
+The ordering of the return value respects `menu-bar-final-items'.
 
-The ordering of the return value respects `menu-bar-final-items'."
+It's possible to use the KEYMAP argument to override the default keymap
+that is the currently active maps.  For example, the argument KEYMAP
+could provide `global-map' where items are limited to the global map only."
   (let ((menu-bar '())
         (menu-end '()))
     (map-keymap
@@ -2703,7 +2717,7 @@ The ordering of the return value respects `menu-bar-final-items'."
              ;; sorting.
              (push (cons pos menu-item) menu-end)
            (push menu-item menu-bar))))
-     (lookup-key (menu-bar-current-active-maps) [menu-bar]))
+     (or keymap (lookup-key (menu-bar-current-active-maps) [menu-bar])))
     `(keymap ,@(nreverse menu-bar)
              ,@(mapcar #'cdr (sort menu-end
                                    (lambda (a b)
@@ -2773,7 +2787,7 @@ This is the keyboard interface to \\[mouse-buffer-menu]."
     km))
 
 (defun menu-bar-define-mouse-key (map key def)
-  "Like `define-key', but adds all possible prefixes for the mouse."
+  "Like `define-key', but add all possible prefixes for the mouse."
   (define-key map (vector key) def)
   (mapc (lambda (prefix) (define-key map (vector prefix key) def))
         ;; This list only needs to contain special window areas that

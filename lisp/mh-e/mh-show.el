@@ -1,6 +1,6 @@
 ;;; mh-show.el --- MH-Show mode  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993, 1995, 1997, 2000-2021 Free Software Foundation,
+;; Copyright (C) 1993, 1995, 1997, 2000-2022 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Bill Wohler <wohler@newt.com>
@@ -25,8 +25,6 @@
 ;;; Commentary:
 
 ;; Mode for showing messages.
-
-;;; Change Log:
 
 ;;; Code:
 
@@ -187,7 +185,7 @@ Sets the current buffer to the show buffer."
     (set-buffer folder)
     ;; When Gnus uses external displayers it has to keep handles longer. So
     ;; we will delete these handles when mh-quit is called on the folder. It
-    ;; would be nicer if there are weak pointers in emacs lisp, then we could
+    ;; would be nicer if there are weak pointers in Emacs Lisp, then we could
     ;; get the garbage collector to do this for us.
     (unless (mh-buffer-data)
       (setf (mh-buffer-data) (mh-make-buffer-data)))
@@ -465,8 +463,10 @@ still visible.\n")
 (mh-defun-show-buffer mh-show-index-visit-folder mh-index-visit-folder t)
 (mh-defun-show-buffer mh-show-toggle-tick mh-toggle-tick)
 (mh-defun-show-buffer mh-show-narrow-to-tick mh-narrow-to-tick)
-(mh-defun-show-buffer mh-show-junk-blacklist mh-junk-blacklist)
-(mh-defun-show-buffer mh-show-junk-whitelist mh-junk-whitelist)
+(mh-defun-show-buffer mh-show-junk-allowlist mh-junk-allowlist)
+(mh-defun-show-buffer mh-show-junk-whitelist mh-junk-allowlist)
+(make-obsolete 'mh-show-junk-whitelist 'mh-show-junk-allowlist "28.1")
+(mh-defun-show-buffer mh-show-junk-blocklist mh-junk-blocklist)
 (mh-defun-show-buffer mh-show-index-new-messages mh-index-new-messages)
 (mh-defun-show-buffer mh-show-index-ticked-messages mh-index-ticked-messages)
 (mh-defun-show-buffer mh-show-index-sequenced-messages
@@ -635,7 +635,8 @@ still visible.\n")
 
 (gnus-define-keys (mh-show-junk-map "J" mh-show-mode-map)
   "?"    mh-prefix-help
-  "b"    mh-show-junk-blacklist
+  "a"    mh-show-junk-allowlist
+  "b"    mh-show-junk-blocklist
   "w"    mh-show-junk-whitelist)
 
 (gnus-define-keys (mh-show-ps-print-map "P" mh-show-mode-map)

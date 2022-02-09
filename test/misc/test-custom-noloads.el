@@ -1,6 +1,6 @@
-;;; test-custom-deps.el --- Test custom noloads  -*- lexical-binding:t -*-
+;;; test-custom-noloads.el --- Test custom noloads  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2021 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2022 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -42,4 +42,4 @@
   (cus-test-noloads)
   (should-not cus-test-vars-not-cus-loaded))
 
-;;; test-custom-deps.el ends here
+;;; test-custom-noloads.el ends here

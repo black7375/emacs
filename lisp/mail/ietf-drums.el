@@ -1,6 +1,6 @@
 ;;; ietf-drums.el --- Functions for parsing RFC 2822 headers  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1998-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2022 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; This file is part of GNU Emacs.
@@ -236,7 +236,7 @@ If DECODE, the DISPLAY-NAME will have RFC2047 decoding performed
 	(setq display-string (ietf-drums-get-comment string)))
       (if (not mailbox)
 	  (when (and display-string
-		     (string-match "@" display-string))
+		     (string-search "@" display-string))
 	    (cons
 	     (mapconcat #'identity (nreverse display-name) "")
 	     (ietf-drums-get-comment string)))

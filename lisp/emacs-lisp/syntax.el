@@ -1,6 +1,6 @@
 ;;; syntax.el --- helper functions to find syntactic context  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2000-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2000-2022 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: internal
@@ -125,6 +125,10 @@ otherwise nil.  That construct can be a two character comment
 delimiter or an Escaped or Char-quoted character."))
 
 (defun syntax-propertize-wholelines (start end)
+  "Extend the region delimited by START and END to whole lines.
+This function is useful for
+`syntax-propertize-extend-region-functions';
+see Info node `(elisp) Syntax Properties'."
   (goto-char start)
   (cons (line-beginning-position)
         (progn (goto-char end)

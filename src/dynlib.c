@@ -1,6 +1,6 @@
 /* Portable API for dynamic loading.
 
-Copyright 2015-2021 Free Software Foundation, Inc.
+Copyright 2015-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -135,7 +135,7 @@ dynlib_addr (void (*funcptr) (void), const char **fname, const char **symname)
   void *addr = (void *) funcptr;
 
   /* Step 1: Find the handle of the module where ADDR lives.  */
-  if (os_subtype == OS_9X
+  if (os_subtype == OS_SUBTYPE_9X
       /* Windows NT family version before XP (v5.1).  */
       || ((w32_major_version + (w32_minor_version > 0)) < 6))
     {

@@ -1,6 +1,6 @@
 ;;; emacs-tests.el --- unit tests for emacs.c -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2020  Free Software Foundation, Inc.
+;; Copyright (C) 2020-2022 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -25,9 +25,12 @@
 
 (require 'cl-lib)
 (require 'ert)
-(require 'ert-x)
 (require 'rx)
 (require 'subr-x)
+
+(defconst emacs-tests--lib-src
+  (substitute-in-file-name "$EMACS_TEST_DIRECTORY/../lib-src/")
+  "Location of the lib-src directory.")
 
 (ert-deftest emacs-tests/seccomp/absent-file ()
   (skip-unless (string-match-p (rx bow "SECCOMP" eow)
@@ -135,7 +138,8 @@ to `make-temp-file', which see."
                                system-configuration-features))
   (let ((emacs
          (expand-file-name invocation-name invocation-directory))
-        (filter (ert-resource-file "seccomp-filter.bpf"))
+        (filter (expand-file-name "seccomp-filter.bpf"
+                                  emacs-tests--lib-src))
         (process-environment nil))
     (skip-unless (file-executable-p emacs))
     (skip-unless (file-readable-p filter))
@@ -144,12 +148,14 @@ to `make-temp-file', which see."
     (should-not (file-remote-p filter))
     (cl-callf file-name-unquote filter)
     (with-temp-buffer
-      (let ((status (call-process
+      (let ((start-time (current-time))
+            (status (call-process
                      emacs nil t nil
                      "--quick" "--batch"
                      (concat "--seccomp=" filter)
-                     (format "--eval=%S" '(message "Hi")))))
-        (ert-info ((format "Process output: %s" (buffer-string)))
+                     (format "--eval=%S" '(message "Hi"))))
+            (end-time (current-time)))
+        (ert-info ((emacs-tests--seccomp-debug start-time end-time))
           (should (eql status 0)))
         (should (equal (string-trim (buffer-string)) "Hi"))))))
 
@@ -158,7 +164,8 @@ to `make-temp-file', which see."
                                system-configuration-features))
   (let ((emacs
          (expand-file-name invocation-name invocation-directory))
-        (filter (ert-resource-file "seccomp-filter.bpf"))
+        (filter (expand-file-name "seccomp-filter.bpf"
+                                  emacs-tests--lib-src))
         (process-environment nil))
     (skip-unless (file-executable-p emacs))
     (skip-unless (file-readable-p filter))
@@ -167,14 +174,16 @@ to `make-temp-file', which see."
     (should-not (file-remote-p filter))
     (cl-callf file-name-unquote filter)
     (with-temp-buffer
-      (let ((status
+      (let ((start-time (current-time))
+            (status
              (call-process
               emacs nil t nil
               "--quick" "--batch"
               (concat "--seccomp=" filter)
               (format "--eval=%S" `(call-process ,emacs nil nil nil
-                                                 "--version")))))
-        (ert-info ((format "Process output: %s" (buffer-string)))
+                                                 "--version"))))
+            (end-time (current-time)))
+        (ert-info ((emacs-tests--seccomp-debug start-time end-time))
           (should-not (eql status 0)))))))
 
 (ert-deftest emacs-tests/bwrap/allows-stdout ()
@@ -182,7 +191,8 @@ to `make-temp-file', which see."
         (bwrap (executable-find "bwrap"))
         (emacs
          (expand-file-name invocation-name invocation-directory))
-        (filter (ert-resource-file "seccomp-filter-exec.bpf"))
+        (filter (expand-file-name "seccomp-filter-exec.bpf"
+                                  emacs-tests--lib-src))
         (process-environment nil))
     (skip-unless bash)
     (skip-unless bwrap)
@@ -205,9 +215,49 @@ to `make-temp-file', which see."
                           " ")
                " 20< "
                (shell-quote-argument (file-name-unquote filter))))
-             (status (call-process bash nil t nil "-c" command)))
-        (ert-info ((format "Process output: %s" (buffer-string)))
+             (start-time (current-time))
+             (status (call-process bash nil t nil "-c" command))
+             (end-time (current-time)))
+        (ert-info ((emacs-tests--seccomp-debug start-time end-time))
           (should (eql status 0)))
         (should (equal (string-trim (buffer-string)) "Hi"))))))
+
+(defun emacs-tests--seccomp-debug (start-time end-time)
+  "Return potentially useful debugging information for Seccomp.
+Assume that the current buffer contains subprocess output for the
+failing process.  START-TIME and END-TIME are time values between
+which the process was running."
+  ;; Add a bit of slack for the timestamps.
+  (cl-callf time-subtract start-time 5)
+  (cl-callf time-add end-time 5)
+  (with-output-to-string
+    (princ "Process output:")
+    (terpri)
+    (princ (buffer-substring-no-properties (point-min) (point-max)))
+    ;; Search audit logs for Seccomp messages.
+    (when-let ((ausearch (executable-find "ausearch")))
+      (terpri)
+      (princ "Potentially relevant Seccomp audit events:")
+      (terpri)
+      (let ((process-environment '("LC_TIME=C")))
+        (call-process ausearch nil standard-output nil
+                      "--message" "SECCOMP"
+                      "--start"
+                      (format-time-string "%D" start-time)
+                      (format-time-string "%T" start-time)
+                      "--end"
+                      (format-time-string "%D" end-time)
+                      (format-time-string "%T" end-time)
+                      "--interpret")))
+    ;; Print coredump information if available.
+    (when-let ((coredumpctl (executable-find "coredumpctl")))
+      (terpri)
+      (princ "Potentially useful coredump information:")
+      (terpri)
+      (call-process coredumpctl nil standard-output nil
+                    "info"
+                    "--since" (format-time-string "%F %T" start-time)
+                    "--until" (format-time-string "%F %T" end-time)
+                    "--no-pager"))))
 
 ;;; emacs-tests.el ends here

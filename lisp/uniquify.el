@@ -1,6 +1,6 @@
 ;;; uniquify.el --- unique buffer names dependent on file name -*- lexical-binding: t -*-
 
-;; Copyright (C) 1989, 1995-1997, 2001-2021 Free Software Foundation,
+;; Copyright (C) 1989, 1995-1997, 2001-2022 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Dick King <king@reasoning.com>
@@ -246,7 +246,14 @@ this rationalization."
                              (if (buffer-live-p (uniquify-item-buffer item))
                                  item))
                            items)))
-	  (setq fix-list (append fix-list items))))
+          ;; Other buffer's `uniquify-managed' lists may share
+          ;; elements.  Ensure that we don't add these elements more
+          ;; than once to this buffer's `uniquify-managed' list.
+          (let ((new-items nil))
+            (dolist (item items)
+              (unless (memq item fix-list)
+                (push item new-items)))
+	    (setq fix-list (append fix-list new-items)))))
       ;; selects buffers whose names may need changing, and others that
       ;; may conflict, then bring conflicting names together
       (uniquify-rationalize fix-list))))
@@ -497,8 +504,6 @@ For use on `kill-buffer-hook'."
 	 (file-name-nondirectory filename)
            (file-name-directory filename) retval)))
     retval))
-
-;;; The End
 
 (defun uniquify-unload-function ()
   "Unload the uniquify library."

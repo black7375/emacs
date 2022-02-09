@@ -1,6 +1,6 @@
 ;;; sh-script.el --- shell-script editing commands for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1993-1997, 1999, 2001-2021 Free Software Foundation,
+;; Copyright (C) 1993-1997, 1999, 2001-2022 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Daniel Pfeiffer <occitan@esperanto.org>
@@ -1396,8 +1396,15 @@ If FORCE is non-nil and no process found, create one."
             (or found
                 (and force
                      (get-buffer-process
-                      (let ((explicit-shell-file-name sh-shell-file))
-                        (shell)))))))))
+                      (let ((explicit-shell-file-name sh-shell-file)
+                            (display-buffer-overriding-action
+                             '(nil . ((inhibit-same-window . t)))))
+                        ;; We must prevent this `(shell)' call from
+                        ;; switching buffers, so that the variable
+                        ;; `sh-shell-process' is set locally in the
+                        ;; correct buffer.
+                        (save-current-buffer
+                          (shell))))))))))
 
 (defun sh-show-shell ()
   "Pop the shell interaction buffer."
@@ -1532,6 +1539,7 @@ with your script for an edit-interpret-debug cycle."
   (setq-local add-log-current-defun-function #'sh-current-defun-name)
   (add-hook 'completion-at-point-functions
             #'sh-completion-at-point-function nil t)
+  (setq-local outline-regexp "###")
   ;; Parse or insert magic number for exec, and set all variables depending
   ;; on the shell thus determined.
   (sh-set-shell
@@ -1596,6 +1604,8 @@ This adds rules for comments and assignments."
 
 ;;; Completion
 
+(defvar sh--completion-keywords '("if" "while" "until" "for"))
+
 (defun sh--vars-before-point ()
   (save-excursion
     (let ((vars ()))
@@ -1617,7 +1627,7 @@ This adds rules for comments and assignments."
                          (sh--vars-before-point))
                  (locate-file-completion-table
                   exec-path exec-suffixes string pred t)
-                 '("if" "while" "until" "for"))))
+                 sh--completion-keywords)))
     (complete-with-action action cmds string pred)))
 
 (defun sh-completion-at-point-function ()
@@ -1628,9 +1638,17 @@ This adds rules for comments and assignments."
           (start (point)))
       (cond
        ((eq (char-before) ?$)
-        (list start end (sh--vars-before-point)))
+        (list start end (sh--vars-before-point)
+              :company-kind (lambda (_) 'variable)))
        ((sh-smie--keyword-p)
-        (list start end #'sh--cmd-completion-table))))))
+        (list start end #'sh--cmd-completion-table
+              :company-kind
+              (lambda (s)
+                (cond
+                 ((member s sh--completion-keywords) 'keyword)
+                 ((string-suffix-p "=" s) 'variable)
+                 (t 'function)))
+              ))))))
 
 ;;; Indentation and navigation with SMIE.
 
@@ -1764,7 +1782,7 @@ Does not preserve point."
                      (goto-char p)
                      nil))))
         (while
-            (progn (skip-syntax-backward "w_'")
+            (progn (skip-syntax-backward ".w_'")
                    (or (not (zerop (skip-syntax-backward "\\")))
                        (when (eq ?\\ (char-before (1- (point))))
                          (let ((p (point)))
@@ -2182,6 +2200,8 @@ Point should be before the newline."
 When used interactively, insert the proper starting #!-line,
 and make the visited file executable via `executable-set-magic',
 perhaps querying depending on the value of `executable-query'.
+(If given a prefix (i.e., `\\[universal-argument]') don't insert any starting #!
+line.)
 
 When this function is called noninteractively, INSERT-FLAG (the third
 argument) controls whether to insert a #!-line and think about making
@@ -2205,7 +2225,7 @@ whose value is the shell name (don't quote it)."
                               '("csh" "rc" "sh"))
                       nil nil nil nil sh-shell-file)
 		     (eq executable-query 'function)
-		     t))
+		     (not current-prefix-arg)))
   (if (string-match "\\.exe\\'" shell)
       (setq shell (substring shell 0 (match-beginning 0))))
   (setq sh-shell (sh-canonicalize-shell shell))
@@ -2502,7 +2522,7 @@ overwritten if
 		      sh-styles-alist nil t)))
   (let ((sl (assoc name  sh-styles-alist)))
     (if (null sl)
-	(error "sh-load-style - style %s not known" name)
+        (error "sh-load-style: Style %s not known" name)
       (dolist (var (cdr sl))
 	(set (car var) (cdr var))))))
 
@@ -2660,7 +2680,7 @@ t means to return a list of all possible completions of STRING.
 	   (or sh-shell-variables-initialized
 	       (sh-shell-initialize-variables))
 	   (nconc (mapcar (lambda (var)
-                            (substring var 0 (string-match "=" var)))
+                            (substring var 0 (string-search "=" var)))
 			  process-environment)
 		  sh-shell-variables))))
     (complete-with-action code vars string predicate)))

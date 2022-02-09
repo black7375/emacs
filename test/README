@@ -1,4 +1,4 @@
-Copyright (C) 2008-2021 Free Software Foundation, Inc.
+Copyright (C) 2008-2022 Free Software Foundation, Inc.
 See the end of the file for license conditions.
 
 This directory contains files intended to test various aspects of
@@ -6,6 +6,9 @@ Emacs's functionality.  Please help add tests!
 
 See the file file-organization.org for the details of the directory
 structure and file-naming conventions.
+
+For tests in the manual/ subdirectory, look there for separate README
+files, or look for instructions in the test files themselves.
 
 Emacs uses ERT, Emacs Lisp Regression Testing, for testing.  See (info
 "(ert)") or https://www.gnu.org/software/emacs/manual/html_node/ert/
@@ -18,6 +21,10 @@ following tags are recognized:
   The test needs a serious amount of time to run.  It is not intended
   to run on a regular basis by users.  Instead, it runs on demand
   only, or during regression tests.
+
+* :nativecomp
+  The test runs only if Emacs is configured with Lisp native compiler
+  support.
 
 * :unstable
   The test is under development.  It shall run on demand only.
@@ -101,6 +108,11 @@ get precisely the same environment but run in interactive mode for
 debugging.  To do that, use
 
     make TEST_INTERACTIVE=yes ...
+
+By default, ERT test failure summaries are quite brief in batch
+mode--only the names of the failed tests are listed.  If the
+$EMACS_TEST_VERBOSE environment variable is set, the failure summaries
+will also include the data from the failing test.
 
 Some of the tests require a remote temporary directory
 (autorevert-tests.el, filenotify-tests.el, shadowfile-tests.el and

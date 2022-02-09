@@ -1,5 +1,5 @@
-/* Compile elisp into native code.
-   Copyright (C) 2019-2021 Free Software Foundation, Inc.
+/* Compile Emacs Lisp into native code.
+   Copyright (C) 2019-2022 Free Software Foundation, Inc.
 
 Author: Andrea Corallo <akrl@sdf.org>
 
@@ -71,6 +71,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #undef gcc_jit_context_new_binary_op
 #undef gcc_jit_context_new_call
 #undef gcc_jit_context_new_call_through_ptr
+#undef gcc_jit_context_new_cast
 #undef gcc_jit_context_new_comparison
 #undef gcc_jit_context_new_field
 #undef gcc_jit_context_new_function
@@ -151,8 +152,10 @@ DEF_DLL_FN (gcc_jit_lvalue *, gcc_jit_context_new_global,
 DEF_DLL_FN (gcc_jit_lvalue *, gcc_jit_function_new_local,
             (gcc_jit_function *func, gcc_jit_location *loc, gcc_jit_type *type,
              const char *name));
+#if defined (LIBGCCJIT_HAVE_gcc_jit_global_set_initializer)
 DEF_DLL_FN (gcc_jit_lvalue *, gcc_jit_global_set_initializer,
 	    (gcc_jit_lvalue *global, const void *blob, size_t num_bytes));
+#endif
 DEF_DLL_FN (gcc_jit_lvalue *, gcc_jit_lvalue_access_field,
             (gcc_jit_lvalue *struct_or_union, gcc_jit_location *loc,
              gcc_jit_field *field));
@@ -176,6 +179,9 @@ DEF_DLL_FN (gcc_jit_rvalue *, gcc_jit_context_new_call,
 DEF_DLL_FN (gcc_jit_rvalue *, gcc_jit_context_new_call_through_ptr,
             (gcc_jit_context *ctxt, gcc_jit_location *loc,
              gcc_jit_rvalue *fn_ptr, int numargs, gcc_jit_rvalue **args));
+DEF_DLL_FN (gcc_jit_rvalue *, gcc_jit_context_new_cast,
+            (gcc_jit_context *ctxt, gcc_jit_location *loc,
+             gcc_jit_rvalue *rvalue, gcc_jit_type *type));
 DEF_DLL_FN (gcc_jit_rvalue *, gcc_jit_context_new_comparison,
             (gcc_jit_context *ctxt, gcc_jit_location *loc,
              enum gcc_jit_comparison op, gcc_jit_rvalue *a, gcc_jit_rvalue *b));
@@ -255,9 +261,11 @@ DEF_DLL_FN (void, gcc_jit_context_set_str_option,
 DEF_DLL_FN (void, gcc_jit_struct_set_fields,
             (gcc_jit_struct *struct_type, gcc_jit_location *loc, int num_fields,
              gcc_jit_field **fields));
+#if defined (LIBGCCJIT_HAVE_gcc_jit_version)
 DEF_DLL_FN (int, gcc_jit_version_major, (void));
 DEF_DLL_FN (int, gcc_jit_version_minor, (void));
 DEF_DLL_FN (int, gcc_jit_version_patchlevel, (void));
+#endif
 
 static bool
 init_gccjit_functions (void)
@@ -288,6 +296,7 @@ init_gccjit_functions (void)
   LOAD_DLL_FN (library, gcc_jit_context_new_binary_op);
   LOAD_DLL_FN (library, gcc_jit_context_new_call);
   LOAD_DLL_FN (library, gcc_jit_context_new_call_through_ptr);
+  LOAD_DLL_FN (library, gcc_jit_context_new_cast);
   LOAD_DLL_FN (library, gcc_jit_context_new_comparison);
   LOAD_DLL_FN (library, gcc_jit_context_new_field);
   LOAD_DLL_FN (library, gcc_jit_context_new_function);
@@ -327,10 +336,14 @@ init_gccjit_functions (void)
   LOAD_DLL_FN (library, gcc_jit_type_get_pointer);
   LOAD_DLL_FN_OPT (library, gcc_jit_context_add_command_line_option);
   LOAD_DLL_FN_OPT (library, gcc_jit_context_add_driver_option);
+#if defined (LIBGCCJIT_HAVE_gcc_jit_global_set_initializer)
   LOAD_DLL_FN_OPT (library, gcc_jit_global_set_initializer);
+#endif
+#if defined (LIBGCCJIT_HAVE_gcc_jit_version)
   LOAD_DLL_FN_OPT (library, gcc_jit_version_major);
   LOAD_DLL_FN_OPT (library, gcc_jit_version_minor);
   LOAD_DLL_FN_OPT (library, gcc_jit_version_patchlevel);
+#endif
 
   return true;
 }
@@ -358,6 +371,7 @@ init_gccjit_functions (void)
 #define gcc_jit_context_new_binary_op fn_gcc_jit_context_new_binary_op
 #define gcc_jit_context_new_call fn_gcc_jit_context_new_call
 #define gcc_jit_context_new_call_through_ptr fn_gcc_jit_context_new_call_through_ptr
+#define gcc_jit_context_new_cast fn_gcc_jit_context_new_cast
 #define gcc_jit_context_new_comparison fn_gcc_jit_context_new_comparison
 #define gcc_jit_context_new_field fn_gcc_jit_context_new_field
 #define gcc_jit_context_new_function fn_gcc_jit_context_new_function
@@ -382,7 +396,9 @@ init_gccjit_functions (void)
 #define gcc_jit_function_get_param fn_gcc_jit_function_get_param
 #define gcc_jit_function_new_block fn_gcc_jit_function_new_block
 #define gcc_jit_function_new_local fn_gcc_jit_function_new_local
-#define gcc_jit_global_set_initializer fn_gcc_jit_global_set_initializer
+#if defined (LIBGCCJIT_HAVE_gcc_jit_global_set_initializer)
+ #define gcc_jit_global_set_initializer fn_gcc_jit_global_set_initializer
+#endif
 #define gcc_jit_lvalue_access_field fn_gcc_jit_lvalue_access_field
 #define gcc_jit_lvalue_as_rvalue fn_gcc_jit_lvalue_as_rvalue
 #define gcc_jit_lvalue_get_address fn_gcc_jit_lvalue_get_address
@@ -396,9 +412,11 @@ init_gccjit_functions (void)
 #define gcc_jit_struct_set_fields fn_gcc_jit_struct_set_fields
 #define gcc_jit_type_get_const fn_gcc_jit_type_get_const
 #define gcc_jit_type_get_pointer fn_gcc_jit_type_get_pointer
-#define gcc_jit_version_major fn_gcc_jit_version_major
-#define gcc_jit_version_minor fn_gcc_jit_version_minor
-#define gcc_jit_version_patchlevel fn_gcc_jit_version_patchlevel
+#if defined (LIBGCCJIT_HAVE_gcc_jit_version)
+ #define gcc_jit_version_major fn_gcc_jit_version_major
+ #define gcc_jit_version_minor fn_gcc_jit_version_minor
+ #define gcc_jit_version_patchlevel fn_gcc_jit_version_patchlevel
+#endif
 
 #endif
 
@@ -499,13 +517,6 @@ static f_reloc_t freloc;
 
 #define NUM_CAST_TYPES 15
 
-enum cast_kind_of_type
-  {
-    kind_unsigned,
-    kind_signed,
-    kind_pointer
-  };
-
 typedef struct {
   EMACS_INT len;
   gcc_jit_rvalue *r_val;
@@ -516,6 +527,7 @@ typedef struct {
 typedef struct {
   EMACS_INT speed;
   EMACS_INT debug;
+  Lisp_Object compiler_options;
   Lisp_Object driver_options;
   gcc_jit_context *ctxt;
   gcc_jit_type *void_type;
@@ -571,14 +583,9 @@ typedef struct {
      be used for the scope.  */
   gcc_jit_type *cast_union_type;
   gcc_jit_function *cast_functions_from_to[NUM_CAST_TYPES][NUM_CAST_TYPES];
-  /*  We add one to make space for the last member which is the "biggest_type"
-      member.  */
-  gcc_jit_type *cast_types[NUM_CAST_TYPES + 1];
-  size_t cast_type_sizes[NUM_CAST_TYPES + 1];
-  enum cast_kind_of_type cast_type_kind[NUM_CAST_TYPES + 1];
-  const char *cast_type_names[NUM_CAST_TYPES + 1];
-  gcc_jit_field *cast_union_fields[NUM_CAST_TYPES + 1];
-  size_t cast_union_field_biggest_type;
+  gcc_jit_function *cast_ptr_to_int;
+  gcc_jit_function *cast_int_to_ptr;
+  gcc_jit_type *cast_types[NUM_CAST_TYPES];
   gcc_jit_function *func; /* Current function being compiled.  */
   bool func_has_non_local; /* From comp-func has-non-local slot.  */
   EMACS_INT func_speed; /* From comp-func speed slot.  */
@@ -698,6 +705,12 @@ comp_hash_source_file (Lisp_Object filename)
   /* Can't use Finsert_file_contents + Fbuffer_hash as this is called
      by Fcomp_el_to_eln_filename too early during bootstrap.  */
   bool is_gz = suffix_p (filename, ".gz");
+#ifndef HAVE_ZLIB
+  if (is_gz)
+    xsignal2 (Qfile_notify_error,
+	      build_string ("Cannot natively compile compressed *.el files without zlib support"),
+	      filename);
+#endif
   Lisp_Object encoded_filename = ENCODE_FILE (filename);
   FILE *f = emacs_fopen (SSDATA (encoded_filename), is_gz ? "rb" : "r");
 
@@ -706,9 +719,13 @@ comp_hash_source_file (Lisp_Object filename)
 
   Lisp_Object digest = make_uninit_string (MD5_DIGEST_SIZE * 2);
 
+#ifdef HAVE_ZLIB
   int res = is_gz
     ? md5_gz_stream (f, SSDATA (digest))
     : md5_stream (f, SSDATA (digest));
+#else
+  int res = md5_stream (f, SSDATA (digest));
+#endif
   fclose (f);
 
   if (res)
@@ -744,8 +761,34 @@ hash_native_abi (void)
 			Vsystem_configuration_options),
 	       Fmapconcat (intern_c_string ("comp--subr-signature"),
 			   Vcomp_subr_list, build_string (""))));
+
+  Lisp_Object version = Vemacs_version;
+
+#if defined MAC_SELF_CONTAINED || defined NS_SELF_CONTAINED
+  /* MacOS self contained app bundles do not like having dots in the
+     directory names under the Contents/Frameworks directory, so
+     convert them to underscores.  */
+  version = STRING_MULTIBYTE (Vemacs_version)
+    ? make_uninit_multibyte_string (SCHARS (Vemacs_version),
+				    SBYTES (Vemacs_version))
+    : make_uninit_string (SBYTES (Vemacs_version));
+
+  const unsigned char *from = SDATA (Vemacs_version);
+  unsigned char *to = SDATA (version);
+
+  while (from < SDATA (Vemacs_version) + SBYTES (Vemacs_version))
+    {
+      unsigned char c = *from++;
+
+      if (c == '.')
+	c = '_';
+
+      *to++ = c;
+    }
+#endif
+
   Vcomp_native_version_dir =
-    concat3 (Vemacs_version, build_string ("-"), Vcomp_abi_hash);
+    concat3 (version, build_string ("-"), Vcomp_abi_hash);
 }
 
 static void
@@ -1086,13 +1129,6 @@ emit_coerce (gcc_jit_type *new_type, gcc_jit_rvalue *obj)
 
   int old_index = type_to_cast_index (old_type);
   int new_index = type_to_cast_index (new_type);
-
-  if (comp.cast_type_sizes[old_index] < comp.cast_type_sizes[new_index]
-      && comp.cast_type_kind[new_index] == kind_signed)
-    xsignal3 (Qnative_ice,
-              build_string ("FIXME: sign extension not implemented"),
-              build_string (comp.cast_type_names[old_index]),
-              build_string (comp.cast_type_names[new_index]));
 
   /* Lookup the appropriate cast function in the cast matrix.  */
   return gcc_jit_context_new_call (comp.ctxt,
@@ -2467,8 +2503,7 @@ emit_static_object (const char *name, Lisp_Object obj)
   ptrdiff_t len = SBYTES (str);
   const char *p = SSDATA (str);
 
-#if defined (LIBGCCJIT_HAVE_gcc_jit_global_set_initializer) \
-  || defined (WINDOWSNT)
+#if defined (LIBGCCJIT_HAVE_gcc_jit_global_set_initializer)
   if (gcc_jit_global_set_initializer)
     {
       ptrdiff_t str_size = len + 1;
@@ -2687,7 +2722,7 @@ declare_runtime_imported_funcs (void)
   Lisp_Object field_list = Qnil;
 
 #define ADD_IMPORTED(f_name, ret_type, nargs, args)			       \
-  {									       \
+  do {									       \
     Lisp_Object name = intern_c_string (STR (f_name));			       \
     Lisp_Object field =							       \
       make_mint_ptr (declare_imported_func (name, ret_type, nargs, args));     \
@@ -2745,8 +2780,8 @@ emit_ctxt_code (void)
 {
   /* Emit optimize qualities.  */
   Lisp_Object opt_qly[] =
-    { Fcons (Qcomp_speed, make_fixnum (comp.speed)),
-      Fcons (Qcomp_debug, make_fixnum (comp.debug)),
+    { Fcons (Qnative_comp_speed, make_fixnum (comp.speed)),
+      Fcons (Qnative_comp_debug, make_fixnum (comp.debug)),
       Fcons (Qgccjit,
 	     Fcomp_libgccjit_version ()) };
   emit_static_object (TEXT_OPTIM_QLY_SYM, Flist (ARRAYELTS (opt_qly), opt_qly));
@@ -3085,30 +3120,17 @@ define_thread_state_struct (void)
     gcc_jit_type_get_pointer (gcc_jit_struct_as_type (comp.thread_state_s));
 }
 
-struct cast_type
-{
-  gcc_jit_type *type;
-  const char *name;
-  size_t bytes_size;
-  enum cast_kind_of_type kind;
-};
-
 static gcc_jit_function *
-define_cast_from_to (struct cast_type from, int from_index, struct cast_type to,
-                    int to_index)
+define_type_punning (const char *name,
+		     gcc_jit_type *from, gcc_jit_field *from_field,
+		     gcc_jit_type *to, gcc_jit_field *to_field)
 {
-  /*  FIXME: sign extension not implemented.  */
-  if (comp.cast_type_sizes[from_index] < comp.cast_type_sizes[to_index]
-      && comp.cast_type_kind[to_index] == kind_signed)
-    return NULL;
-
-  char *name = format_string ("cast_from_%s_to_%s", from.name, to.name);
   gcc_jit_param *param = gcc_jit_context_new_param (comp.ctxt, NULL,
-                                                    from.type, "arg");
+                                                    from, "arg");
   gcc_jit_function *result = gcc_jit_context_new_function (comp.ctxt,
                                NULL,
                                GCC_JIT_FUNCTION_INTERNAL,
-                               to.type,
+                               to,
                                name,
                                1,
                                &param,
@@ -3122,26 +3144,63 @@ define_cast_from_to (struct cast_type from, int from_index, struct cast_type to,
                                   comp.cast_union_type,
                                   "union_cast");
 
-  /*  Zero the union first.  */
   gcc_jit_block_add_assignment (entry_block, NULL,
                                 gcc_jit_lvalue_access_field (tmp_union, NULL,
-                                  comp.cast_union_fields[NUM_CAST_TYPES]),
-                                  gcc_jit_context_new_rvalue_from_int (
-				    comp.ctxt,
-				    comp.cast_types[NUM_CAST_TYPES],
-                                    0));
-
-  gcc_jit_block_add_assignment (entry_block, NULL,
-                                gcc_jit_lvalue_access_field (tmp_union, NULL,
-                                  comp.cast_union_fields[from_index]),
+							     from_field),
                                 gcc_jit_param_as_rvalue (param));
 
   gcc_jit_block_end_with_return (entry_block,
                                  NULL,
                                  gcc_jit_rvalue_access_field (
                                    gcc_jit_lvalue_as_rvalue (tmp_union),
-                                   NULL,
-                                   comp.cast_union_fields[to_index]));
+                                   NULL, to_field));
+
+  return result;
+}
+
+struct cast_type
+{
+  gcc_jit_type *type;
+  const char *name;
+  bool is_ptr;
+};
+
+static gcc_jit_function *
+define_cast_from_to (struct cast_type from, struct cast_type to)
+{
+  char *name = format_string ("cast_from_%s_to_%s", from.name, to.name);
+  gcc_jit_param *param = gcc_jit_context_new_param (comp.ctxt, NULL,
+						    from.type, "arg");
+  gcc_jit_function *result
+    = gcc_jit_context_new_function (comp.ctxt,
+				    NULL,
+				    GCC_JIT_FUNCTION_INTERNAL,
+				    to.type, name,
+				    1, &param, 0);
+  DECL_BLOCK (entry_block, result);
+
+  gcc_jit_rvalue *tmp = gcc_jit_param_as_rvalue (param);
+  if (from.is_ptr != to.is_ptr)
+    {
+      if (from.is_ptr)
+	{
+	  tmp = gcc_jit_context_new_cast (comp.ctxt, NULL,
+					  tmp, comp.void_ptr_type);
+	  tmp = gcc_jit_context_new_call (comp.ctxt, NULL,
+					  comp.cast_ptr_to_int, 1, &tmp);
+	}
+      else
+	{
+	  tmp = gcc_jit_context_new_cast (comp.ctxt, NULL,
+					  tmp, comp.uintptr_type);
+	  tmp = gcc_jit_context_new_call (comp.ctxt, NULL,
+					  comp.cast_int_to_ptr, 1, &tmp);
+	}
+    }
+
+  tmp = gcc_jit_context_new_cast (comp.ctxt, NULL, tmp, to.type);
+
+  gcc_jit_block_end_with_return (entry_block, NULL, tmp);
 
   return result;
 }
@@ -3150,69 +3209,58 @@ static void
 define_cast_functions (void)
 {
   struct cast_type cast_types[NUM_CAST_TYPES]
-    = { { comp.bool_type, "bool", sizeof (bool), kind_unsigned },
-        { comp.char_ptr_type, "char_ptr", sizeof (char *), kind_pointer },
-        { comp.int_type, "int", sizeof (int), kind_signed },
-        { comp.lisp_cons_ptr_type, "cons_ptr", sizeof (struct Lisp_Cons *),
-          kind_pointer },
-        { comp.lisp_obj_ptr_type, "lisp_obj_ptr", sizeof (Lisp_Object *),
-          kind_pointer },
-        { comp.lisp_word_tag_type, "lisp_word_tag", sizeof (Lisp_Word_tag),
-          kind_unsigned },
-        { comp.lisp_word_type, "lisp_word", sizeof (Lisp_Word),
-          LISP_WORDS_ARE_POINTERS ? kind_pointer : kind_signed },
-        { comp.long_long_type, "long_long", sizeof (long long), kind_signed },
-        { comp.long_type, "long", sizeof (long), kind_signed },
-        { comp.ptrdiff_type, "ptrdiff", sizeof (ptrdiff_t), kind_signed },
-        { comp.uintptr_type, "uintptr", sizeof (uintptr_t), kind_unsigned },
-        { comp.unsigned_long_long_type, "unsigned_long_long",
-          sizeof (unsigned long long), kind_unsigned },
-        { comp.unsigned_long_type, "unsigned_long", sizeof (unsigned long),
-          kind_unsigned },
-        { comp.unsigned_type, "unsigned", sizeof (unsigned), kind_unsigned },
-        { comp.void_ptr_type, "void_ptr", sizeof (void*), kind_pointer } };
+    = { { comp.bool_type, "bool", false },
+        { comp.char_ptr_type, "char_ptr", true },
+        { comp.int_type, "int", false },
+        { comp.lisp_cons_ptr_type, "lisp_cons_ptr", true },
+        { comp.lisp_obj_ptr_type, "lisp_obj_ptr", true },
+        { comp.lisp_word_tag_type, "lisp_word_tag", false },
+        { comp.lisp_word_type, "lisp_word", LISP_WORDS_ARE_POINTERS },
+        { comp.long_long_type, "long_long", false },
+        { comp.long_type, "long", false },
+        { comp.ptrdiff_type, "ptrdiff", false },
+        { comp.uintptr_type, "uintptr", false },
+        { comp.unsigned_long_long_type, "unsigned_long_long", false },
+        { comp.unsigned_long_type, "unsigned_long", false },
+        { comp.unsigned_type, "unsigned", false },
+        { comp.void_ptr_type, "void_ptr", true } };
+  gcc_jit_field *cast_union_fields[2];
 
-  /* Find the biggest size.  It should be unsigned long long, but to be
-     sure we find it programmatically.  */
-  size_t biggest_size = 0;
+  /* Define the union used for type punning.  */
+  cast_union_fields[0] = gcc_jit_context_new_field (comp.ctxt,
+						    NULL,
+						    comp.void_ptr_type,
+						    "void_ptr");
+  cast_union_fields[1] = gcc_jit_context_new_field (comp.ctxt,
+						    NULL,
+						    comp.uintptr_type,
+						    "uintptr");
+
+  comp.cast_union_type
+    = gcc_jit_context_new_union_type (comp.ctxt,
+				      NULL,
+				      "cast_union",
+				      2, cast_union_fields);
+
+  comp.cast_ptr_to_int = define_type_punning ("cast_pointer_to_uintptr_t",
+					      comp.void_ptr_type,
+					      cast_union_fields[0],
+					      comp.uintptr_type,
+					      cast_union_fields[1]);
+  comp.cast_int_to_ptr = define_type_punning ("cast_uintptr_t_to_pointer",
+					      comp.uintptr_type,
+					      cast_union_fields[1],
+					      comp.void_ptr_type,
+					      cast_union_fields[0]);
+
   for (int i = 0; i < NUM_CAST_TYPES; ++i)
-    biggest_size = max (biggest_size, cast_types[i].bytes_size);
-
-  /* Define the union used for casting.  */
-  for (int i = 0; i < NUM_CAST_TYPES; ++i)
-    {
-      comp.cast_types[i] = cast_types[i].type;
-      comp.cast_union_fields[i] = gcc_jit_context_new_field (comp.ctxt,
-                                    NULL,
-                                    cast_types[i].type,
-                                    cast_types[i].name);
-      comp.cast_type_names[i] = cast_types[i].name;
-      comp.cast_type_sizes[i] = cast_types[i].bytes_size;
-      comp.cast_type_kind[i] = cast_types[i].kind;
-    }
-
-  gcc_jit_type *biggest_type = gcc_jit_context_get_int_type (comp.ctxt,
-                                                             biggest_size,
-                                                             false);
-  comp.cast_types[NUM_CAST_TYPES] = biggest_type;
-  comp.cast_union_fields[NUM_CAST_TYPES] =
-    gcc_jit_context_new_field (comp.ctxt, NULL, biggest_type, "biggest_type");
-  comp.cast_type_names[NUM_CAST_TYPES] = "biggest_type";
-  comp.cast_type_sizes[NUM_CAST_TYPES] = biggest_size;
-  comp.cast_type_kind[NUM_CAST_TYPES] = kind_unsigned;
-
-  comp.cast_union_type =
-    gcc_jit_context_new_union_type (comp.ctxt,
-				    NULL,
-				    "cast_union",
-				    NUM_CAST_TYPES + 1,
-				    comp.cast_union_fields);
+    comp.cast_types[i] = cast_types[i].type;
 
   /* Define the cast functions using a matrix.  */
   for (int i = 0; i < NUM_CAST_TYPES; ++i)
     for (int j = 0; j < NUM_CAST_TYPES; ++j)
         comp.cast_functions_from_to[i][j] =
-          define_cast_from_to (cast_types[i], i, cast_types[j], j);
+          define_cast_from_to (cast_types[i], cast_types[j]);
 }
 
 static void
@@ -4003,20 +4051,27 @@ make_directory_wrapper_1 (Lisp_Object ignore)
 
 DEFUN ("comp-el-to-eln-rel-filename", Fcomp_el_to_eln_rel_filename,
        Scomp_el_to_eln_rel_filename, 1, 1, 0,
-       doc: /* Return the corresponding .eln relative filename.  */)
+       doc: /* Return the relative name of the .eln file for FILENAME.
+FILENAME must exist, and if it's a symlink, the target must exist.
+If FILENAME is compressed, it must have the \".gz\" extension,
+and Emacs must have been compiled with zlib; the file will be
+uncompressed on the fly to hash its contents.
+Value includes the original base name, followed by 2 hash values,
+one for the file name and another for its contents, followed by .eln.  */)
   (Lisp_Object filename)
 {
   CHECK_STRING (filename);
 
-  /* Use `file-truename' or fall back to `expand-file-name' when the
-     first is not available (bug#44701).
-
-     `file-truename' is not available only for a short phases of the
-     bootstrap before file.el is loaded, given we do not symlink
-     inside the build directory this should work.  */
-  filename = NILP (Ffboundp (intern_c_string ("file-truename")))
-    ? Fexpand_file_name (filename, Qnil)
-    : CALL1I (file-truename, filename);
+  /* Resolve possible symlinks in FILENAME, so that path_hash below
+     always compares equal. (Bug#44701).  */
+  filename = Fexpand_file_name (filename, Qnil);
+  char *file_normalized = realpath (SSDATA (ENCODE_FILE (filename)), NULL);
+  if (file_normalized)
+    {
+      filename = DECODE_FILE (make_unibyte_string (file_normalized,
+						   strlen (file_normalized)));
+      xfree (file_normalized);
+    }
 
   if (NILP (Ffile_exists_p (filename)))
     xsignal1 (Qfile_missing, filename);
@@ -4056,7 +4111,8 @@ DEFUN ("comp-el-to-eln-rel-filename", Fcomp_el_to_eln_rel_filename,
       Lisp_Object sys_re =
 	concat2 (build_string ("\\`[[:ascii:]]+"),
 		 Fregexp_quote (build_string ("/" PATH_REL_LOADSEARCH "/")));
-      Lisp_Object dump_load_search = build_string (PATH_DUMPLOADSEARCH "/");
+      Lisp_Object dump_load_search =
+	Fexpand_file_name (build_string (PATH_DUMPLOADSEARCH "/"), Qnil);
 #ifdef WINDOWSNT
       dump_load_search = Fw32_long_file_name (dump_load_search);
 #endif
@@ -4086,20 +4142,32 @@ DEFUN ("comp-el-to-eln-rel-filename", Fcomp_el_to_eln_rel_filename,
 
 DEFUN ("comp-el-to-eln-filename", Fcomp_el_to_eln_filename,
        Scomp_el_to_eln_filename, 1, 2, 0,
-       doc: /* Return the .eln filename for source FILENAME to used
-for new compilations.
-If BASE-DIR is non-nil use it as a base directory, look for a suitable
-directory in `comp-eln-load-path' otherwise.  */)
+       doc: /* Return the absolute .eln file name for source FILENAME.
+The resulting .eln file name is intended to be used for natively
+compiling FILENAME.  FILENAME must exist and be readable, but other
+than that, its leading directories are ignored when constructing
+the name of the .eln file.
+If BASE-DIR is non-nil, use it as the directory for the .eln file;
+non-absolute BASE-DIR is interpreted as relative to `invocation-directory'.
+If BASE-DIR is omitted or nil, look for the first writable directory
+in `native-comp-eln-load-path', and use as BASE-DIR its subdirectory
+whose name is given by `comp-native-version-dir'.
+If FILENAME specifies a preloaded file, the directory for the .eln
+file is the \"preloaded/\" subdirectory of the directory determined
+as described above.  FILENAME is considered to be a preloaded file if
+the value of `comp-file-preloaded-p' is non-nil, or if FILENAME
+appears in the value of the environment variable LISP_PRELOADED;
+the latter is supposed to be used by the Emacs build procedure.  */)
   (Lisp_Object filename, Lisp_Object base_dir)
 {
   Lisp_Object source_filename = filename;
   filename = Fcomp_el_to_eln_rel_filename (filename);
 
-  /* If base_dir was not specified search inside Vcomp_eln_load_path
+  /* If base_dir was not specified search inside Vnative_comp_eln_load_path
      for the first directory where we have write access.  */
   if (NILP (base_dir))
     {
-      Lisp_Object eln_load_paths = Vcomp_eln_load_path;
+      Lisp_Object eln_load_paths = Vnative_comp_eln_load_path;
       FOR_EACH_TAIL (eln_load_paths)
 	{
 	  Lisp_Object dir = XCAR (eln_load_paths);
@@ -4346,9 +4414,24 @@ DEFUN ("comp-native-driver-options-effective-p",
        doc: /* Return t if `comp-native-driver-options' is effective.  */)
   (void)
 {
-#if defined (LIBGCCJIT_HAVE_gcc_jit_context_add_driver_option)  \
-  || defined (WINDOWSNT)
+#if defined (LIBGCCJIT_HAVE_gcc_jit_context_add_driver_option)
   if (gcc_jit_context_add_driver_option)
+    return Qt;
+#endif
+  return Qnil;
+}
+#pragma GCC diagnostic pop
+
+#pragma GCC diagnostic ignored "-Waddress"
+DEFUN ("comp-native-compiler-options-effective-p",
+       Fcomp_native_compiler_options_effective_p,
+       Scomp_native_compiler_options_effective_p,
+       0, 0, 0,
+       doc: /* Return t if `comp-native-compiler-options' is effective.  */)
+  (void)
+{
+#if defined (LIBGCCJIT_HAVE_gcc_jit_context_add_command_line_option)
+  if (gcc_jit_context_add_command_line_option)
     return Qt;
 #endif
   return Qnil;
@@ -4358,10 +4441,9 @@ DEFUN ("comp-native-driver-options-effective-p",
 static void
 add_driver_options (void)
 {
-  Lisp_Object options = Fsymbol_value (Qcomp_native_driver_options);
+  Lisp_Object options = Fsymbol_value (Qnative_comp_driver_options);
 
-#if defined (LIBGCCJIT_HAVE_gcc_jit_context_add_driver_option)	\
-  || defined (WINDOWSNT)
+#if defined (LIBGCCJIT_HAVE_gcc_jit_context_add_driver_option)
   load_gccjit_if_necessary (true);
   if (!NILP (Fcomp_native_driver_options_effective_p ()))
     FOR_EACH_TAIL (options)
@@ -4380,8 +4462,7 @@ add_driver_options (void)
 			    " and above."));
 
   /* Captured `comp-native-driver-options' because file-local.  */
-#if defined (LIBGCCJIT_HAVE_gcc_jit_context_add_driver_option)	\
-  || defined (WINDOWSNT)
+#if defined (LIBGCCJIT_HAVE_gcc_jit_context_add_driver_option)
   options = comp.driver_options;
   if (!NILP (Fcomp_native_driver_options_effective_p ()))
     FOR_EACH_TAIL (options)
@@ -4391,6 +4472,43 @@ add_driver_options (void)
 					    ENCODE_FILE or
 					    ENCODE_SYSTEM.  */
 					 SSDATA (XCAR (options)));
+#endif
+}
+
+static void
+add_compiler_options (void)
+{
+  Lisp_Object options = Fsymbol_value (Qnative_comp_compiler_options);
+
+#if defined (LIBGCCJIT_HAVE_gcc_jit_context_add_command_line_option)
+  load_gccjit_if_necessary (true);
+  if (!NILP (Fcomp_native_compiler_options_effective_p ()))
+    FOR_EACH_TAIL (options)
+        gcc_jit_context_add_command_line_option (comp.ctxt,
+                                                 /* FIXME: Need to encode
+                                                    this, but how? either
+                                                    ENCODE_FILE or
+                                                    ENCODE_SYSTEM.  */
+                                                 SSDATA (XCAR (options)));
+#endif
+  if (CONSP (options))
+    xsignal1 (Qnative_compiler_error,
+	      build_string ("Customizing native compiler options"
+			    " via `comp-native-compiler-options' is"
+			    " only available on libgccjit version 9"
+			    " and above."));
+
+  /* Captured `comp-native-compiler-options' because file-local.  */
+#if defined (LIBGCCJIT_HAVE_gcc_jit_context_add_command_line_option)
+  options = comp.compiler_options;
+  if (!NILP (Fcomp_native_compiler_options_effective_p ()))
+    FOR_EACH_TAIL (options)
+      gcc_jit_context_add_command_line_option (comp.ctxt,
+                                               /* FIXME: Need to encode
+                                                  this, but how? either
+                                                  ENCODE_FILE or
+                                                  ENCODE_SYSTEM.  */
+                                               SSDATA (XCAR (options)));
 #endif
 }
 
@@ -4439,6 +4557,7 @@ DEFUN ("comp--compile-ctxt-to-file", Fcomp__compile_ctxt_to_file,
   comp.debug = XFIXNUM (CALL1I (comp-ctxt-debug, Vcomp_ctxt));
   eassert (comp.debug < INT_MAX);
   comp.driver_options = CALL1I (comp-ctxt-driver-options, Vcomp_ctxt);
+  comp.compiler_options = CALL1I (comp-ctxt-compiler-options, Vcomp_ctxt);
 
   if (comp.debug)
       gcc_jit_context_set_bool_option (comp.ctxt,
@@ -4462,6 +4581,15 @@ DEFUN ("comp--compile-ctxt-to-file", Fcomp__compile_ctxt_to_file,
 				  GCC_JIT_INT_OPTION_OPTIMIZATION_LEVEL,
 				  comp.speed < 0 ? 0
 				  : (comp.speed > 3 ? 3 : comp.speed));
+
+  /* On MacOS set a unique dylib ID.  */
+#if defined (LIBGCCJIT_HAVE_gcc_jit_context_add_driver_option)	\
+  && defined (DARWIN_OS)
+  gcc_jit_context_add_driver_option (comp.ctxt, "-install_name");
+  gcc_jit_context_add_driver_option (
+         comp.ctxt, SSDATA (Ffile_name_nondirectory (filename)));
+#endif
+
   comp.d_default_idx =
     CALL1I (comp-data-container-idx, CALL1I (comp-ctxt-d-default, Vcomp_ctxt));
   comp.d_impure_idx =
@@ -4495,8 +4623,7 @@ DEFUN ("comp--compile-ctxt-to-file", Fcomp__compile_ctxt_to_file,
 
   /* Work around bug#46495 (GCC PR99126). */
 #if defined (WIDE_EMACS_INT)						\
-  && (defined (LIBGCCJIT_HAVE_gcc_jit_context_add_command_line_option)	\
-      || defined (WINDOWSNT))
+  && defined (LIBGCCJIT_HAVE_gcc_jit_context_add_command_line_option)
   Lisp_Object version = Fcomp_libgccjit_version ();
   if (NILP (version)
       || XFIXNUM (XCAR (version)) < 11)
@@ -4504,6 +4631,7 @@ DEFUN ("comp--compile-ctxt-to-file", Fcomp__compile_ctxt_to_file,
 					     "-fdisable-tree-isolate-paths");
 #endif
 
+  add_compiler_options ();
   add_driver_options ();
 
   if (comp.debug > 1)
@@ -4547,7 +4675,7 @@ The return value has the form (MAJOR MINOR PATCHLEVEL) or nil if
 unknown (before GCC version 10).  */)
   (void)
 {
-#if defined (LIBGCCJIT_HAVE_gcc_jit_version) || defined (WINDOWSNT)
+#if defined (LIBGCCJIT_HAVE_gcc_jit_version)
   load_gccjit_if_necessary (true);
 
   return gcc_jit_version_major
@@ -4607,7 +4735,7 @@ helper_PSEUDOVECTOR_TYPEP_XUNTAG (Lisp_Object a, enum pvec_type code)
 }
 
 
-/* `comp-eln-load-path' clean-up support code.  */
+/* `native-comp-eln-load-path' clean-up support code.  */
 
 static Lisp_Object all_loaded_comp_units_h;
 
@@ -4622,7 +4750,7 @@ return_nil (Lisp_Object arg)
 /* Windows does not let us delete a .eln file that is currently loaded
    by a process.  The strategy is to rename .eln files into .old.eln
    instead of removing them when this is not possible and clean-up
-   `comp-eln-load-path' when exiting.
+   `native-comp-eln-load-path' when exiting.
 
    Any error is ignored because it may be due to the file being loaded
    in another Emacs instance.  */
@@ -4630,7 +4758,7 @@ void
 eln_load_path_final_clean_up (void)
 {
 #ifdef WINDOWSNT
-  Lisp_Object dir_tail = Vcomp_eln_load_path;
+  Lisp_Object dir_tail = Vnative_comp_eln_load_path;
   FOR_EACH_TAIL (dir_tail)
     {
       Lisp_Object files_in_dir =
@@ -4697,7 +4825,7 @@ maybe_defer_native_compilation (Lisp_Object function_name,
   if (!load_gccjit_if_necessary (false))
     return;
 
-  if (!comp_deferred_compilation
+  if (!native_comp_deferred_compilation
       || noninteractive
       || !NILP (Vpurify_flag)
       || !COMPILEDP (definition)
@@ -4716,7 +4844,7 @@ maybe_defer_native_compilation (Lisp_Object function_name,
 	return;
     }
 
-  /* This is to have deferred compilaiton able to compile comp
+  /* This is so deferred compilation is able to compile comp
      dependencies breaking circularity.  */
   if (!NILP (Ffeaturep (Qcomp, Qnil)))
     {
@@ -4749,29 +4877,28 @@ maybe_defer_native_compilation (Lisp_Object function_name,
 /* Functions used to load eln files.  */
 /**************************************/
 
-/* Fixup the system eln-cache dir.  This is the last entry in
-   `comp-eln-load-path'.  */
+/* Fixup the system eln-cache directory, which is the last entry in
+   `native-comp-eln-load-path'.  Argument is a .eln file in that directory.  */
 void
 fixup_eln_load_path (Lisp_Object eln_filename)
 {
   Lisp_Object last_cell = Qnil;
-  Lisp_Object tmp = Vcomp_eln_load_path;
-  FOR_EACH_TAIL (tmp)
-    if (CONSP (tmp))
-      last_cell = tmp;
+  Lisp_Object tem = Vnative_comp_eln_load_path;
+  FOR_EACH_TAIL (tem)
+    if (CONSP (tem))
+      last_cell = tem;
 
-  Lisp_Object eln_cache_sys =
-    Ffile_name_directory (concat2 (Vinvocation_directory,
-				   eln_filename));
-  bool preloaded =
-    !NILP (Fequal (Fsubstring (eln_cache_sys, make_fixnum (-10),
-			       make_fixnum (-1)),
-		   build_string ("preloaded")));
+  const char preloaded[] = "/preloaded/";
+  Lisp_Object eln_cache_sys = Ffile_name_directory (eln_filename);
+  const char *p_preloaded =
+    SSDATA (eln_cache_sys) + SBYTES (eln_cache_sys) - sizeof (preloaded) + 1;
+  bool preloaded_p = strcmp (p_preloaded, preloaded) == 0;
+
   /* One or two directories up...  */
-  for (int i = 0; i < (preloaded ? 2 : 1); i++)
+  for (int i = 0; i < (preloaded_p ? 2 : 1); i++)
     eln_cache_sys =
-      Ffile_name_directory (Fsubstring (eln_cache_sys, Qnil,
-					make_fixnum (-1)));
+      Ffile_name_directory (Fsubstring_no_properties (eln_cache_sys, Qnil,
+						      make_fixnum (-1)));
   Fsetcar (last_cell, eln_cache_sys);
 }
 
@@ -4857,7 +4984,7 @@ load_comp_unit (struct Lisp_Native_Comp_Unit *comp_u, bool loading_dump,
     /* 'dlopen' returns the same handle when trying to load two times
        the same shared.  In this case touching 'd_reloc' etc leads to
        fails in case a frame with a reference to it in a live reg is
-       active (comp-speed > 0).
+       active (native-comp-speed > 0).
 
        We must *never* mess with static pointers in an already loaded
        eln.  */
@@ -4950,7 +5077,7 @@ load_comp_unit (struct Lisp_Native_Comp_Unit *comp_u, bool loading_dump,
       /* In case another load of the same CU is active on the stack
 	 all ephemeral data is hold by that frame.  Re-writing
 	 'data_ephemeral_vec' would be not only a waste of cycles but
-	 more importanly would lead to crashed if the contained data
+	 more importantly would lead to crashes if the contained data
 	 is not cons hashed.  */
       if (!recursive_load)
 	{
@@ -5027,21 +5154,29 @@ make_subr (Lisp_Object symbol_name, Lisp_Object minarg, Lisp_Object maxarg,
   if (CONSP (minarg))
     {
       /* Dynamic code.  */
-      x->s.lambda_list[0] = maxarg;
+#ifdef HAVE_NATIVE_COMP
+      x->s.lambda_list = maxarg;
+#endif
       maxarg = XCDR (minarg);
       minarg = XCAR (minarg);
     }
   else
-    x->s.lambda_list[0] = Qnil;
+    {
+#ifdef HAVE_NATIVE_COMP
+      x->s.lambda_list = Qnil;
+#endif
+    }
   x->s.function.a0 = func;
   x->s.min_args = XFIXNUM (minarg);
   x->s.max_args = FIXNUMP (maxarg) ? XFIXNUM (maxarg) : MANY;
   x->s.symbol_name = xstrdup (SSDATA (symbol_name));
   x->s.native_intspec = intspec;
   x->s.doc = XFIXNUM (doc_idx);
-  x->s.native_comp_u[0] = comp_u;
-  x->s.native_c_name[0] = xstrdup (SSDATA (c_name));
-  x->s.type[0] = type;
+#ifdef HAVE_NATIVE_COMP
+  x->s.native_comp_u = comp_u;
+  x->s.native_c_name = xstrdup (SSDATA (c_name));
+  x->s.type = type;
+#endif
   Lisp_Object tem;
   XSETSUBR (tem, &x->s);
 
@@ -5128,7 +5263,7 @@ static bool
 file_in_eln_sys_dir (Lisp_Object filename)
 {
   Lisp_Object eln_sys_dir = Qnil;
-  Lisp_Object tmp = Vcomp_eln_load_path;
+  Lisp_Object tmp = Vnative_comp_eln_load_path;
   FOR_EACH_TAIL (tmp)
     eln_sys_dir = XCAR (tmp);
   return !NILP (Fstring_match (Fregexp_quote (Fexpand_file_name (eln_sys_dir,
@@ -5201,16 +5336,18 @@ syms_of_comp (void)
 {
 #ifdef HAVE_NATIVE_COMP
   /* Compiler control customizes.  */
-  DEFVAR_BOOL ("comp-deferred-compilation", comp_deferred_compilation,
+  DEFVAR_BOOL ("native-comp-deferred-compilation",
+	       native_comp_deferred_compilation,
 	       doc: /* If non-nil compile loaded .elc files asynchronously.
 
 After compilation, each function definition is updated to the native
 compiled one.  */);
-  comp_deferred_compilation = true;
+  native_comp_deferred_compilation = true;
 
-  DEFSYM (Qcomp_speed, "comp-speed");
-  DEFSYM (Qcomp_debug, "comp-debug");
-  DEFSYM (Qcomp_native_driver_options, "comp-native-driver-options");
+  DEFSYM (Qnative_comp_speed, "native-comp-speed");
+  DEFSYM (Qnative_comp_debug, "native-comp-debug");
+  DEFSYM (Qnative_comp_driver_options, "native-comp-driver-options");
+  DEFSYM (Qnative_comp_compiler_options, "native-comp-compiler-options");
   DEFSYM (Qcomp_libgccjit_reproducer, "comp-libgccjit-reproducer");
 
   /* Limple instruction set.  */
@@ -5273,7 +5410,8 @@ compiled one.  */);
   DEFSYM (Qlambda_fixup, "lambda-fixup");
   DEFSYM (Qgccjit, "gccjit");
   DEFSYM (Qcomp_subr_trampoline_install, "comp-subr-trampoline-install");
-  DEFSYM (Qcomp_warning_on_missing_source, "comp-warning-on-missing-source");
+  DEFSYM (Qnative_comp_warning_on_missing_source,
+	  "native-comp-warning-on-missing-source");
 
   /* To be signaled by the compiler.  */
   DEFSYM (Qnative_compiler_error, "native-compiler-error");
@@ -5319,6 +5457,7 @@ compiled one.  */);
   defsubr (&Scomp_el_to_eln_rel_filename);
   defsubr (&Scomp_el_to_eln_filename);
   defsubr (&Scomp_native_driver_options_effective_p);
+  defsubr (&Scomp_native_compiler_options_effective_p);
   defsubr (&Scomp__install_trampoline);
   defsubr (&Scomp__init_ctxt);
   defsubr (&Scomp__release_ctxt);
@@ -5369,7 +5508,7 @@ For internal use.  */);
 	       doc: /* Hash table eln-filename -> el-filename.  */);
   Vcomp_eln_to_el_h = CALLN (Fmake_hash_table, QCtest, Qequal);
 
-  DEFVAR_LISP ("comp-eln-load-path", Vcomp_eln_load_path,
+  DEFVAR_LISP ("native-comp-eln-load-path", Vnative_comp_eln_load_path,
 	       doc: /* List of eln cache directories.
 
 If a directory is non absolute is assumed to be relative to
@@ -5381,7 +5520,7 @@ The last directory of this list is assumed to be the system one.  */);
   /* Temporary value in use for bootstrap.  We can't do better as
      `invocation-directory' is still unset, will be fixed up during
      dump reload.  */
-  Vcomp_eln_load_path = Fcons (build_string ("../native-lisp/"), Qnil);
+  Vnative_comp_eln_load_path = Fcons (build_string ("../native-lisp/"), Qnil);
 
   DEFVAR_BOOL ("comp-enable-subr-trampolines", comp_enable_subr_trampolines,
 	       doc: /* If non-nil enable primitive trampoline synthesis.
@@ -5394,9 +5533,9 @@ protect the trampolines against GC.  */);
   Vcomp_installed_trampolines_h = CALLN (Fmake_hash_table);
 
   DEFVAR_LISP ("comp-no-native-file-h", V_comp_no_native_file_h,
-	       doc: /* Files for which no deferred compilation has to
-be performed because the bytecode version was explicitly requested by
-the user during load.
+	       doc: /* Files for which no deferred compilation has to be performed.
+These files' compilation should not be deferred because the bytecode
+version was explicitly requested by the user during load.
 For internal use.  */);
   V_comp_no_native_file_h = CALLN (Fmake_hash_table, QCtest, Qequal);
 
@@ -5404,7 +5543,7 @@ For internal use.  */);
 	       doc: /* When non-nil assume the file being compiled to
 be preloaded.  */);
 
-  Fprovide (intern_c_string ("nativecomp"), Qnil);
+  Fprovide (intern_c_string ("native-compile"), Qnil);
 #endif /* #ifdef HAVE_NATIVE_COMP */
 
   defsubr (&Snative_comp_available_p);

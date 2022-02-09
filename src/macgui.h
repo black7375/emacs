@@ -1,6 +1,6 @@
 /* Definitions and headers for communication on macOS.
    Copyright (C) 2000-2008 Free Software Foundation, Inc.
-   Copyright (C) 2009-2021  YAMAMOTO Mitsuharu
+   Copyright (C) 2009-2022  YAMAMOTO Mitsuharu
 
 This file is part of GNU Emacs Mac port.
 
@@ -31,9 +31,6 @@ typedef Lisp_Object XrmDatabase;
 #undef malloc
 #undef realloc
 #endif	/* HAVE_UNEXEC */
-#ifdef INFINITY
-#define INFINITY_DEFINED 1
-#endif
 /* Macros max and min defined in lisp.h conflict with those in
    precompiled header Carbon.h.  */
 #undef max
@@ -52,9 +49,6 @@ typedef Lisp_Object XrmDatabase;
 #define min(a, b) ((a) < (b) ? (a) : (b))
 #undef max
 #define max(a, b) ((a) > (b) ? (a) : (b))
-#ifndef INFINITY_DEFINED
-#undef INFINITY
-#endif
 #undef Z
 #define Z (current_buffer->text->z)
 #undef ALIGN

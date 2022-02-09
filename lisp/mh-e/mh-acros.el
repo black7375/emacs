@@ -1,6 +1,6 @@
 ;;; mh-acros.el --- macros used in MH-E  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2004, 2006-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2004, 2006-2022 Free Software Foundation, Inc.
 
 ;; Author: Satyaki Das <satyaki@theforce.stanford.edu>
 ;; Maintainer: Bill Wohler <wohler@newt.com>
@@ -35,8 +35,6 @@
 ;; was added to the Local Variables section to avoid this problem and
 ;; because it's pointless to compile a file full of macros. But we
 ;; kept the name.
-
-;;; Change Log:
 
 ;;; Code:
 

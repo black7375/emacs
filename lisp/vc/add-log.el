@@ -1,6 +1,6 @@
 ;;; add-log.el --- change log maintenance commands for Emacs  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1986, 1988, 1993-1994, 1997-1998, 2000-2021 Free
+;; Copyright (C) 1985-1986, 1988, 1993-1994, 1997-1998, 2000-2022 Free
 ;; Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -930,8 +930,7 @@ non-nil, otherwise in local time."
 			    (not (looking-at "[ \t]+.*<.*>$")))
 			  (setq hit t)))))
             (forward-line 1)
-          (insert (nth (random (length new-entries))
-                       new-entries)
+          (insert (and new-entries (seq-random-elt new-entries))
                   (if use-hard-newlines hard-newline "\n")
                   (if use-hard-newlines hard-newline "\n"))
           (forward-line -1))))
@@ -1194,7 +1193,7 @@ file were isearch was started."
     (forward-paragraph n)))
 
 (defcustom add-log-current-defun-header-regexp
-  "^\\([[:upper:]][[:upper:]_ ]*[[:upper:]_]\\|[-_[:alpha:]]+\\)[ \t]*[:=]"
+  "^\\([[:upper:]][[:upper:]_ ]*[[:upper:]_]\\|[-_[:alnum:]]*[[:alpha:]][-_[:alnum:]]*\\)[ \t]*[:=]"
   "Heuristic regexp used by `add-log-current-defun' for unknown major modes.
 The regexp's first submatch is placed in the ChangeLog entry, in
 parentheses."

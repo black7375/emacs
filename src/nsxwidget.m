@@ -1,6 +1,6 @@
 /* NS Cocoa part implementation of xwidget and webkit widget.
 
-Copyright (C) 2019-2021 Free Software Foundation, Inc.
+Copyright (C) 2019-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -24,7 +24,17 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "dispextern.h"
 #include "buffer.h"
 #include "frame.h"
-#include "nsterm.h"
+#ifdef HAVE_MACGUI
+# include "menu.h"
+# include "macterm.h"
+# import "macappkit.h"
+# define MAC_BEGIN_GUI	mac_within_gui_check_thread (^{
+# define MAC_END_GUI	})
+#else
+# include "nsterm.h"
+# define MAC_BEGIN_GUI
+# define MAC_END_GUI
+#endif
 #include "xwidget.h"
 
 #import <AppKit/AppKit.h>
@@ -45,6 +55,18 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
    For other widget types, OSR seems possible, but will not care for a
    while.  */
+
+#if MAC_OS_X_VERSION_MAX_ALLOWED < 101100
+@interface WKWebView (AvailableOn101100AndLater)
+@property (nullable, nonatomic, copy) NSString *customUserAgent;
+@end
+#endif
+
+#if MAC_OS_X_VERSION_MAX_ALLOWED < 101200
+@interface WKOpenPanelParameters : NSObject
+@property (nonatomic, readonly) BOOL allowsMultipleSelection;
+@end
+#endif
 
 /* Xwidget webkit.  */
 
@@ -81,6 +103,9 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
       self.urlScriptBlocked = [[NSMutableDictionary alloc] init];
       self.navigationDelegate = self;
       self.UIDelegate = self;
+#if MAC_OS_X_VERSION_MIN_REQUIRED < 101100
+      if ([self respondsToSelector:@selector(setCustomUserAgent:)])
+#endif
       self.customUserAgent =
         @"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_12_6)"
         @" AppleWebKit/603.3.8 (KHTML, like Gecko)"
@@ -177,7 +202,11 @@ createWebViewWithConfiguration:(WKWebViewConfiguration *)configuration
 - (void)webView:(WKWebView *)webView
 runOpenPanelWithParameters:(WKOpenPanelParameters *)parameters
 initiatedByFrame:(WKFrameInfo *)frame
+#ifdef HAVE_MACGUI
+completionHandler:(void (^)(NSArrayOf (NSURL *) *URLs))completionHandler
+#else
 completionHandler:(void (^)(NSArray<NSURL *> *URLs))completionHandler
+#endif
 {
   NSOpenPanel *openPanel = [NSOpenPanel openPanel];
   openPanel.canChooseFiles = YES;
@@ -247,7 +276,11 @@ completionHandler:(void (^)(NSArray<NSURL *> *URLs))completionHandler
     }];
 }
 
+#ifdef HAVE_MACGUI
+- (void)interpretKeyEvents:(NSArrayOf (NSEvent *) *)eventArray
+#else
 - (void)interpretKeyEvents:(NSArray<NSEvent *> *)eventArray
+#endif
 {
   /* We should do nothing and do not forward (default implementation
      if we not override here) to let emacs collect key events and ask
@@ -294,6 +327,17 @@ static NSString *xwScript;
 
 @end
 
+#ifdef HAVE_MACGUI
+static void
+mac_within_gui_check_thread (void (^ CF_NOESCAPE block) (void))
+{
+  if (!pthread_main_np ())
+    mac_within_gui (block);
+  else
+    block ();
+}
+#endif
+
 /* Xwidget webkit commands.  */
 
 bool
@@ -326,7 +370,9 @@ nsxwidget_webkit_goto_uri (struct xwidget *xw, const char *uri)
   NSString *urlString = [NSString stringWithUTF8String:uri];
   NSURL *url = [NSURL URLWithString:urlString];
   NSURLRequest *urlRequest = [NSURLRequest requestWithURL:url];
+  MAC_BEGIN_GUI;
   [xwWebView loadRequest:urlRequest];
+  MAC_END_GUI;
 }
 
 void
@@ -344,8 +390,10 @@ void
 nsxwidget_webkit_zoom (struct xwidget *xw, double zoom_change)
 {
   XwWebView *xwWebView = (XwWebView *) xw->xwWidget;
+  MAC_BEGIN_GUI;
   xwWebView.magnification += zoom_change;
   /* TODO: setMagnification:centeredAtPoint.  */
+  MAC_END_GUI;
 }
 
 /* Recursively convert an objc native type JavaScript value to a Lisp
@@ -418,6 +466,7 @@ nsxwidget_webkit_execute_script (struct xwidget *xw, const char *script,
     }
 
   NSString *javascriptString = [NSString stringWithUTF8String:script];
+  MAC_BEGIN_GUI;
   [xwWebView evaluateJavaScript:javascriptString
               completionHandler:^(id result, NSError *error) {
       if (error)
@@ -432,6 +481,7 @@ nsxwidget_webkit_execute_script (struct xwidget *xw, const char *script,
           store_xwidget_js_callback_event (xw, fun, lisp_value);
         }
     }];
+  MAC_END_GUI;
 }
 
 /* Window containing an xwidget.  */
@@ -446,6 +496,7 @@ void
 nsxwidget_init(struct xwidget *xw)
 {
   block_input ();
+  MAC_BEGIN_GUI;
   NSRect rect = NSMakeRect (0, 0, xw->width, xw->height);
   xw->xwWidget = [[XwWebView alloc]
                    initWithFrame:rect
@@ -455,6 +506,7 @@ nsxwidget_init(struct xwidget *xw)
                    initWithFrame:rect];
   [xw->xwWindow addSubview:xw->xwWidget];
   xw->xv = NULL; /* for 1 to 1 relationship of webkit2.  */
+  MAC_END_GUI;
   unblock_input ();
 }
 
@@ -463,11 +515,14 @@ nsxwidget_kill (struct xwidget *xw)
 {
   if (xw)
     {
+      MAC_BEGIN_GUI;
       WKUserContentController *scriptor =
         ((XwWebView *) xw->xwWidget).configuration.userContentController;
       [scriptor removeAllUserScripts];
       [scriptor removeScriptMessageHandlerForName:@"keyDown"];
+#if !USE_ARC
       [scriptor release];
+#endif
       if (xw->xv)
         xw->xv->model = Qnil; /* Make sure related view stale.  */
 
@@ -475,12 +530,21 @@ nsxwidget_kill (struct xwidget *xw)
          killed.  I could not find other solution.  */
       nsxwidget_webkit_goto_uri (xw, "about:blank");
 
+#if !USE_ARC
       [((XwWebView *) xw->xwWidget).urlScriptBlocked release];
+#endif
       [xw->xwWidget removeFromSuperviewWithoutNeedingDisplay];
+#if !USE_ARC
       [xw->xwWidget release];
+#endif
       [xw->xwWindow removeFromSuperviewWithoutNeedingDisplay];
+#if !USE_ARC
       [xw->xwWindow release];
+#else
+      xw->xwWindow = nil;
+#endif
       xw->xwWidget = nil;
+      MAC_END_GUI;
     }
 }
 
@@ -489,8 +553,10 @@ nsxwidget_resize (struct xwidget *xw)
 {
   if (xw->xwWidget)
     {
+      MAC_BEGIN_GUI;
       [xw->xwWindow setFrameSize:NSMakeSize(xw->width, xw->height)];
       [xw->xwWidget setFrameSize:NSMakeSize(xw->width, xw->height)];
+      MAC_END_GUI;
     }
 }
 
@@ -523,6 +589,7 @@ nsxwidget_init_view (struct xwidget_view *xv,
   xv->clip_top = 0;
   xv->clip_bottom = xw->height;
 
+  MAC_BEGIN_GUI;
   xv->xvWindow = [[XvWindow alloc]
                    initWithFrame:NSMakeRect (x, y, xw->width, xw->height)];
   xv->xvWindow.xw = xw;
@@ -531,13 +598,20 @@ nsxwidget_init_view (struct xwidget_view *xv,
   xw->xv = xv; /* For 1 to 1 relationship of webkit2.  */
   [xv->xvWindow addSubview:xw->xwWindow];
 
+#ifdef HAVE_MACGUI
+  xv->emacswindow = (__bridge NSView *) FRAME_MAC_VIEW (s->f);
+#else
   xv->emacswindow = FRAME_NS_VIEW (s->f);
+#endif
+
   [xv->emacswindow addSubview:xv->xvWindow];
+  MAC_END_GUI;
 }
 
 void
 nsxwidget_delete_view (struct xwidget_view *xv)
 {
+  MAC_BEGIN_GUI;
   if (!EQ (xv->model, Qnil))
     {
       struct xwidget *xw = XXWIDGET (xv->model);
@@ -545,34 +619,48 @@ nsxwidget_delete_view (struct xwidget_view *xv)
       xw->xv = NULL; /* Now model has no view.  */
     }
   [xv->xvWindow removeFromSuperviewWithoutNeedingDisplay];
+#if !USE_ARC
   [xv->xvWindow release];
+#else
+  xv->xvWindow = nil;
+  xv->emacswindow = nil;
+#endif
+  MAC_END_GUI;
 }
 
 void
 nsxwidget_show_view (struct xwidget_view *xv)
 {
   xv->hidden = NO;
+  MAC_BEGIN_GUI;
   [xv->xvWindow setFrameOrigin:NSMakePoint(xv->x + xv->clip_left,
                                            xv->y + xv->clip_top)];
+  MAC_END_GUI;
 }
 
 void
 nsxwidget_hide_view (struct xwidget_view *xv)
 {
   xv->hidden = YES;
+  MAC_BEGIN_GUI;
   [xv->xvWindow setFrameOrigin:NSMakePoint(10000, 10000)];
+  MAC_END_GUI;
 }
 
 void
 nsxwidget_resize_view (struct xwidget_view *xv, int width, int height)
 {
+  MAC_BEGIN_GUI;
   [xv->xvWindow setFrameSize:NSMakeSize(width, height)];
+  MAC_END_GUI;
 }
 
 void
 nsxwidget_move_view (struct xwidget_view *xv, int x, int y)
 {
+  MAC_BEGIN_GUI;
   [xv->xvWindow setFrameOrigin:NSMakePoint (x, y)];
+  MAC_END_GUI;
 }
 
 /* Move model window in container (view window).  */
@@ -580,11 +668,15 @@ void
 nsxwidget_move_widget_in_view (struct xwidget_view *xv, int x, int y)
 {
   struct xwidget *xww = xv->xvWindow.xw;
+  MAC_BEGIN_GUI;
   [xww->xwWindow setFrameOrigin:NSMakePoint (x, y)];
+  MAC_END_GUI;
 }
 
 void
 nsxwidget_set_needsdisplay (struct xwidget_view *xv)
 {
+  MAC_BEGIN_GUI;
   xv->xvWindow.needsDisplay = YES;
+  MAC_END_GUI;
 }

@@ -1,6 +1,6 @@
 ;;; erc-backend.el --- Backend network communication for ERC  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2004-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2022 Free Software Foundation, Inc.
 
 ;; Filename: erc-backend.el
 ;; Author: Lawrence Mitchell <wence@gmx.li>
@@ -138,6 +138,13 @@ Use `erc-current-nick' to access this.")
 (defvar-local erc-session-port nil
   "The port used to connect to.")
 
+(defvar-local erc-session-client-certificate nil
+  "TLS client certificate used when connecting over TLS.
+If non-nil, should either be a list where the first element is
+the certificate key file name, and the second element is the
+certificate file name itself, or t, which means that
+`auth-source' will be queried for the key and the certificate.")
+
 (defvar-local erc-server-announced-name nil
   "The name the server announced to use.")
 
@@ -226,8 +233,7 @@ This is useful for detecting hung connections.")
 This variable is only set in a server buffer.")
 
 (defvar-local erc-server-filter-data nil
-  "The data that arrived from the server
-but has not been processed yet.")
+  "The data that arrived from the server but has not been processed yet.")
 
 (defvar-local erc-server-duplicates (make-hash-table :test 'equal)
   "Internal variable used to track duplicate messages.")
@@ -271,16 +277,15 @@ Reconnection will happen automatically for any unexpected disconnection."
   :type 'boolean)
 
 (defcustom erc-server-reconnect-attempts 2
-  "The number of times that ERC will attempt to reestablish a
-broken connection, or t to always attempt to reconnect.
+  "Number of times that ERC will attempt to reestablish a broken connection.
+If t, always attempt to reconnect.
 
 This only has an effect if `erc-server-auto-reconnect' is non-nil."
   :type '(choice (const :tag "Always reconnect" t)
                  integer))
 
 (defcustom erc-server-reconnect-timeout 1
-  "The amount of time, in seconds, that ERC will wait between
-successive reconnect attempts.
+  "Number of seconds to wait between successive reconnect attempts.
 
 If a key is pressed while ERC is waiting, it will stop waiting."
   :type 'number)
@@ -439,7 +444,7 @@ Currently this is called by `erc-send-input'."
 
 (defun erc-forward-word ()
   "Move forward one word, ignoring any subword settings.
-If no subword-mode is active, then this is (forward-word)."
+If no `subword-mode' is active, then this is (forward-word)."
   (skip-syntax-forward "^w")
   (> (skip-syntax-forward "w") 0))
 
@@ -453,7 +458,7 @@ If POS is out of range, the value is nil."
 
 (defun erc-bounds-of-word-at-point ()
   "Return the bounds of word at point, or nil if we're not at a word.
-If no subword-mode is active, then this is
+If no `subword-mode' is active, then this is
 \(bounds-of-thing-at-point 'word)."
   (if (or (erc-word-at-arg-p (point))
           (erc-word-at-arg-p (1- (point))))
@@ -505,18 +510,23 @@ The current buffer is given by BUFFER."
          (memq (process-status erc-server-process) '(run open)))))
 
 ;;;; Connecting to a server
-(defun erc-open-network-stream (name buffer host service)
-  "As `open-network-stream', but does non-blocking IO"
-  (make-network-process :name name :buffer  buffer
-                        :host host :service service :nowait t))
+(defun erc-open-network-stream (name buffer host service &rest parameters)
+  "Like `open-network-stream', but does non-blocking IO."
+  (let ((p (plist-put parameters :nowait t)))
+    (apply #'open-network-stream name buffer host service p)))
 
-(defun erc-server-connect (server port buffer)
+(defun erc-server-connect (server port buffer &optional client-certificate)
   "Perform the connection and login using the specified SERVER and PORT.
-We will store server variables in the buffer given by BUFFER."
-  (let ((msg (erc-format-message 'connect ?S server ?p port)) process)
+We will store server variables in the buffer given by BUFFER.
+CLIENT-CERTIFICATE may optionally be used to specify a TLS client
+certificate to use for authentication when connecting over
+TLS (see `erc-session-client-certificate' for more details)."
+  (let ((msg (erc-format-message 'connect ?S server ?p port)) process
+        (args `(,(format "erc-%s-%s" server port) nil ,server ,port)))
+    (when client-certificate
+      (setq args `(,@args :client-certificate ,client-certificate)))
     (message "%s" msg)
-    (setq process (funcall erc-server-connect-function
-                           (format "erc-%s-%s" server port) nil server port))
+    (setq process (apply erc-server-connect-function args))
     (unless (processp process)
       (error "Connection attempt failed"))
     ;; Misc server variables
@@ -938,15 +948,22 @@ PROCs `process-buffer' is `current-buffer' when this function is called."
   (unless (string= string "") ;; Ignore empty strings
     (save-match-data
       (let* ((tag-list (when (eq (aref string 0) ?@)
-                         (substring string 1 (string-match " " string))))
+                         (substring string 1
+                                    (if (>= emacs-major-version 28)
+                                        (string-search " " string)
+                                      (string-match " " string)))))
              (msg (make-erc-response :unparsed string :tags (when tag-list
                                                               (erc-parse-tags
                                                                tag-list))))
              (string (if tag-list
-                         (substring string (+ 1 (string-match " " string)))
+                         (substring string (+ 1 (if (>= emacs-major-version 28)
+                                                    (string-search " " string)
+                                                  (string-match " " string))))
                        string))
              (posn (if (eq (aref string 0) ?:)
-                       (string-match " " string)
+                       (if (>= emacs-major-version 28)
+                           (string-search " " string)
+                         (string-match " " string))
                      0)))
 
         (setf (erc-response.sender msg)
@@ -956,7 +973,9 @@ PROCs `process-buffer' is `current-buffer' when this function is called."
 
         (setf (erc-response.command msg)
               (let* ((bposn (string-match "[^ \n]" string posn))
-                     (eposn (string-match " " string bposn)))
+                     (eposn (if (>= emacs-major-version 28)
+                                (string-search " " string bposn)
+                              (string-match " " string bposn))))
                 (setq posn (and eposn
                                 (string-match "[^ \n]" string eposn)))
                 (substring string bposn eposn)))
@@ -964,7 +983,9 @@ PROCs `process-buffer' is `current-buffer' when this function is called."
         (while (and posn
                     (not (eq (aref string posn) ?:)))
           (push (let* ((bposn posn)
-                       (eposn (string-match " " string bposn)))
+                       (eposn (if (>= emacs-major-version 28)
+                                  (string-search " " string bposn)
+                                (string-match " " string bposn))))
                   (setq posn (and eposn
                                   (string-match "[^ \n]" string eposn)))
                   (substring string bposn eposn))
@@ -1511,7 +1532,8 @@ add things to `%s' instead."
        'WALLOPS ?n nick ?m message))))
 
 (define-erc-response-handler (001)
-  "Set `erc-server-current-nick' to reflect server settings and display the welcome message."
+  "Set `erc-server-current-nick' to reflect server settings.
+Then display the welcome message."
   nil
   (erc-set-current-nick (car (erc-response.command-args parsed)))
   (erc-update-mode-line)                ; needed here?
@@ -1749,7 +1771,7 @@ See `erc-display-server-message'." nil
      's324 ?c channel ?m modes)))
 
 (define-erc-response-handler (328)
-  "Channel URL (on freenode network)." nil
+  "Channel URL." nil
   (let ((channel (cadr (erc-response.command-args parsed)))
         (url (erc-response.contents parsed)))
     (erc-display-message parsed 'notice (erc-get-buffer channel proc)

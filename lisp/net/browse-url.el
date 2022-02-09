@@ -1,6 +1,6 @@
 ;;; browse-url.el --- pass a URL to a WWW browser  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1995-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1995-2022 Free Software Foundation, Inc.
 
 ;; Author: Denis Howe <dbh@doc.ic.ac.uk>
 ;; Maintainer: emacs-devel@gnu.org
@@ -38,7 +38,7 @@
 ;; browse-url-firefox                 Firefox     Don't know (tried with 1.0.1)
 ;; browse-url-chrome                  Chrome      47.0.2526.111
 ;; browse-url-chromium                Chromium    3.0
-;; browse-url-epiphany                Epiphany    Don't know
+;; browse-url-epiphany                GNOME Web (Epiphany)    Don't know
 ;; browse-url-w3                      w3          0
 ;; browse-url-text-*	              Any text browser     0
 ;; browse-url-generic                 arbitrary
@@ -47,6 +47,7 @@
 ;; browse-url-xdg-open                freedesktop.org xdg-open
 ;; browse-url-kde                     KDE konqueror (kfm)
 ;; browse-url-elinks                  Elinks      Don't know (tried with 0.12.GIT)
+;; eww-browse-url                     Emacs Web Wowser
 
 ;; Browsers can cache Web pages so it may be necessary to tell them to
 ;; reload the current page if it has changed (e.g., if you have edited
@@ -154,7 +155,7 @@
     (function-item :tag "Firefox" :value browse-url-firefox)
     (function-item :tag "Google Chrome" :value browse-url-chrome)
     (function-item :tag "Chromium" :value browse-url-chromium)
-    (function-item :tag "Epiphany" :value  browse-url-epiphany)
+    (function-item :tag "GNOME Web (Epiphany)" :value  browse-url-epiphany)
     (function-item :tag "Text browser in an xterm window"
 		   :value browse-url-text-xterm)
     (function-item :tag "Text browser in an Emacs window"
@@ -352,15 +353,15 @@ Defaults to the value of `browse-url-galeon-arguments' at the time
 (make-obsolete-variable 'browse-url-galeon-startup-arguments nil "25.1")
 
 (defcustom browse-url-epiphany-program "epiphany"
-  "The name by which to invoke Epiphany."
+  "The name by which to invoke GNOME Web (Epiphany)."
   :type 'string)
 
 (defcustom browse-url-epiphany-arguments nil
-  "A list of strings to pass to Epiphany as arguments."
+  "A list of strings to pass to GNOME Web (Epiphany) as arguments."
   :type '(repeat (string :tag "Argument")))
 
 (defcustom browse-url-epiphany-startup-arguments browse-url-epiphany-arguments
-  "A list of strings to pass to Epiphany when it starts up.
+  "A list of strings to pass to GNOME Web (Epiphany) when it starts up.
 Defaults to the value of `browse-url-epiphany-arguments' at the time
 `browse-url' is loaded."
   :type '(repeat (string :tag "Argument")))
@@ -691,16 +692,11 @@ alist is deprecated.  Use `browse-url-handlers' instead.")
 
 (defun browse-url-url-encode-chars (text chars)
   "URL-encode the chars in TEXT that match CHARS.
-CHARS is a regexp-like character alternative (e.g., \"[)$]\")."
-  (let ((encoded-text (copy-sequence text))
-	(s 0))
-    (while (setq s (string-match chars encoded-text s))
-      (setq encoded-text
-	    (replace-match (format "%%%X"
-				   (string-to-char (match-string 0 encoded-text)))
-			   t t encoded-text)
-	    s (1+ s)))
-    encoded-text))
+CHARS is a regexp that matches a character."
+  (replace-regexp-in-string chars
+                            (lambda (s)
+                              (format "%%%X" (string-to-char s)))
+                            text))
 
 (defun browse-url-encode-url (url)
   "Escape annoying characters in URL.
@@ -709,7 +705,7 @@ regarding its parameter treatment."
   ;; FIXME: Is there an actual example of a web browser getting
   ;; confused?  (This used to encode commas, but at least Firefox
   ;; handles commas correctly and doesn't accept encoded commas.)
-  (browse-url-url-encode-chars url "[\")$] "))
+  (browse-url-url-encode-chars url "[\"()$ ]"))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; URL input
@@ -734,7 +730,8 @@ position clicked before acting.
 This function returns a list (URL NEW-WINDOW-FLAG)
 for use in `interactive'."
   (let ((event (elt (this-command-keys) 0)))
-    (and (listp event) (mouse-set-point event)))
+    (when (mouse-event-p event)
+      (mouse-set-point event)))
   (list (read-string prompt (or (and transient-mark-mode mark-active
 				     ;; rfc2396 Appendix E.
 				     (replace-regexp-in-string
@@ -758,7 +755,7 @@ for use in `interactive'."
 
 ;;;###autoload
 (defun browse-url-of-file (&optional file)
-  "Ask a WWW browser to display FILE.
+  "Use a web browser to display FILE.
 Display the current buffer's file if FILE is nil or if called
 interactively.  Turn the filename into a URL with function
 `browse-url-file-url'.  Pass the URL to a browser using the
@@ -773,6 +770,8 @@ interactively.  Turn the filename into a URL with function
 	  (cond ((not (buffer-modified-p)))
 		(browse-url-save-file (save-buffer))
 		(t (message "%s modified since last save" file))))))
+  (when (file-remote-p file)
+    (setq file (file-local-copy file)))
   (browse-url (browse-url-file-url file))
   (run-hooks 'browse-url-of-file-hook))
 
@@ -793,7 +792,9 @@ Use variable `browse-url-filename-alist' to map filenames to URLs."
 
 ;;;###autoload
 (defun browse-url-of-buffer (&optional buffer)
-  "Ask a WWW browser to display BUFFER.
+  "Use a web browser to display BUFFER.
+See `browse-url' for details.
+
 Display the current buffer if BUFFER is nil.  Display only the
 currently visible part of BUFFER (from a temporary file) if buffer is
 narrowed."
@@ -842,7 +843,8 @@ If optional arg TEMP-FILE-NAME is non-nil, delete it instead."
 
 ;;;###autoload
 (defun browse-url-of-region (min max)
-  "Ask a WWW browser to display the current region."
+  "Use a web browser to display the current region.
+See `browse-url' for details."
   (interactive "r")
   (save-excursion
     (save-restriction
@@ -856,13 +858,17 @@ If optional arg TEMP-FILE-NAME is non-nil, delete it instead."
 
 ;;;###autoload
 (defun browse-url (url &rest args)
-  "Ask a WWW browser to load URL.
-Prompt for a URL, defaulting to the URL at or before point.
-Invokes a suitable browser function which does the actual job.
+  "Open URL using a configurable method.
+This will typically (by default) open URL with an external web
+browser, but a wide variety of different methods can be used,
+depending on the URL type.
 
 The variables `browse-url-browser-function',
 `browse-url-handlers', and `browse-url-default-handlers'
 determine which browser function to use.
+
+This command prompts for a URL, defaulting to the URL at or
+before point.
 
 The additional ARGS are passed to the browser function.  See the
 doc strings of the actual functions, starting with
@@ -895,8 +901,8 @@ If ARGS are omitted, the default is to pass
 
 ;;;###autoload
 (defun browse-url-at-point (&optional arg)
-  "Ask a WWW browser to load the URL at or before point.
-Variable `browse-url-browser-function' says which browser to use.
+  "Open URL at point using a configurable method.
+See `browse-url' for details.
 Optional prefix argument ARG non-nil inverts the value of the option
 `browse-url-new-window-flag'."
   (interactive "P")
@@ -937,10 +943,11 @@ opposite of the browser kind of `browse-url-browser-function'."
 
 ;;;###autoload
 (defun browse-url-at-mouse (event)
-  "Ask a WWW browser to load a URL clicked with the mouse.
-The URL is the one around or before the position of the mouse click
-but point is not changed.  Variable `browse-url-browser-function'
-says which browser to use."
+  "Use a web browser to load a URL clicked with the mouse.
+See `browse-url' for details.
+
+The URL is the one around or before the position of the mouse
+click but point is not changed."
   (interactive "e")
   (save-excursion
     (mouse-set-point event)
@@ -960,6 +967,7 @@ says which browser to use."
   "Invoke the MS-Windows system's default Web browser.
 The optional NEW-WINDOW argument is not used."
   (interactive (browse-url-interactive-arg "URL: "))
+  (setq url (browse-url-encode-url url))
   (cond ((eq system-type 'ms-dos)
 	 (if dos-windows-version
 	     (shell-command (concat "start " (shell-quote-argument url)))
@@ -989,6 +997,7 @@ The optional NEW-WINDOW argument is not used."
   "Invoke the macOS system's default Web browser.
 The optional NEW-WINDOW argument is not used."
   (interactive (browse-url-interactive-arg "URL: "))
+  (setq url (browse-url-encode-url url))
   (start-process (concat "open " url) nil "open" url))
 
 (function-put 'browse-url-default-macosx-browser 'browse-url-browser-kind
@@ -1113,8 +1122,8 @@ used instead of `browse-url-new-window-flag'."
 					 ",new-window"))
 				   ")"))))))))
     (set-process-sentinel process
-			  `(lambda (process change)
-			     (browse-url-netscape-sentinel process ,url)))))
+			  (lambda (process _change)
+			    (browse-url-netscape-sentinel process url)))))
 
 (function-put 'browse-url-netscape 'browse-url-browser-kind 'external)
 
@@ -1185,8 +1194,8 @@ used instead of `browse-url-new-window-flag'."
 				      ",new-window"))
 				")"))))))
     (set-process-sentinel process
-			  `(lambda (process change)
-			     (browse-url-mozilla-sentinel process ,url)))))
+			  (lambda (process _change)
+			    (browse-url-mozilla-sentinel process url)))))
 
 (function-put 'browse-url-mozilla 'browse-url-browser-kind 'external)
 
@@ -1303,8 +1312,8 @@ used instead of `browse-url-new-window-flag'."
                             '("--existing"))
                           (list url)))))
     (set-process-sentinel process
-			  `(lambda (process change)
-			     (browse-url-galeon-sentinel process ,url)))))
+			  (lambda (process _change)
+			    (browse-url-galeon-sentinel process url)))))
 
 (function-put 'browse-url-galeon 'browse-url-browser-kind 'external)
 
@@ -1320,12 +1329,12 @@ used instead of `browse-url-new-window-flag'."
 	       (append browse-url-galeon-startup-arguments (list url))))))
 
 (defun browse-url-epiphany (url &optional new-window)
-  "Ask the Epiphany WWW browser to load URL.
+  "Ask the GNOME Web (Epiphany) WWW browser to load URL.
 Default to the URL around or before point.  The strings in variable
-`browse-url-galeon-arguments' are also passed to Epiphany.
+`browse-url-epiphany-arguments' are also passed to GNOME Web.
 
 When called interactively, if variable `browse-url-new-window-flag' is
-non-nil, load the document in a new Epiphany window, otherwise use a
+non-nil, load the document in a new GNOME Web window, otherwise use a
 random existing one.  A non-nil interactive prefix argument reverses
 the effect of `browse-url-new-window-flag'.
 
@@ -1351,16 +1360,16 @@ used instead of `browse-url-new-window-flag'."
                             '("--existing"))
                           (list url)))))
     (set-process-sentinel process
-			  `(lambda (process change)
-			     (browse-url-epiphany-sentinel process ,url)))))
+			  (lambda (process _change)
+			    (browse-url-epiphany-sentinel process url)))))
 
 (function-put 'browse-url-epiphany 'browse-url-browser-kind 'external)
 
 (defun browse-url-epiphany-sentinel (process url)
-  "Handle a change to the process communicating with Epiphany."
+  "Handle a change to the process communicating with GNOME Web (Epiphany)."
   (or (eq (process-exit-status process) 0)
       (let* ((process-environment (browse-url-process-environment)))
-	;; Epiphany is not running - start it
+        ;; GNOME Web is not running - start it
 	(message "Starting %s..." browse-url-epiphany-program)
 	(apply #'start-process (concat "epiphany " url) nil
 	       browse-url-epiphany-program
@@ -1592,7 +1601,7 @@ used instead of `browse-url-new-window-flag'."
 
 ;; --- mailto ---
 
-(autoload 'rfc2368-parse-mailto-url "rfc2368")
+(autoload 'rfc6068-parse-mailto-url "rfc6068")
 
 ;;;###autoload
 (defun browse-url-mail (url &optional new-window)
@@ -1611,7 +1620,7 @@ When called non-interactively, optional second argument NEW-WINDOW is
 used instead of `browse-url-new-window-flag'."
   (interactive (browse-url-interactive-arg "Mailto URL: "))
   (save-excursion
-    (let* ((alist (rfc2368-parse-mailto-url url))
+    (let* ((alist (rfc6068-parse-mailto-url url))
 	   (to (assoc "To" alist))
 	   (subject (assoc "Subject" alist))
 	   (body (assoc "Body" alist))
@@ -1633,7 +1642,7 @@ used instead of `browse-url-new-window-flag'."
 	  (insert "\n"))
 	(goto-char (prog1
 		       (point)
-		     (insert (replace-regexp-in-string "\r\n" "\n" body))
+		     (insert (string-replace "\r\n" "\n" body))
 		     (unless (bolp)
 		       (insert "\n"))))))))
 
@@ -1715,8 +1724,8 @@ from `browse-url-elinks-wrapper'."
 	  (elinks-ping-process (start-process "elinks-ping" nil
 					      "elinks" "-remote" "ping()")))
       (set-process-sentinel elinks-ping-process
-			    `(lambda (process change)
-			       (browse-url-elinks-sentinel process ,url))))))
+			    (lambda (process _change)
+			      (browse-url-elinks-sentinel process url))))))
 
 (function-put 'browse-url-elinks 'browse-url-browser-kind 'external)
 
@@ -1746,11 +1755,11 @@ from `browse-url-elinks-wrapper'."
     (define-key map [mouse-2] #'browse-url-button-open)
     (define-key map "w" #'browse-url-button-copy)
     map)
-  "The keymap used for browse-url buttons.")
+  "The keymap used for `browse-url' buttons.")
 
 (defface browse-url-button
   '((t :inherit link))
-  "Face for browse-url buttons (i.e., links)."
+  "Face for `browse-url' buttons (i.e., links)."
   :version "27.1")
 
 (defun browse-url-add-buttons ()
@@ -1769,6 +1778,7 @@ clickable and will use `browse-url' to open the URLs in question."
                                          category browse-url
                                          browse-url-data ,(match-string 0)))))))
 
+;;;###autoload
 (defun browse-url-button-open (&optional external mouse-event)
   "Follow the link under point using `browse-url'.
 If EXTERNAL (the prefix if used interactively), open with the
@@ -1782,6 +1792,7 @@ external browser instead of the default one."
         (funcall browse-url-secondary-browser-function url)
       (browse-url url))))
 
+;;;###autoload
 (defun browse-url-button-open-url (url)
   "Open URL using `browse-url'.
 If `current-prefix-arg' is non-nil, use

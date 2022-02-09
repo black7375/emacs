@@ -1,6 +1,6 @@
 ;;; js.el --- Major mode for editing JavaScript  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2008-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2022 Free Software Foundation, Inc.
 
 ;; Author: Karl Landstrom <karl.landstrom@brgeight.se>
 ;;         Daniel Colascione <dancol@dancol.org>
@@ -24,9 +24,9 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
-;;; Commentary
+;;; Commentary:
 
-;; This is based on Karl Landstrom's barebones javascript-mode. This
+;; This is based on Karl Landstrom's barebones javascript-mode.  This
 ;; is much more robust and works with cc-mode's comment filling
 ;; (mostly).
 ;;
@@ -237,8 +237,7 @@ will create multiple top-level entries.  Don't use :prototype
 unnecessarily: it has an associated cost in performance.
 
 If :strip-prototype is present and non-nil, then if the class
-name as matched contains
-")
+name as matched contains.")
 
 (defconst js--available-frameworks
   (cl-loop for style in js--class-styles
@@ -494,10 +493,11 @@ for preventing Firefox from stealing the keyboard focus."
   :type 'boolean)
 
 (defcustom js-js-tmpdir
-  "~/.emacs.d/js/js"
+  (locate-user-emacs-file "js/js")
   "Temporary directory used by `js-mode' to communicate with Mozilla.
 This directory must be readable and writable by both Mozilla and Emacs."
-  :type 'directory)
+  :type 'directory
+  :version "28.1")
 
 (defcustom js-js-timeout 5
   "Reply timeout for executing commands in Mozilla via `js-mode'.
@@ -553,8 +553,7 @@ If the previous expression also contains a \".\" at the same level,
 then the \".\"s will be lined up:
 
   let x = svg.mumble()
-             .chained;
-"
+             .chained;"
   :version "26.1"
   :type 'boolean
   :safe 'booleanp)
@@ -573,8 +572,8 @@ to `js-jsx-regexps', which see."
 
 This enables proper font-locking and indentation of code using
 Facebook’s “JSX” syntax extension for JavaScript, for use with
-Facebook’s “React” library.  Font-locking is like sgml-mode.
-Indentation is also like sgml-mode, although some indentation
+Facebook’s “React” library.  Font-locking is like `sgml-mode'.
+Indentation is also like `sgml-mode', although some indentation
 behavior may differ slightly to align more closely with the
 conventions of the React developer community.
 
@@ -1059,7 +1058,7 @@ Return the pitem of the function we went to the beginning of."
             (t
              (js--beginning-of-defun-nested))))))
 
-(defun js--flush-caches (&optional beg ignored)
+(defun js--flush-caches (&optional beg _ignored)
   "Flush the `js-mode' syntax cache after position BEG.
 BEG defaults to `point-min', meaning to flush the entire cache."
   (interactive)
@@ -1339,7 +1338,6 @@ LIMIT defaults to point."
 
 (defun js--end-of-defun-nested ()
   "Helper function for `js-end-of-defun'."
-  (message "test")
   (let* (pitem
          (this-end (save-excursion
                      (and (setq pitem (js--beginning-of-defun-nested))
@@ -1473,11 +1471,10 @@ LIMIT defaults to point."
   "Helper function for building `js--font-lock-keywords'.
 Create a byte-compiled function for matching a concatenation of
 REGEXPS, but only if FRAMEWORK is in `js-enabled-frameworks'."
-  (setq regexps (apply #'concat regexps))
-  (byte-compile
-   `(lambda (limit)
-      (when (memq (quote ,framework) js-enabled-frameworks)
-        (re-search-forward ,regexps limit t)))))
+  (let ((regexp (apply #'concat regexps)))
+    (lambda (limit)
+      (when (memq framework js-enabled-frameworks)
+        (re-search-forward regexp limit t)))))
 
 (defvar-local js--tmp-location nil)
 
@@ -2861,7 +2858,11 @@ return nil."
           ((nth 3 parse-status) 0) ; inside string
           ((when (and js-jsx-syntax (not js-jsx--indent-col))
              (save-excursion (js-jsx--indentation parse-status))))
-          ((eq (char-after) ?#) 0)
+          ((and (eq (char-after) ?#)
+                (save-excursion
+                  (forward-char 1)
+                  (looking-at-p cpp-font-lock-keywords-source-directives)))
+           0)
           ((save-excursion (js--beginning-of-macro)) 4)
           ;; Indent array comprehension continuation lines specially.
           ((let ((bracket (nth 1 parse-status))
@@ -3264,7 +3265,7 @@ the broken-down class name of the item to insert."
 
 (defun js--get-all-known-symbols ()
   "Return a hash table of all JavaScript symbols.
-This searches all existing `js-mode' buffers. Each key is the
+This searches all existing `js-mode' buffers.  Each key is the
 name of a symbol (possibly disambiguated with <N>, where N > 1),
 and each value is a marker giving the location of that symbol."
   (cl-loop with symbols = (make-hash-table :test 'equal)
@@ -4177,8 +4178,9 @@ browser, respectively."
                        "style" "")
                      cmds)))
 
-             (eval (list 'with-js
-                         (cons 'js-list (nreverse cmds))))))
+             (eval `(with-js
+                        (js-list ,@(nreverse cmds)))
+                   t)))
 
           (command-hook
            ()
@@ -4654,4 +4656,4 @@ one of the aforementioned options instead of using this mode."
 
 (provide 'js)
 
-;; js.el ends here
+;;; js.el ends here

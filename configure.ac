@@ -4,7 +4,7 @@ dnl	autoconf
 dnl in the directory containing this script.
 dnl If you changed any AC_DEFINES, also run autoheader.
 dnl
-dnl Copyright (C) 1994-1996, 1999-2021 Free Software Foundation, Inc.
+dnl Copyright (C) 1994-1996, 1999-2022 Free Software Foundation, Inc.
 dnl
 dnl  This file is part of GNU Emacs.
 dnl
@@ -23,7 +23,7 @@ dnl  along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 AC_PREREQ(2.65)
 dnl Note this is parsed by (at least) make-dist and lisp/cedet/ede/emacs.el.
-AC_INIT(GNU Emacs, 28.0.50, bug-gnu-emacs@gnu.org, , https://www.gnu.org/software/emacs/)
+AC_INIT(GNU Emacs, 28.0.91, bug-gnu-emacs@gnu.org, , https://www.gnu.org/software/emacs/)
 
 dnl Set emacs_config_options to the options of 'configure', quoted for the shell,
 dnl and then quoted again for a C string.  Separate options with spaces.
@@ -410,18 +410,19 @@ dnl This should be the last --with option, because --with-x is
 dnl added later on when we find the file name of X, and it's best to
 dnl keep them together visually.
 AC_ARG_WITH([x-toolkit],[AS_HELP_STRING([--with-x-toolkit=KIT],
- [use an X toolkit (KIT one of: yes or gtk, gtk2, gtk3, lucid or athena, no)])],
+ [use an X toolkit (KIT one of: yes or gtk, gtk2, gtk3, lucid or athena, motif, no)])],
 [	  case "${withval}" in
 	    y | ye | yes )	val=gtk ;;
 	    n | no )		val=no  ;;
 	    l | lu | luc | luci | lucid )	val=lucid ;;
 	    a | at | ath | athe | athen | athena )	val=athena ;;
+	    m | mo | mot | moti | motif )	val=motif ;;
 	    g | gt | gtk  )	val=gtk ;;
 	    gtk2  )	val=gtk2 ;;
 	    gtk3  )	val=gtk3 ;;
 	    * )
 AC_MSG_ERROR(['--with-x-toolkit=$withval' is invalid;
-this option's value should be 'yes', 'no', 'lucid', 'athena', 'gtk',
+this option's value should be 'yes', 'no', 'lucid', 'athena', 'motif', 'gtk',
 'gtk2' or 'gtk3'.  'yes' and 'gtk' are synonyms.
 'athena' and 'lucid' are synonyms.])
 	    ;;
@@ -460,7 +461,7 @@ OPTION_DEFAULT_ON([harfbuzz],[don't use HarfBuzz for text shaping])
 OPTION_DEFAULT_ON([libotf],[don't use libotf for OpenType font support])
 OPTION_DEFAULT_ON([m17n-flt],[don't use m17n-flt for text shaping])
 
-OPTION_DEFAULT_ON([toolkit-scroll-bars],[don't use Xaw3d/GTK toolkit scroll bars])
+OPTION_DEFAULT_ON([toolkit-scroll-bars],[don't use Motif/Xaw3d/GTK toolkit scroll bars])
 OPTION_DEFAULT_ON([xaw3d],[don't use Xaw3d])
 OPTION_DEFAULT_ON([xim],[at runtime, default X11 XIM to off])
 OPTION_DEFAULT_ON([xdbe],[don't use X11 double buffering support])
@@ -487,6 +488,7 @@ OPTION_DEFAULT_ON([zlib],[don't compile with zlib decompression support])
 OPTION_DEFAULT_ON([modules],[don't compile with dynamic modules support])
 OPTION_DEFAULT_ON([threads],[don't compile with elisp threading support])
 OPTION_DEFAULT_OFF([native-compilation],[compile with Emacs Lisp native compiler support])
+OPTION_DEFAULT_OFF([cygwin32-native-compilation],[use native compilation on 32-bit Cygwin])
 
 AC_ARG_WITH([file-notification],[AS_HELP_STRING([--with-file-notification=LIB],
  [use a file notification library (LIB one of: yes, inotify, kqueue, gfile, w32, no)])],
@@ -888,8 +890,8 @@ done
 ac_func_list=$funcs
 # Emacs does not use the wchar or wctype-h modules.
 AC_DEFUN([gt_TYPE_WINT_T],
-  [GNULIB_OVERRIDES_WINT_T=0
-   AC_SUBST([GNULIB_OVERRIDES_WINT_T])])
+  [GNULIBHEADERS_OVERRIDE_WINT_T=0
+   AC_SUBST([GNULIBHEADERS_OVERRIDE_WINT_T])])
 
 # Initialize gnulib right after choosing the compiler.
 dnl Amongst other things, this sets AR and ARFLAGS.
@@ -1345,6 +1347,11 @@ AC_CHECK_PROGS(BREW, [brew])
 if test -n "$BREW"; then
   AC_PATH_PROG([MAKEINFO], [makeinfo], [],
     [`$BREW --prefix texinfo 2>/dev/null`/bin$PATH_SEPARATOR$PATH])
+fi
+
+# Check MacPorts on macOS.
+if test $opsys = darwin; then
+  AC_PATH_PROG(HAVE_MACPORTS, port)
 fi
 
 ## Require makeinfo >= 4.13 (last of the 4.x series) to build the manuals.
@@ -1904,7 +1911,14 @@ if test "${with_mac}" != no; then
   fi
 
   mac_appbindir=${mac_appdir}/Emacs.app/Contents/MacOS
+  mac_applibexecdir=${mac_appdir}/Emacs.app/Contents/MacOS/libexec/${configuration}
+  mac_applibdir=${mac_appdir}/Emacs.app/Contents/Frameworks
   mac_appresdir=${mac_appdir}/Emacs.app/Contents/Resources
+
+  if test "${with_native_image_api}" = yes; then
+     AC_DEFINE(HAVE_NATIVE_IMAGE_API, 1, [Define to use native OS APIs for images.])
+     NATIVE_IMAGE_API="yes (mac)"
+  fi
 fi
 
 HAVE_NS=no
@@ -1922,10 +1936,11 @@ if test "${with_ns}" != no; then
   # so avoid NS_IMPL_COCOA if macuvs.h is absent.
   # Even a headless Emacs can build macuvs.h, so this should let you bootstrap.
   if test "${opsys}" = darwin && test -f "$srcdir/src/macuvs.h"; then
-     lispdirrel=Contents/Resources/lisp
      NS_IMPL_COCOA=yes
      ns_appdir=`pwd`/nextstep/Emacs.app
      ns_appbindir=${ns_appdir}/Contents/MacOS
+     ns_applibexecdir=${ns_appdir}/Contents/MacOS/libexec
+     ns_applibdir=${ns_appdir}/Contents/Frameworks
      ns_appresdir=${ns_appdir}/Contents/Resources
      ns_appsrc=Cocoa/Emacs.base
      ns_fontfile=macfont.o
@@ -1983,6 +1998,8 @@ fail;
   if test $NS_IMPL_GNUSTEP = yes; then
      ns_appdir=`pwd`/nextstep/Emacs.app
      ns_appbindir=${ns_appdir}
+     ns_applibexecdir=${ns_appdir}/libexec
+     ns_applibdir=${ns_appdir}/Frameworks
      ns_appresdir=${ns_appdir}/Resources
      ns_appsrc=GNUstep/Emacs.base
      ns_fontfile=nsfont.o
@@ -2032,12 +2049,13 @@ MAC_OBJ=
 MAC_OBJC_OBJ=
 if test "${HAVE_MACGUI}" = yes; then
   if test "${EN_MAC_SELF_CONTAINED}" = yes; then
+     AC_DEFINE(MAC_SELF_CONTAINED, 1, [Build an Mac bundled app])
      mac_self_contained=yes
      prefix=${mac_appresdir}
      exec_prefix=${mac_appbindir}
      dnl This one isn't really used, only archlibdir is.
-     libexecdir="\${mac_appbindir}/libexec"
-     archlibdir="\${mac_appbindir}/libexec"
+     libexecdir="\${mac_applibexecdir}"
+     archlibdir="\${mac_applibexecdir}"
      etcdocdir="\${mac_appresdir}/etc"
      etcdir="\${mac_appresdir}/etc"
      dnl FIXME maybe set datarootdir instead.
@@ -2045,7 +2063,8 @@ if test "${HAVE_MACGUI}" = yes; then
      infodir="\${mac_appresdir}/info"
      mandir="\${mac_appresdir}/man"
      lispdir="\${mac_appresdir}/lisp"
-     test "$locallisppathset" = no && locallisppath=""
+     lispdirrel="\${mac_appresdir}/lisp"
+     test "$locallisppathset" = no && locallisppath="\${mac_appresdir}/site-lisp"
      INSTALL_ARCH_INDEP_EXTRA=
   fi
 
@@ -2069,12 +2088,13 @@ if test "${HAVE_NS}" = yes; then
   window_system=nextstep
   # set up packaging dirs
   if test "${EN_NS_SELF_CONTAINED}" = yes; then
+     AC_DEFINE(NS_SELF_CONTAINED, 1, [Build an NS bundled app])
      ns_self_contained=yes
      prefix=${ns_appresdir}
      exec_prefix=${ns_appbindir}
      dnl This one isn't really used, only archlibdir is.
-     libexecdir="\${ns_appbindir}/libexec"
-     archlibdir="\${ns_appbindir}/libexec"
+     libexecdir="\${ns_applibexecdir}"
+     archlibdir="\${ns_applibexecdir}"
      etcdocdir="\${ns_appresdir}/etc"
      etcdir="\${ns_appresdir}/etc"
      dnl FIXME maybe set datarootdir instead.
@@ -2082,7 +2102,8 @@ if test "${HAVE_NS}" = yes; then
      infodir="\${ns_appresdir}/info"
      mandir="\${ns_appresdir}/man"
      lispdir="\${ns_appresdir}/lisp"
-     test "$locallisppathset" = no && locallisppath=""
+     lispdirrel="\${ns_appresdir}/lisp"
+     test "$locallisppathset" = no && locallisppath="\${ns_appresdir}/site-lisp"
      INSTALL_ARCH_INDEP_EXTRA=
   fi
 
@@ -2304,7 +2325,7 @@ if test "$window_system" = none && test "X$with_x" != "Xno"; then
    then
         AC_MSG_ERROR([You seem to be running X, but no X development libraries
 were found.  You should install the relevant development files for X
-and for the toolkit you want, such as Gtk+.  Also make
+and for the toolkit you want, such as Gtk+ or Motif.  Also make
 sure you have development files for image handling, i.e.
 tiff, gif, jpeg, png and xpm.
 If you are sure you want Emacs compiled without X window support, pass
@@ -2336,6 +2357,9 @@ doug_lea_malloc=$emacs_cv_var_doug_lea_malloc
 
 hybrid_malloc=
 system_malloc=yes
+
+dnl This must be before the test of $ac_cv_func_sbrk below.
+AC_CHECK_FUNCS_ONCE([sbrk])
 
 test $with_unexec = yes &&
 case "$opsys" in
@@ -2839,7 +2863,7 @@ if test "$with_xwidgets" != "no"; then
     EMACS_CHECK_MODULES([WEBKIT], [$WEBKIT_MODULES])
     HAVE_XWIDGETS=$HAVE_WEBKIT
     XWIDGETS_OBJ="xwidget.o"
-  elif test "${NS_IMPL_COCOA}" = "yes"; then
+  elif test "${HAVE_MACGUI}" = "yes" || test "${NS_IMPL_COCOA}" = "yes"; then
     dnl FIXME: Check framework WebKit2
     dnl WEBKIT_REQUIRED=M.m.p
     WEBKIT_LIBS="-Wl,-framework -Wl,WebKit"
@@ -2847,9 +2871,15 @@ if test "$with_xwidgets" != "no"; then
     HAVE_WEBKIT="yes"
     HAVE_XWIDGETS=$HAVE_WEBKIT
     XWIDGETS_OBJ="xwidget.o"
-    NS_OBJC_OBJ="$NS_OBJC_OBJ nsxwidget.o"
-    dnl Update NS_OBJC_OBJ with added nsxwidget.o
-    AC_SUBST(NS_OBJC_OBJ)
+    if test "${HAVE_MACGUI}" = "yes"; then
+      MAC_OBJC_OBJ="$MAC_OBJC_OBJ nsxwidget.o"
+      dnl Update MAC_OBJC_OBJ with added nsxwidget.o
+      AC_SUBST(MAC_OBJC_OBJ)
+    else
+      NS_OBJC_OBJ="$NS_OBJC_OBJ nsxwidget.o"
+      dnl Update NS_OBJC_OBJ with added nsxwidget.o
+      AC_SUBST(NS_OBJC_OBJ)
+    fi
   else
     AC_MSG_ERROR([xwidgets requested, it requires GTK3 as X window toolkit or macOS Cocoa as window system.])
   fi
@@ -2953,6 +2983,11 @@ fi
 AC_SUBST(SETTINGS_CFLAGS)
 AC_SUBST(SETTINGS_LIBS)
 
+USE_STARTUP_NOTIFICATION=no
+if test "${HAVE_GTK}" = "yes"; then
+    USE_STARTUP_NOTIFICATION=yes
+fi
+AC_SUBST(USE_STARTUP_NOTIFICATION)
 
 dnl SELinux is available for GNU/Linux only.
 HAVE_LIBSELINUX=no
@@ -3647,7 +3682,7 @@ AC_SUBST(LIBXPM)
 HAVE_JPEG=no
 LIBJPEG=
 if test "${HAVE_X11}" = "yes" || test "${HAVE_W32}" = "yes" \
-   || test "${HAVE_MACGUI}" = "yes" || test "${HAVE_NS}" = "yes"; then
+   || test "${HAVE_NS}" = "yes"; then
   if test "${with_jpeg}" != "no"; then
     AC_CACHE_CHECK([for jpeglib 6b or later],
       [emacs_cv_jpeglib],
@@ -3836,75 +3871,117 @@ AC_DEFUN([libgccjit_smoke_test], [
       }]])])
 
 AC_DEFUN([libgccjit_not_found], [
-  AC_MSG_ERROR([elisp native compiler requested but libgccjit not found.
-Please try installing libgccjit or similar package.
-If you are sure you want Emacs compiled without elisp native compiler, pass
-  --without-native-compilation
-to configure.])])
+  AC_MSG_ERROR([ELisp native compiler was requested, but libgccjit was not found.
+Please try installing libgccjit or a similar package.
+If you are sure you want Emacs be compiled without ELisp native compiler,
+pass the --without-native-compilation option to configure.])])
 
 AC_DEFUN([libgccjit_dev_not_found], [
-  AC_MSG_ERROR([elisp native compiler requested but libgccjit header files were
+  AC_MSG_ERROR([ELisp native compiler was requested, but libgccjit header files were
 not found.
-Please try installing libgccjit-dev or similar package.
-If you are sure you want Emacs compiled without elisp native compiler, pass
---without-nativecomp
-to configure.])])
+Please try installing libgccjit-dev or a similar package.
+If you are sure you want Emacs be compiled without ELisp native compiler,
+pass the --without-native-compilation option to configure.])])
 
 AC_DEFUN([libgccjit_broken], [
-  AC_MSG_ERROR([Installed libgccjit has failed passing the smoke test.
-You can verify it yourself compiling:
+  AC_MSG_ERROR([The installed libgccjit failed to compile and run a test program using
+the libgccjit library; see config.log for the details of the failure.
+The test program can be found here:
 <https://gcc.gnu.org/onlinedocs/jit/intro/tutorial01.html>.
-Please report the issue to your distribution if libgccjit was installed through
-that.
-Here instructions on how to compile and install libgccjit from source:
+You can try compiling it yourself to investigate the issues.
+Please report the issue to your distribution if libgccjit was installed
+through that.
+You can find the instructions on how to compile and install libgccjit from
+source on this site:
 <https://gcc.gnu.org/wiki/JIT>.])])
 
 HAVE_NATIVE_COMP=no
-LIBGCCJIT_LIB=
+LIBGCCJIT_LIBS=
+LIBGCCJIT_CFLAGS=
+if test "$canonical" = i686-pc-cygwin; then
+  if test "${with_cygwin32_native_compilation}" = yes; then
+    with_native_compilation=yes
+  elif test "${with_native_compilation}" != no; then
+    AC_MSG_ERROR([Native compilation is not supported on 32-bit Cygwin.
+If you really want to try it anyway, use the configure option
+'--with-cygwin32-native-compilation'.])
+  fi
+fi
+
 if test "${with_native_compilation}" != "no"; then
     if test "${HAVE_PDUMPER}" = no; then
-       AC_MSG_ERROR(['--with-nativecomp' requires '--with-dumping=pdumper'])
+       AC_MSG_ERROR(['--with-native-compilation' requires '--with-dumping=pdumper'])
     fi
     if test "${HAVE_ZLIB}" = no; then
-       AC_MSG_ERROR(['--with-nativecomp' requires zlib])
+       AC_MSG_ERROR(['--with-native-compilation' requires zlib])
     fi
 
-    # Ensure libgccjit installed by Homebrew can be found.
-    if test -n "$BREW"; then
-      BREW_LIBGCCJIT_PREFIX=`$BREW --prefix --installed libgccjit 2>/dev/null`
-      if test "$BREW_LIBGCCJIT_PREFIX"; then
-        brew_libdir=`find ${BREW_LIBGCCJIT_PREFIX}/ -name \*.so \
-                     | sed -e '1!d;s|/[[^/]]*\.so$||'`
-        CFLAGS="$CFLAGS -I${BREW_LIBGCCJIT_PREFIX}/include"
-        LDFLAGS="$LDFLAGS -L${brew_libdir} -I${BREW_LIBGCCJIT_PREFIX}/include"
+    SAVE_CFLAGS=$CFLAGS
+    SAVE_LIBS=$LIBS
+
+    if test "${opsys}" = "darwin"; then
+      # Ensure libgccjit installed by Homebrew or macports can be found.
+      if test -n "$BREW"; then
+        if test -n "`$BREW --prefix --installed libgccjit 2>/dev/null`"; then
+          MAC_CFLAGS="-I$(dirname $($BREW ls -v libgccjit | \
+                                                grep libgccjit.h))"
+          MAC_LIBS="-L$(dirname $($BREW ls -v libgccjit| \
+                                            grep libgccjit.so\$))"
+        fi
+      fi
+
+      if test -n "$HAVE_MACPORTS"; then
+        # Determine which gcc version has been installed (gcc11, for
+        # instance). Use the latest version, if more than one is
+        # available.  (We filter out the gcc4 packages, because they
+        # don't support jit, and they have names like "gcc49" that
+        # sort later than "gcc11".)
+        PORT_PACKAGE=$(port installed active | grep '^ *gcc@<:@0-9@:>@* ' | \
+                            awk '{ print $1; }' | grep -v 'gcc4@<:@0-9@:>@' | \
+                            sort -V | tail -n 1)
+        if test -n "$PORT_PACKAGE"; then
+          MAC_CFLAGS="-I$(dirname $(port contents $PORT_PACKAGE | \
+                                           grep libgccjit.h))"
+          MAC_LIBS="-L$(dirname $(port contents $PORT_PACKAGE | \
+                                              grep libgccjit.dylib))"
+        fi
+      fi
+
+      if test -n "$MAC_CFLAGS" && test -n "$MAC_LIBS"; then
+        CFLAGS="$CFLAGS ${MAC_CFLAGS}"
+        LIBS="$LIBS ${MAC_LIBS}"
       fi
     fi
 
     # Check if libgccjit is available.
     AC_CHECK_LIB(gccjit, gcc_jit_context_acquire, [], [libgccjit_not_found])
     AC_CHECK_HEADERS(libgccjit.h, [], [libgccjit_dev_not_found])
-    emacs_save_LIBS=$LIBS
-    LIBS="-lgccjit"
     # Check if libgccjit really works.
     AC_RUN_IFELSE([libgccjit_smoke_test], [], [libgccjit_broken])
-    LIBS=$emacs_save_LIBS
     HAVE_NATIVE_COMP=yes
     case "${opsys}" in
       # mingw32 loads the library dynamically.
       mingw32) ;;
       # OpenBSD doesn't have libdl, all the functions are in libc
       netbsd|openbsd)
-        LIBGCCJIT_LIB="-lgccjit" ;;
+        LIBGCCJIT_LIBS="-lgccjit" ;;
+      darwin)
+        LIBGCCJIT_CFLAGS="${MAC_CFLAGS}"
+        LIBGCCJIT_LIBS="${MAC_LIBS} -lgccjit -ldl";;
       *)
-        LIBGCCJIT_LIB="-lgccjit -ldl" ;;
+        LIBGCCJIT_LIBS="-lgccjit -ldl" ;;
     esac
     NEED_DYNLIB=yes
     AC_DEFINE(HAVE_NATIVE_COMP, 1, [Define to 1 if native compiler is available.])
+
+    CFLAGS=$SAVE_CFLAGS
+    LIBS=$SAVE_LIBS
 fi
 AC_DEFINE_UNQUOTED(NATIVE_ELISP_SUFFIX, ".eln",
   [System extension for native compiled elisp])
 AC_SUBST(HAVE_NATIVE_COMP)
-AC_SUBST(LIBGCCJIT_LIB)
+AC_SUBST(LIBGCCJIT_CFLAGS)
+AC_SUBST(LIBGCCJIT_LIBS)
 
 DYNLIB_OBJ=
 if test "${NEED_DYNLIB}" = yes; then
@@ -4758,13 +4835,30 @@ AC_CHECK_HEADERS(valgrind/valgrind.h)
 
 AC_CHECK_MEMBERS([struct unipair.unicode], [], [], [[#include <linux/kd.h>]])
 
-AC_CHECK_FUNCS_ONCE([__lsan_ignore_object sbrk])
+AC_CHECK_FUNCS_ONCE([__lsan_ignore_object])
 
 AC_FUNC_FORK
 
 dnl AC_CHECK_FUNCS_ONCE wouldn’t be right for snprintf, which needs
 dnl the current CFLAGS etc.
 AC_CHECK_FUNCS(snprintf)
+
+dnl posix_spawn.  The chdir and setsid functionality is relatively
+dnl recent, so we check for it specifically.
+AC_CHECK_HEADERS([spawn.h])
+AC_SUBST([HAVE_SPAWN_H])
+AC_CHECK_FUNCS([posix_spawn \
+                posix_spawn_file_actions_addchdir \
+                posix_spawn_file_actions_addchdir_np \
+                posix_spawnattr_setflags])
+AC_SUBST([HAVE_POSIX_SPAWN])
+AC_SUBST([HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR])
+AC_SUBST([HAVE_POSIX_SPAWN_FILE_ACTIONS_ADDCHDIR_NP])
+AC_SUBST([HAVE_POSIX_SPAWNATTR_SETFLAGS])
+AC_CHECK_DECLS([POSIX_SPAWN_SETSID], [], [], [[
+               #include <spawn.h>
+               ]])
+AC_SUBST([HAVE_DECL_POSIX_SPAWN_SETSID])
 
 dnl Check for glib.  This differs from other library checks in that
 dnl Emacs need not link to glib unless some other library is already
@@ -4951,7 +5045,7 @@ emacs_broken_SIGIO=no
 
 case $opsys in
   dnl SIGIO exists, but the feature doesn't work in the way Emacs needs.
-  hpux* | nacl | openbsd | solaris | unixware )
+  hpux* | nacl | solaris | unixware )
     emacs_broken_SIGIO=yes
     ;;
 
@@ -5442,7 +5536,7 @@ fi
 
 version=$PACKAGE_VERSION
 
-copyright="Copyright (C) 2021 Free Software Foundation, Inc."
+copyright="Copyright (C) 2022 Free Software Foundation, Inc."
 AC_DEFINE_UNQUOTED(COPYRIGHT, ["$copyright"],
   [Short copyright string for this version of Emacs.])
 AC_SUBST(copyright)
@@ -5487,9 +5581,13 @@ AC_SUBST(CFLAGS)
 AC_SUBST(X_TOOLKIT_TYPE)
 AC_SUBST(mac_appdir)
 AC_SUBST(mac_appbindir)
+AC_SUBST(mac_applibexecdir)
+AC_SUBST(mac_applibdir)
 AC_SUBST(mac_appresdir)
 AC_SUBST(ns_appdir)
 AC_SUBST(ns_appbindir)
+AC_SUBST(ns_applibexecdir)
+AC_SUBST(ns_applibdir)
 AC_SUBST(ns_appresdir)
 AC_SUBST(ns_appsrc)
 AC_SUBST(GNU_OBJC_CFLAGS)
@@ -5708,7 +5806,7 @@ gl_INIT
 CFLAGS=$SAVE_CFLAGS
 LIBS=$SAVE_LIBS
 
-# timer_getoverrun needs the same libarary as timer_settime
+# timer_getoverrun needs the same library as timer_settime
 OLD_LIBS=$LIBS
 LIBS="$LIB_TIMER_TIME $LIBS"
 AC_CHECK_FUNCS(timer_getoverrun)
@@ -5729,7 +5827,8 @@ case "$opsys" in
    if test "$HAVE_NS" = "yes"; then
      libs_nsgui="-framework AppKit"
      if test "$NS_IMPL_COCOA" = "yes"; then
-        libs_nsgui="$libs_nsgui -framework IOKit -framework Carbon -framework IOSurface"
+        libs_nsgui="$libs_nsgui -framework IOKit -framework Carbon \
+                    -framework IOSurface -framework QuartzCore"
      fi
    else
      libs_nsgui=
@@ -5814,6 +5913,13 @@ fail;
      x86_64-*-*) LD_SWITCH_SYSTEM_TEMACS="-Wl,-stack,0x00800000 -Wl,-heap,0x00100000 -Wl,-image-base,0x400000000 -Wl,-entry,__start -Wl,-Map,./temacs.map" ;;
      *) LD_SWITCH_SYSTEM_TEMACS="-Wl,-stack,0x00800000 -Wl,-heap,0x00100000 -Wl,-image-base,0x01000000 -Wl,-entry,__start -Wl,-Map,./temacs.map" ;;
    esac
+   ## If they want unexec, disable Windows ASLR for the Emacs binary
+   if test "$with_dumping" = "unexec"; then
+      case "$canonical" in
+        x86_64-*-*) LD_SWITCH_SYSTEM_TEMACS="$LD_SWITCH_SYSTEM_TEMACS -Wl,-disable-dynamicbase -Wl,-disable-high-entropy-va -Wl,-default-image-base-low" ;;
+        *) LD_SWITCH_SYSTEM_TEMACS="$LD_SWITCH_SYSTEM_TEMACS -Wl,-disable-dynamicbase" ;;
+      esac
+   fi
    ;;
 
   *) LD_SWITCH_SYSTEM_TEMACS= ;;
@@ -6151,10 +6257,16 @@ dnl the use of force in the 'epaths-force' rule in Makefile.in.
 AC_CONFIG_COMMANDS([src/epaths.h], [
 if test "${opsys}" = "mingw32"; then
   ${MAKE-make} MAKEFILE_NAME=do-not-make-Makefile epaths-force-w32
+elif test "$HAVE_MACGUI" = "yes" && test "$EN_MAC_SELF_CONTAINED" = "yes"; then
+  ${MAKE-make} MAKEFILE_NAME=do-not-make-Makefile epaths-force-mac-self-contained
+elif test "$HAVE_NS" = "yes" && test "$EN_NS_SELF_CONTAINED" = "yes"; then
+  ${MAKE-make} MAKEFILE_NAME=do-not-make-Makefile epaths-force-ns-self-contained
 else
   ${MAKE-make} MAKEFILE_NAME=do-not-make-Makefile epaths-force
 fi || AC_MSG_ERROR(['src/epaths.h' could not be made.])
-], [GCC="$GCC" CPPFLAGS="$CPPFLAGS" opsys="$opsys"])
+], [GCC="$GCC" CPPFLAGS="$CPPFLAGS" opsys="$opsys"
+    HAVE_MACGUI="$HAVE_MACGUI" EN_MAC_SELF_CONTAINED="$EN_MAC_SELF_CONTAINED"
+    HAVE_NS="$HAVE_NS" EN_NS_SELF_CONTAINED="$EN_NS_SELF_CONTAINED"])
 
 dnl NB we have to cheat and use the ac_... version because abs_top_srcdir
 dnl is not yet set, sigh.  Or we could use ../$srcdir/src/.gdbinit,

@@ -1,6 +1,6 @@
 /* Functions for the NeXT/Open/GNUstep and macOS window system.
 
-Copyright (C) 1989, 1992-1994, 2005-2006, 2008-2021 Free Software
+Copyright (C) 1989, 1992-1994, 2005-2006, 2008-2022 Free Software
 Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -609,13 +609,72 @@ ns_set_menu_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
     }
 }
 
+void
+ns_change_tab_bar_height (struct frame *f, int height)
+{
+  int unit = FRAME_LINE_HEIGHT (f);
+  int old_height = FRAME_TAB_BAR_HEIGHT (f);
+  int lines = (height + unit - 1) / unit;
+  Lisp_Object fullscreen = get_frame_param (f, Qfullscreen);
+
+  /* Make sure we redisplay all windows in this frame.  */
+  fset_redisplay (f);
+
+  /* Recalculate tab bar and frame text sizes.  */
+  FRAME_TAB_BAR_HEIGHT (f) = height;
+  FRAME_TAB_BAR_LINES (f) = lines;
+  store_frame_param (f, Qtab_bar_lines, make_fixnum (lines));
+
+  if (FRAME_NS_WINDOW (f) && FRAME_TAB_BAR_HEIGHT (f) == 0)
+    {
+      clear_frame (f);
+      clear_current_matrices (f);
+    }
+
+  if ((height < old_height) && WINDOWP (f->tab_bar_window))
+    clear_glyph_matrix (XWINDOW (f->tab_bar_window)->current_matrix);
+
+  if (!f->tab_bar_resized)
+    {
+      /* As long as tab_bar_resized is false, effectively try to change
+	 F's native height.  */
+      if (NILP (fullscreen) || EQ (fullscreen, Qfullwidth))
+	adjust_frame_size (f, FRAME_TEXT_WIDTH (f), FRAME_TEXT_HEIGHT (f),
+			   1, false, Qtab_bar_lines);
+      else
+	adjust_frame_size (f, -1, -1, 4, false, Qtab_bar_lines);
+
+      f->tab_bar_resized = f->tab_bar_redisplayed;
+    }
+  else
+    /* Any other change may leave the native size of F alone.  */
+    adjust_frame_size (f, -1, -1, 3, false, Qtab_bar_lines);
+
+  /* adjust_frame_size might not have done anything, garbage frame
+     here.  */
+  adjust_frame_glyphs (f);
+  SET_FRAME_GARBAGED (f);
+}
 
 /* tabbar support */
 static void
 ns_set_tab_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
 {
-  /* Currently unimplemented.  */
-  NSTRACE ("ns_set_tab_bar_lines");
+  int olines = FRAME_TAB_BAR_LINES (f);
+  int nlines;
+
+  /* Treat tab bars like menu bars.  */
+  if (FRAME_MINIBUF_ONLY_P (f))
+    return;
+
+  /* Use VALUE only if an int >= 0.  */
+  if (RANGED_FIXNUMP (0, value, INT_MAX))
+    nlines = XFIXNAT (value);
+  else
+    nlines = 0;
+
+  if (nlines != olines && (olines == 0 || nlines == 0))
+    ns_change_tab_bar_height (f, nlines * FRAME_LINE_HEIGHT (f));
 }
 
 
@@ -668,23 +727,7 @@ ns_set_tool_bar_lines (struct frame *f, Lisp_Object value, Lisp_Object oldval)
        }
     }
 
-  {
-    int inhibit
-      = ((f->after_make_frame
-	  && !f->tool_bar_resized
-	  && (EQ (frame_inhibit_implied_resize, Qt)
-	      || (CONSP (frame_inhibit_implied_resize)
-		  && !NILP (Fmemq (Qtool_bar_lines,
-				   frame_inhibit_implied_resize))))
-	  && NILP (get_frame_param (f, Qfullscreen)))
-	 ? 0
-	 : 2);
-
-    NSTRACE_MSG ("inhibit:%d", inhibit);
-
-    frame_size_history_add (f, Qupdate_frame_tool_bar, 0, 0, Qnil);
-    adjust_frame_size (f, -1, -1, inhibit, 0, Qtool_bar_lines);
-  }
+  adjust_frame_size (f, -1, -1, 2, false, Qtool_bar_lines);
 }
 
 static void
@@ -963,11 +1006,7 @@ frame_parm_handler ns_frame_parm_handlers[] =
   0, /* x_set_sticky */
   0, /* x_set_tool_bar_position */
   0, /* x_set_inhibit_double_buffering */
-#ifdef NS_IMPL_COCOA
   ns_set_undecorated,
-#else
-  0, /* ns_set_undecorated */
-#endif
   ns_set_parent_frame,
   0, /* x_set_skip_taskbar */
   ns_set_no_focus_on_map,
@@ -1082,7 +1121,6 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
   Lisp_Object parent, parent_frame;
   struct kboard *kb;
   static int desc_ctr = 1;
-  int x_width = 0, x_height = 0;
 
   /* gui_display_get_arg modifies parms.  */
   parms = Fcopy_alist (parms);
@@ -1332,8 +1370,7 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
                          RES_TYPE_STRING);
 
   parms = get_geometry_from_preferences (dpyinfo, parms);
-  window_prompting = gui_figure_window_size (f, parms, false, true,
-                                             &x_width, &x_height);
+  window_prompting = gui_figure_window_size (f, parms, false, true);
 
   tem = gui_display_get_arg (dpyinfo, parms, Qunsplittable, 0, 0,
                              RES_TYPE_BOOLEAN);
@@ -1364,6 +1401,11 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
   f->output_data.ns->current_pointer = f->output_data.ns->text_cursor;
 
   f->output_data.ns->in_animation = NO;
+
+#ifdef NS_IMPL_COCOA
+  /* If the app has previously been disabled, start it up again.  */
+  [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+#endif
 
   [[EmacsView alloc] initFrameFromEmacs: f];
 
@@ -1400,13 +1442,8 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
   /* Allow set_window_size_hook, now.  */
   f->can_set_window_size = true;
 
-  if (x_width > 0)
-    SET_FRAME_WIDTH (f, x_width);
-  if (x_height > 0)
-    SET_FRAME_HEIGHT (f, x_height);
-
-  adjust_frame_size (f, FRAME_TEXT_WIDTH (f), FRAME_TEXT_HEIGHT (f), 0, 1,
-		     Qx_create_frame_2);
+  adjust_frame_size (f, FRAME_TEXT_WIDTH (f), FRAME_TEXT_HEIGHT (f),
+		     0, true, Qx_create_frame_2);
 
   if (! f->output_data.ns->explicit_parent)
     {
@@ -1427,6 +1464,7 @@ DEFUN ("x-create-frame", Fx_create_frame, Sx_create_frame,
       else
         {
 	  /* Must have been Qnil.  */
+	  f->was_invisible = true;
         }
     }
 
@@ -1975,8 +2013,11 @@ DEFUN ("ns-hide-emacs", Fns_hide_emacs, Sns_hide_emacs,
        doc: /* If ON is non-nil, the entire Emacs application is hidden.
 Otherwise if Emacs is hidden, it is unhidden.
 If ON is equal to `activate', Emacs is unhidden and becomes
-the active application.  */)
-     (Lisp_Object on)
+the active application.
+If ON is equal to `activate-front', Emacs is unhidden and
+becomes the active application, but only the selected frame
+is layered in front of the windows of other applications.  */)
+  (Lisp_Object on)
 {
   check_window_system (NULL);
   if (EQ (on, intern ("activate")))
@@ -1984,6 +2025,14 @@ the active application.  */)
       [NSApp unhide: NSApp];
       [NSApp activateIgnoringOtherApps: YES];
     }
+#if GNUSTEP_GUI_MAJOR_VERSION > 0 || GNUSTEP_GUI_MINOR_VERSION >= 27
+  else if (EQ (on, intern ("activate-front")))
+    {
+      [NSApp unhide: NSApp];
+      [[NSRunningApplication currentApplication]
+        activateWithOptions: NSApplicationActivateIgnoringOtherApps];
+    }
+#endif
   else if (NILP (on))
     [NSApp unhide: NSApp];
   else
@@ -3046,7 +3095,8 @@ all_nonzero_ascii (unsigned char *str, ptrdiff_t n)
 }
 
 @implementation NSString (EmacsString)
-/* Make an NSString from a Lisp string.  */
+/* Make an NSString from a Lisp string.  STRING must not be in an
+   encoded form (e.g. UTF-8).  */
 + (NSString *)stringWithLispString:(Lisp_Object)string
 {
   /* Shortcut for the common case.  */

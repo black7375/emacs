@@ -1,6 +1,6 @@
 ;;; ebrowse.el --- Emacs C++ class browser & tags facility  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1992-2022 Free Software Foundation, Inc.
 
 ;; Author: Gerd Moellmann <gerd@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -794,7 +794,7 @@ and TREE is a list of `ebrowse-ts' structures forming the class tree."
 	     (ebrowse-hs-version header) ebrowse-version-string))
     ;; Read Lisp objects.  Temporarily increase `gc-cons-threshold' to
     ;; prevent a GC that would not free any memory.
-    (let ((gc-cons-threshold 2000000))
+    (let ((gc-cons-threshold (max gc-cons-threshold 2000000)))
       (while (not (progn (skip-chars-forward " \t\n") (eobp)))
 	(let* ((root (read (current-buffer)))
 	       (old-root-ptr (ebrowse-class-in-tree root tree)))
@@ -3062,7 +3062,7 @@ the first derived class."
 
 (easy-menu-define
  ebrowse-member-name-object-menu ebrowse-member-mode-map
- "Object menu for member names"
+ "Object menu for member names."
  '("Ebrowse"
    ["Find Definition" ebrowse-find-member-definition
     :help "Find this member's definition in the source files"
@@ -4200,7 +4200,7 @@ EVENT is the mouse event."
 
 (easy-menu-define
  ebrowse-tree-buffer-class-object-menu ebrowse-tree-mode-map
- "Object menu for classes in the tree buffer"
+ "Object menu for classes in the tree buffer."
  '("Class"
    ["Functions" ebrowse-tree-command:show-member-functions
     :help "Display a list of member functions"
@@ -4242,7 +4242,7 @@ EVENT is the mouse event."
 
 (easy-menu-define
  ebrowse-tree-buffer-object-menu ebrowse-tree-mode-map
- "Object menu for tree buffers"
+ "Object menu for tree buffers."
  '("Ebrowse"
    ["Filename Display" ebrowse-toggle-file-name-display
     :help "Toggle display of source files names"

@@ -1,6 +1,6 @@
 ;;; strokes.el --- control Emacs through mouse strokes  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997, 2000-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1997, 2000-2022 Free Software Foundation, Inc.
 
 ;; Author: David Bakhash <cadet@alum.mit.edu>
 ;; Maintainer: emacs-devel@gnu.org
@@ -138,15 +138,14 @@
 ;; the user to enter strokes which "remove the pencil from the paper"
 ;; so to speak, so one character can have multiple strokes.
 
-;; NOTE (Oct 7, 2006): The URLs below seem to be invalid!!!
-
 ;; You can read more about strokes at:
 
-;; http://www.mit.edu/people/cadet/strokes-help.html
+;; https://web.archive.org/web/20041209171947/http://www.mit.edu/people/cadet/strokes-help.html
 
 ;; If you're interested in using strokes for writing English into Emacs
 ;; using strokes, then you'll want to read about it on the web page above
-;; or just download from http://www.mit.edu/people/cadet/strokes-abc.el,
+;; or just download from:
+;; https://web.archive.org/web/20041204163338/http://www.mit.edu/people/cadet/strokes-abc.el
 ;; which is nothing but a file with some helper commands for inserting
 ;; alphanumerics and punctuation.
 
@@ -306,12 +305,6 @@ the corresponding interactive function.")
 ;;    ))
 
 ;;; Macros...
-
-;; unused
-;; (defmacro strokes-while-inhibiting-garbage-collector (&rest forms)
-;;   "Execute FORMS without interference from the garbage collector."
-;;   `(let ((gc-cons-threshold 134217727))
-;;      ,@forms))
 
 (defsubst strokes-click-p (stroke)
   "Non-nil if STROKE is really click."
@@ -935,13 +928,13 @@ cycle can continue.
 
 To toggle strokes-mode, invoke the command
 
-> M-x strokes-mode
+> \\[strokes-mode]
 
 ** Strokes for controlling the behavior of Emacs...
 
 When you're ready to start defining strokes, just use the command
 
-> M-x strokes-global-set-stroke
+> \\[strokes-global-set-stroke]
 
 You will see a ` *strokes*' buffer which is waiting for you to enter in
 your stroke.  When you enter in the stroke, you draw with button 1 or
@@ -950,7 +943,7 @@ which will be executed when that stroke is invoked.  Simple as that.
 For now, try to define a stroke to copy a region.  This is a popular
 edit command, so type
 
-> M-x strokes-global-set-stroke
+> \\[strokes-global-set-stroke]
 
 Then, in the ` *strokes*' buffer, draw the letter `C' (for `copy')
 and then, when it asks you to enter the command to map that to, type
@@ -962,7 +955,7 @@ Remember: paint with button 1 or button 2 and then end with button 3.
 
 If ever you want to know what a certain strokes maps to, then do
 
-> M-x strokes-describe-stroke
+> \\[strokes-describe-stroke]
 
 and you can enter in any arbitrary stroke.  Remember: The strokes
 package lets you program in simple and complex (multi-lift) strokes.
@@ -974,12 +967,12 @@ will invoke the command `strokes-do-stroke'.
 If ever you define a stroke which you don't like, then you can unset
 it with the command
 
-> M-x strokes-unset-last-stroke
+> \\[strokes-unset-last-stroke]
 
 You can always get an idea of what your current strokes look like with
 the command
 
-> M-x strokes-list-strokes
+> \\[strokes-list-strokes]
 
 Your strokes will be displayed in alphabetical order (based on command
 names) and the beginning of each simple stroke will be marked by a
@@ -988,19 +981,19 @@ stroke, the dot colors are arranged in the rainbow color sequence,
 `ROYGBIV'.  If you want a listing of your strokes from most recent
 down, then use a prefix argument:
 
-> C-u M-x strokes-list-strokes
+> \\[universal-argument] \\[strokes-list-strokes]
 
 Your strokes are stored as you enter them.  They get saved into the
 file specified by the `strokes-file' variable, along with other strokes
 configuration variables.  You will be prompted to save them when you
 exit Emacs, or you can save them with
 
-> M-x strokes-prompt-user-save-strokes
+> \\[strokes-prompt-user-save-strokes]
 
 Your strokes get loaded automatically when you enable `strokes-mode'.
 You can also load in your user-defined strokes with
 
-> M-x strokes-load-user-strokes
+> \\[strokes-load-user-strokes]
 
 ** Strokes for pictographic editing...
 
@@ -1013,11 +1006,11 @@ into the buffer.  You treat it somewhat like any other character,
 which you can copy, paste, delete, move, etc.  When all is done, you
 may want to send the file, or save it.  This is done with
 
-> M-x strokes-encode-buffer
+> \\[strokes-encode-buffer]
 
 Likewise, to decode the strokes from a strokes-encoded buffer you do
 
-> M-x strokes-decode-buffer
+> \\[strokes-decode-buffer]
 
 ** A few more important things...
 

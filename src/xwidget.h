@@ -1,6 +1,6 @@
 /* Support for embedding graphical components in a buffer.
 
-Copyright (C) 2011-2021 Free Software Foundation, Inc.
+Copyright (C) 2011-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -32,7 +32,7 @@ struct window;
 
 #if defined (USE_GTK)
 #include <gtk/gtk.h>
-#elif defined (NS_IMPL_COCOA) && defined (__OBJC__)
+#elif (defined HAVE_MACGUI || defined NS_IMPL_COCOA) && defined (__OBJC__)
 #import <AppKit/NSView.h>
 #import "nsxwidget.h"
 #endif
@@ -64,7 +64,7 @@ struct xwidget
   /* For offscreen widgets, unused if not osr.  */
   GtkWidget *widget_osr;
   GtkWidget *widgetwindow_osr;
-#elif defined (NS_IMPL_COCOA)
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
 # ifdef __OBJC__
   /* For offscreen widgets, unused if not osr.  */
   NSView *xwWidget;
@@ -101,7 +101,7 @@ struct xwidget_view
   GtkWidget *widget;
   GtkWidget *widgetwindow;
   GtkWidget *emacswindow;
-#elif defined (NS_IMPL_COCOA)
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
 # ifdef __OBJC__
   XvWindow *xvWindow;
   NSView *emacswindow;

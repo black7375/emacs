@@ -1,5 +1,5 @@
 /* Fringe handling (split from xdisp.c).
-   Copyright (C) 1985-1988, 1993-1995, 1997-2021 Free Software
+   Copyright (C) 1985-1988, 1993-1995, 1997-2022 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -969,6 +969,14 @@ update_window_fringes (struct window *w, bool keep_current_p)
   if (w->pseudo_window_p)
     return 0;
 
+  ptrdiff_t count = SPECPDL_INDEX ();
+
+  /* This function could be called for redisplaying non-selected
+     windows, in which case point has been temporarily moved to that
+     window's window-point.  So we cannot afford quitting out of here,
+     as point is restored after this function returns.  */
+  specbind (Qinhibit_quit, Qt);
+
   if (!MINI_WINDOW_P (w)
       && (ind = BVAR (XBUFFER (w->contents), indicate_buffer_boundaries), !NILP (ind)))
     {
@@ -1330,6 +1338,8 @@ update_window_fringes (struct window *w, bool keep_current_p)
       row->right_fringe_offset = right_offset;
       row->fringe_bitmap_periodic_p = periodic_p;
     }
+
+  unbind_to (count, Qnil);
 
   return redraw_p && !keep_current_p;
 }
@@ -1778,14 +1788,15 @@ gui_init_fringe (struct redisplay_interface *rif)
   for (bt = NO_FRINGE_BITMAP + 1; bt < MAX_STANDARD_FRINGE_BITMAPS; bt++)
     {
       struct fringe_bitmap *fb = &standard_bitmaps[bt];
-      rif->define_fringe_bitmap (bt, fb->bits, fb->height, fb->width);
+      if (!fringe_bitmaps[bt])
+        rif->define_fringe_bitmap (bt, fb->bits, fb->height, fb->width);
     }
 
   /* Set up user-defined fringe bitmaps that might have been defined
      before the frame of this kind was initialized.  This can happen
      if Emacs is started as a daemon and the init files define fringe
      bitmaps.  */
-  for ( ; bt < max_used_fringe_bitmap; bt++)
+  for (bt = NO_FRINGE_BITMAP + 1; bt < max_used_fringe_bitmap; bt++)
     {
       struct fringe_bitmap *fb = fringe_bitmaps[bt];
       if (fb)

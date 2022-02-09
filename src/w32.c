@@ -1,6 +1,6 @@
 /* Utility and Unix shadow routines for GNU Emacs on the Microsoft Windows API.
 
-Copyright (C) 1994-1995, 2000-2021 Free Software Foundation, Inc.
+Copyright (C) 1994-1995, 2000-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -39,6 +39,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <sys/time.h>
 #include <sys/utime.h>
 #include <math.h>
+#include <nproc.h>
 
 /* Include (most) CRT headers *before* ms-w32.h.  */
 #include <ms-w32.h>
@@ -1962,6 +1963,16 @@ w32_get_nproc (void)
   return num_of_processors;
 }
 
+/* Emulate Gnulib's 'num_processors'.  We cannot use the Gnulib
+   version because it unconditionally calls APIs that aren't available
+   on old MS-Windows versions.  */
+unsigned long
+num_processors (enum nproc_query query)
+{
+  /* We ignore QUERY.  */
+  return w32_get_nproc ();
+}
+
 static void
 sample_system_load (ULONGLONG *idle, ULONGLONG *kernel, ULONGLONG *user)
 {
@@ -2389,8 +2400,13 @@ rand_as183 (void)
 int
 random (void)
 {
-  /* rand_as183 () gives us 15 random bits...hack together 30 bits.  */
+  /* rand_as183 () gives us 15 random bits...hack together 30 bits for
+     Emacs with 32-bit EMACS_INT, and at least 31 bit for wider EMACS_INT.  */
+#if EMACS_INT_MAX > INT_MAX
+  return ((rand_as183 () << 30) | (rand_as183 () << 15) | rand_as183 ());
+#else
   return ((rand_as183 () << 15) | rand_as183 ());
+#endif
 }
 
 void
@@ -4747,7 +4763,7 @@ sys_rename_replace (const char *oldname, const char *newname, BOOL force)
   /* volume_info is set indirectly by map_w32_filename.  */
   oldname_dev = volume_info.serialnum;
 
-  if (os_subtype == OS_9X)
+  if (os_subtype == OS_SUBTYPE_9X)
     {
       char * o;
       char * p;
@@ -6579,7 +6595,8 @@ acl_get_file (const char *fname, acl_type_t type)
 		  xfree (psd);
 		  err = GetLastError ();
 		  if (err == ERROR_NOT_SUPPORTED
-		      || err == ERROR_ACCESS_DENIED)
+		      || err == ERROR_ACCESS_DENIED
+		      || err == ERROR_INVALID_FUNCTION)
 		    errno = ENOTSUP;
 		  else if (err == ERROR_FILE_NOT_FOUND
 			   || err == ERROR_PATH_NOT_FOUND
@@ -6598,10 +6615,11 @@ acl_get_file (const char *fname, acl_type_t type)
 		   || err == ERROR_INVALID_NAME)
 	    errno = ENOENT;
 	  else if (err == ERROR_NOT_SUPPORTED
-		   /* ERROR_ACCESS_DENIED is what we get for a volume
-		      mounted by WebDAV, which evidently doesn't
-		      support ACLs.  */
-		   || err == ERROR_ACCESS_DENIED)
+		   /* ERROR_ACCESS_DENIED or ERROR_INVALID_FUNCTION is
+		      what we get for a volume mounted by WebDAV,
+		      which evidently doesn't support ACLs.  */
+		   || err == ERROR_ACCESS_DENIED
+		   || err == ERROR_INVALID_FUNCTION)
 	    errno = ENOTSUP;
 	  else
 	    errno = EIO;
@@ -8753,7 +8771,7 @@ int
 _sys_read_ahead (int fd)
 {
   child_process * cp;
-  int rc;
+  int rc = 0;
 
   if (fd < 0 || fd >= MAXDESC)
     return STATUS_READ_ERROR;
@@ -10468,7 +10486,7 @@ shutdown_handler (DWORD type)
 HANDLE
 maybe_load_unicows_dll (void)
 {
-  if (os_subtype == OS_9X)
+  if (os_subtype == OS_SUBTYPE_9X)
     {
       HANDLE ret = LoadLibrary ("Unicows.dll");
       if (ret)
@@ -10585,6 +10603,45 @@ w32_my_exename (void)
     }
 
   return exename;
+}
+
+/* Emulate Posix 'realpath'.  This is needed in
+   comp-el-to-eln-rel-filename.  */
+char *
+realpath (const char *file_name, char *resolved_name)
+{
+  char *tgt = chase_symlinks (file_name);
+  char target[MAX_UTF8_PATH];
+
+  if (tgt == file_name)
+    {
+      /* If FILE_NAME is not a symlink, chase_symlinks returns its
+	 argument, possibly not in canonical absolute form.  Make sure
+	 we return a canonical file name.  */
+      if (w32_unicode_filenames)
+	{
+	  wchar_t file_w[MAX_PATH], tgt_w[MAX_PATH];
+
+	  filename_to_utf16 (file_name, file_w);
+	  if (GetFullPathNameW (file_w, MAX_PATH, tgt_w, NULL) == 0)
+	    return NULL;
+	  filename_from_utf16 (tgt_w, target);
+	}
+      else
+	{
+	  char file_a[MAX_PATH], tgt_a[MAX_PATH];
+
+	  filename_to_ansi (file_name, file_a);
+	  if (GetFullPathNameA (file_a, MAX_PATH, tgt_a, NULL) == 0)
+	    return NULL;
+	  filename_from_ansi (tgt_a, target);
+	}
+      tgt = target;
+    }
+
+  if (resolved_name)
+    return strcpy (resolved_name, tgt);
+  return xstrdup (tgt);
 }
 
 /*

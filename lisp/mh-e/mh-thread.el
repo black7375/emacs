@@ -1,6 +1,6 @@
 ;;; mh-thread.el --- MH-E threading support  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2004, 2006-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2004, 2006-2022 Free Software Foundation, Inc.
 
 ;; Author: Satyaki Das <satyaki@theforce.stanford.edu>
 ;; Maintainer: Bill Wohler <wohler@newt.com>
@@ -68,8 +68,6 @@
 
 ;;  (5) Better canonicalizing for message identifier and subject
 ;;      strings.
-
-;;; Change Log:
 
 ;;; Code:
 

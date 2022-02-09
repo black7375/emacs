@@ -1,6 +1,6 @@
 ;;; help.el --- help commands for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1986, 1993-1994, 1998-2021 Free Software
+;; Copyright (C) 1985-1986, 1993-1994, 1998-2022 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -106,6 +106,7 @@
     (define-key map "t" 'help-with-tutorial)
     (define-key map "v" 'describe-variable)
     (define-key map "w" 'where-is)
+    (define-key map "x" 'describe-command)
     (define-key map "q" 'help-quit)
     map)
   "Keymap for characters following the Help key.")
@@ -187,59 +188,124 @@ Do not call this in the scope of `with-help-window'."
 ;; So keyboard macro definitions are documented correctly
 (fset 'defining-kbd-macro (symbol-function 'start-kbd-macro))
 
+
+;;; Help for help.  (a.k.a. `C-h C-h')
+
+(defvar help-for-help-buffer-name " *Metahelp*"
+  "Name of the `help-for-help' buffer.")
+
+(defface help-for-help-header '((t :height 1.26))
+  "Face used for headers in the `help-for-help' buffer."
+  :group 'help)
+
+(defun help--for-help-make-commands (commands)
+  "Create commands for `help-for-help' screen from COMMANDS."
+  (mapconcat
+   (lambda (cmd)
+     (if (listp cmd)
+         (let ((name (car cmd)) (desc (cadr cmd)))
+           (concat
+            "   "
+            (if (string-match (rx string-start "C-" word string-end) name)
+                ;; `help--key-description-fontified' would convert "C-m" to
+                ;; "RET" so we can't use it here.
+                (propertize name 'face 'help-key-binding)
+              (concat "\\[" name "]"))
+            " " ; ensure we have some whitespace before the description
+            (propertize "\t" 'display '(space :align-to 8))
+            desc))
+       ""))
+   commands "\n"))
+
+(defun help--for-help-make-sections (sections)
+  "Create sections for `help-for-help' screen from SECTIONS."
+  (mapconcat
+   (lambda (section)
+     (let ((title (car section)) (commands (cdr section)))
+       (concat
+        "\n\n"
+        (propertize title 'face 'help-for-help-header)
+        "\n\n"
+        (help--for-help-make-commands commands))))
+   sections ""))
+
 (defalias 'help 'help-for-help)
 (make-help-screen help-for-help
   (purecopy "Type a help option: [abcCdefFgiIkKlLmnprstvw.] C-[cdefmnoptw] or ?")
-  "You have typed %THIS-KEY%, the help character.  Type a Help option:
-\(Use SPC or DEL to scroll through this text.  Type \\<help-map>\\[help-quit] to exit the Help command.)
-
-\\[apropos-command] PATTERN   Show commands whose name matches the PATTERN (a list of words
-              or a regexp).  See also \\[apropos].
-\\[describe-bindings]           Display all key bindings.
-\\[describe-key-briefly] KEYS      Display the command name run by the given key sequence.
-\\[describe-coding-system] CODING    Describe the given coding system, or RET for current ones.
-\\[apropos-documentation] PATTERN   Show a list of functions, variables, and other items whose
-              documentation matches the PATTERN (a list of words or a regexp).
-\\[view-echo-area-messages]           Go to the *Messages* buffer which logs echo-area messages.
-\\[describe-function] FUNCTION  Display documentation for the given function.
-\\[Info-goto-emacs-command-node] COMMAND   Show the Emacs manual's section that describes the command.
-\\[describe-gnu-project]           Display information about the GNU project.
-\\[view-hello-file]           Display the HELLO file which illustrates various scripts.
-\\[info]           Start the Info documentation reader: read included manuals.
-\\[describe-input-method] METHOD    Describe a specific input method, or RET for current.
-\\[describe-key] KEYS      Display the full documentation for the key sequence.
-\\[Info-goto-emacs-key-command-node] KEYS      Show the Emacs manual's section for the command bound to KEYS.
-\\[view-lossage]           Show last 300 input keystrokes (lossage).
-\\[describe-language-environment] LANG-ENV  Describe a specific language environment, or RET for current.
-\\[describe-mode]           Display documentation of current minor modes and current major mode,
-             including their special commands.
-\\[view-emacs-news]           Display news of recent Emacs changes.
-\\[describe-symbol] SYMBOL    Display the given function or variable's documentation and value.
-\\[finder-by-keyword] TOPIC     Find packages matching a given topic keyword.
-\\[describe-package] PACKAGE   Describe the given Emacs Lisp package.
-\\[info-emacs-manual]           Display the Emacs manual in Info mode.
-\\[info-display-manual]           Prompt for a manual and then display it in Info mode.
-\\[describe-syntax]           Display contents of current syntax table, plus explanations.
-\\[info-lookup-symbol] SYMBOL    Show the section for the given symbol in the Info manual
-              for the programming language used in this buffer.
-\\[help-with-tutorial]           Start the Emacs learn-by-doing tutorial.
-\\[describe-variable] VARIABLE  Display the given variable's documentation and value.
-\\[where-is] COMMAND   Display which keystrokes invoke the given command (where-is).
-\\[display-local-help]           Display any available local help at point in the echo area.
-
-\\[about-emacs]         Information about Emacs.
-\\[describe-copying]         Emacs copying permission (GNU General Public License).
-\\[view-emacs-debugging]         Instructions for debugging GNU Emacs.
-\\[view-external-packages]         External packages and information about Emacs.
-\\[view-emacs-FAQ]         Emacs FAQ.
-C-m         How to order printed Emacs manuals.
-C-n         News of recent Emacs changes.
-\\[describe-distribution]         Emacs ordering and distribution information.
-\\[view-emacs-problems]         Info about known Emacs problems.
-\\[search-forward-help-for-help]         Search forward \"help window\".
-\\[view-emacs-todo]         Emacs TODO list.
-\\[describe-no-warranty]         Information on absence of warranty for GNU Emacs."
-  help-map)
+  (concat
+   "(Type "
+   (help--key-description-fontified (kbd "<PageDown>"))
+   " or "
+   (help--key-description-fontified (kbd "<PageUp>"))
+   " to scroll, "
+   (help--key-description-fontified "\C-s")
+   " to search, or \\<help-map>\\[help-quit] to exit.)"
+   (help--for-help-make-sections
+    `(("Commands, Keys and Functions"
+       ("describe-mode"
+        "Show help for current major and minor modes and their commands")
+       ("describe-bindings" "Show all key bindings")
+       ("describe-key" "Show help for key")
+       ("describe-key-briefly" "Show help for key briefly")
+       ("where-is" "Show which key runs a specific command")
+       ""
+       ("apropos-command"
+        "Search for commands (see also \\[apropos])")
+       ("apropos-documentation"
+        "Search documentation of functions, variables, and other items")
+       ("describe-command" "Show help for command")
+       ("describe-function" "Show help for function")
+       ("describe-variable" "Show help for variable")
+       ("describe-symbol" "Show help for function or variable"))
+      ("Manuals"
+       ("info-emacs-manual" "Show Emacs manual")
+       ("Info-goto-emacs-command-node"
+        "Show Emacs manual section for command")
+       ("Info-goto-emacs-key-command-node"
+        "Show Emacs manual section for a key sequence")
+       ("info" "Show all installed manuals")
+       ("info-display-manual" "Show a specific manual")
+       ("info-lookup-symbol" "Show description of symbol in pertinent manual"))
+      ("Other Help Commands"
+       ("view-external-packages"
+        "Extending Emacs with external packages")
+       ("finder-by-keyword"
+        "Search for Emacs packages (see also \\[list-packages])")
+       ("describe-package" "Describe a specific Emacs package")
+       ""
+       ("help-with-tutorial" "Start the Emacs tutorial")
+       ("view-echo-area-messages"
+        "Show recent messages (from echo area)")
+       ("view-lossage" ,(format "Show last %d input keystrokes (lossage)"
+                                (lossage-size)))
+       ("display-local-help" "Show local help at point"))
+      ("Miscellaneous"
+       ("about-emacs" "About Emacs")
+       ("view-emacs-FAQ" "Emacs FAQ")
+       ("C-n" "News of recent changes")
+       ("view-emacs-problems" "Known problems")
+       ("view-emacs-debugging" "Debugging Emacs")
+       ""
+       ("describe-gnu-project" "About the GNU project")
+       ("describe-copying"
+        "Emacs copying permission (GNU General Public License)")
+       ("describe-distribution"
+        "Emacs ordering and distribution information")
+       ("C-m" "Order printed manuals")
+       ("view-emacs-todo" "Emacs TODO")
+       ("describe-no-warranty"
+        "Information on absence of warranty"))
+      ("Internationalization and Coding Systems"
+       ("describe-input-method" "Describe input method")
+       ("describe-coding-system" "Describe coding system")
+       ("describe-language-environment"
+        "Describe language environment")
+       ("describe-syntax" "Show current syntax table")
+       ("view-hello-file"
+        "Display the HELLO file illustrating various scripts"))))
+   "\n")
+  help-map
+  help-for-help-buffer-name)
 
 
 
@@ -495,6 +561,12 @@ To record all your input, use `open-dribble-file'."
               'font-lock-face 'help-key-binding
               'face 'help-key-binding))
 
+(defcustom describe-bindings-outline nil
+  "Non-nil enables outlines in the output buffer of `describe-bindings'."
+  :type 'boolean
+  :group 'help
+  :version "28.1")
+
 (defun describe-bindings (&optional prefix buffer)
   "Display a buffer showing a list of all defined keys, and their definitions.
 The keys are displayed in order of precedence.
@@ -512,23 +584,26 @@ or a buffer name."
     ;; Be aware that `describe-buffer-bindings' puts its output into
     ;; the current buffer.
     (with-current-buffer (help-buffer)
-      (describe-buffer-bindings buffer prefix))))
+      (describe-buffer-bindings buffer prefix)
 
-(defun describe-bindings-internal (&optional menus prefix)
-  "Show a list of all defined keys, and their definitions.
-We put that list in a buffer, and display the buffer.
-
-The optional argument MENUS, if non-nil, says to mention menu bindings.
-\(Ordinarily these are omitted from the output.)
-The optional argument PREFIX, if non-nil, should be a key sequence;
-then we display only bindings that start with that prefix."
-  (declare (obsolete describe-buffer-bindings "24.4"))
-  (let ((buf (current-buffer)))
-    (with-help-window (help-buffer)
-      ;; Be aware that `describe-buffer-bindings' puts its output into
-      ;; the current buffer.
-      (with-current-buffer (help-buffer)
-	(describe-buffer-bindings buf prefix menus)))))
+      (when describe-bindings-outline
+        (setq-local outline-regexp ".*:$")
+        (setq-local outline-heading-end-regexp ":\n")
+        (setq-local outline-level (lambda () 1))
+        (setq-local outline-minor-mode-cycle t
+                    outline-minor-mode-highlight t)
+        (outline-minor-mode 1)
+        (save-excursion
+          (let ((inhibit-read-only t))
+            (goto-char (point-min))
+            (insert (substitute-command-keys
+                     (concat "\\<outline-minor-mode-cycle-map>Type "
+                             "\\[outline-cycle] or \\[outline-cycle-buffer] "
+                             "on headings to cycle their visibility.\n\n")))
+            ;; Hide the longest body
+            (when (and (re-search-forward "Key translations" nil t)
+                       (fboundp 'outline-cycle))
+              (outline-cycle))))))))
 
 (defun where-is (definition &optional insert)
   "Print message listing key sequences that invoke the command DEFINITION.
@@ -602,9 +677,11 @@ If INSERT (the prefix arg) is non-nil, insert the message in the buffer."
 (defun help--binding-undefined-p (defn)
   (or (null defn) (integerp defn) (equal defn 'undefined)))
 
-(defun help--analyze-key (key untranslated)
+(defun help--analyze-key (key untranslated &optional buffer)
   "Get information about KEY its corresponding UNTRANSLATED events.
-Returns a list of the form (BRIEF-DESC DEFN EVENT MOUSE-MSG)."
+Returns a list of the form (BRIEF-DESC DEFN EVENT MOUSE-MSG).
+When BUFFER is nil, it defaults to the buffer displayed
+in the selected window."
   (if (numberp untranslated)
       (error "Missing `untranslated'!"))
   (let* ((event (when (> (length key) 0)
@@ -620,7 +697,14 @@ Returns a list of the form (BRIEF-DESC DEFN EVENT MOUSE-MSG)."
 	 (mouse-msg (if (or (memq 'click modifiers) (memq 'down modifiers)
 			    (memq 'drag modifiers))
                         " at that spot" ""))
-	 (defn (key-binding key t)))
+         ;; Use `posn-set-point' to handle the case when a menu item
+         ;; is selected from the context menu that should describe KEY
+         ;; at the position of mouse click that opened the context menu.
+         ;; When no mouse was involved, don't use `posn-set-point'.
+         (defn (if buffer
+                   (key-binding key t)
+                 (save-excursion (posn-set-point (event-end event))
+                                 (key-binding key t)))))
     ;; Handle the case where we faked an entry in "Select and Paste" menu.
     (when (and (eq defn nil)
 	       (stringp (aref key (1- (length key))))
@@ -650,7 +734,7 @@ Returns a list of the form (BRIEF-DESC DEFN EVENT MOUSE-MSG)."
    ;; If nothing left, then keep one (the last one).
    (last info-list)))
 
-(defun describe-key-briefly (&optional key-list insert untranslated)
+(defun describe-key-briefly (&optional key-list insert buffer)
   "Print the name of the functions KEY-LIST invokes.
 KEY-LIST is a list of pairs (SEQ . RAW-SEQ) of key sequences, where
 RAW-SEQ is the untranslated form of the key sequence SEQ.
@@ -658,8 +742,10 @@ If INSERT (the prefix arg) is non-nil, insert the message in the buffer.
 
 While reading KEY-LIST interactively, this command temporarily enables
 menu items or tool-bar buttons that are disabled to allow getting help
-on them."
-  (declare (advertised-calling-convention (key-list &optional insert) "27.1"))
+on them.
+
+BUFFER is the buffer in which to lookup those keys; it defaults to the
+current buffer."
   (interactive
    ;; Ignore mouse movement events because it's too easy to miss the
    ;; message while moving the mouse.
@@ -667,15 +753,13 @@ on them."
      `(,key-list ,current-prefix-arg)))
   (when (arrayp key-list)
     ;; Old calling convention, changed
-    (setq key-list (list (cons key-list
-                               (if (numberp untranslated)
-                                   (this-single-command-raw-keys)
-                                 untranslated)))))
-  (let* ((info-list (mapcar (lambda (kr)
-                              (help--analyze-key (car kr) (cdr kr)))
-                            key-list))
-         (msg (mapconcat #'car (help--filter-info-list info-list 1) "\n")))
-    (if insert (insert msg) (message "%s" msg))))
+    (setq key-list (list (cons key-list nil))))
+  (with-current-buffer (if (buffer-live-p buffer) buffer (current-buffer))
+    (let* ((info-list (mapcar (lambda (kr)
+                                (help--analyze-key (car kr) (cdr kr) buffer))
+                              key-list))
+           (msg (mapconcat #'car (help--filter-info-list info-list 1) "\n")))
+      (if insert (insert msg) (message "%s" msg)))))
 
 (defun help--key-binding-keymap (key &optional accept-default no-remap position)
   "Return a keymap holding a binding for KEY within current keymaps.
@@ -835,7 +919,7 @@ current buffer."
              (mapcar (lambda (x)
                        (pcase-let* ((`(,seq . ,raw-seq) x)
                                     (`(,brief-desc ,defn ,event ,_mouse-msg)
-                                     (help--analyze-key seq raw-seq))
+                                     (help--analyze-key seq raw-seq buffer))
                                     (locus
                                      (help--binding-locus
                                       seq (event-start event))))
@@ -868,12 +952,7 @@ current buffer."
           (when defn
             (when (> (length info-list) 1)
               (with-current-buffer standard-output
-                (insert "\n\n"
-                        ;; FIXME: Can't use eval-when-compile because purified
-                        ;; strings lose their text properties :-(
-                        (propertize "\n" 'face
-                                    '(:height 0.1 :inverse-video t :extend t))
-                        "\n")))
+                (insert "\n\n" (make-separator-line) "\n")))
 
             (princ brief-desc)
             (when locus
@@ -882,10 +961,13 @@ current buffer."
 	    (describe-function-1 defn)))))))
 
 (defun search-forward-help-for-help ()
-  "Search forward \"help window\"."
+  "Search forward in the help-for-help window.
+This command is meant to be used after issuing the `C-h C-h' command."
   (interactive)
+  (unless (get-buffer help-for-help-buffer-name)
+    (error "No %s buffer; use `C-h C-h' first" help-for-help-buffer-name))
   ;; Move cursor to the "help window".
-  (pop-to-buffer " *Metahelp*")
+  (pop-to-buffer help-for-help-buffer-name)
   ;; Do incremental search forward.
   (isearch-forward nil t))
 
@@ -978,11 +1060,12 @@ is currently activated with completion."
     result))
 
 
-(defun substitute-command-keys (string)
+(defun substitute-command-keys (string &optional no-face)
   "Substitute key descriptions for command names in STRING.
 Each substring of the form \\\\=[COMMAND] is replaced by either a
 keystroke sequence that invokes COMMAND, or \"M-x COMMAND\" if COMMAND
-is not on any keys.  Keybindings will use the face `help-key-binding'.
+is not on any keys.  Keybindings will use the face `help-key-binding',
+unless the optional argument NO-FACE is non-nil.
 
 Each substring of the form \\\\={MAPVAR} is replaced by a summary of
 the value of MAPVAR as a keymap.  This summary is similar to the one
@@ -1059,13 +1142,17 @@ Otherwise, return a new string."
                       (let ((op (point)))
                         (insert "M-x ")
                         (goto-char (+ end-point 3))
-                        (add-text-properties op (point)
-                                             '( face help-key-binding
-                                                font-lock-face help-key-binding))
+                        (or no-face
+                            (add-text-properties
+                             op (point)
+                             '( face help-key-binding
+                                font-lock-face help-key-binding)))
                         (delete-char 1))
                     ;; Function is on a key.
                     (delete-char (- end-point (point)))
-                    (insert (help--key-description-fontified key)))))
+                    (insert (if no-face
+                                (key-description key)
+                              (help--key-description-fontified key))))))
                ;; 1D. \{foo} is replaced with a summary of the keymap
                ;;            (symbol-value foo).
                ;;     \<foo> just sets the keymap used for \[cmd].
@@ -1147,10 +1234,10 @@ If NOMENU is non-nil, then omit menu-bar commands.
 If TRANSL is non-nil, the definitions are actually key
 translations so print strings and vectors differently.
 
-If ALWAYS_TITLE is non-nil, print the title even if there are no
+If ALWAYS-TITLE is non-nil, print the title even if there are no
 maps to look through.
 
-If MENTION_SHADOW is non-nil, then when something is shadowed by
+If MENTION-SHADOW is non-nil, then when something is shadowed by
 SHADOW, don't omit it; instead, mention it but say it is
 shadowed.
 
@@ -1824,7 +1911,7 @@ the same names as used in the original source code, when possible."
    ((and (byte-code-function-p def) (listp (aref def 0))) (aref def 0))
    ((eq (car-safe def) 'lambda) (nth 1 def))
    ((eq (car-safe def) 'closure) (nth 2 def))
-   ((and (featurep 'nativecomp)
+   ((and (featurep 'native-compile)
          (subrp def)
          (listp (subr-native-lambda-list def)))
     (subr-native-lambda-list def))
@@ -1842,7 +1929,7 @@ the same names as used in the original source code, when possible."
                            (let ((name (symbol-name arg)))
                              (if (eq (aref name 0) ?&)
                                  (memq arg '(&rest &optional))
-                               (not (string-match "\\." name)))))
+                               (not (string-search "." name)))))
                 (setq valid nil)))
             (when valid arglist)))
         (let* ((arity (func-arity def))

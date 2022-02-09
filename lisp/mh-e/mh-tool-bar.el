@@ -1,6 +1,6 @@
 ;;; mh-tool-bar.el --- MH-E tool bar support  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2003, 2005-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2003, 2005-2022 Free Software Foundation, Inc.
 
 ;; Author: Satyaki Das <satyaki@theforce.stanford.edu>
 ;; Maintainer: Bill Wohler <wohler@newt.com>
@@ -23,8 +23,6 @@
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
-
-;;; Change Log:
 
 ;;; Code:
 

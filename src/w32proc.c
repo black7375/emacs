@@ -1,6 +1,6 @@
 /* Process support for GNU Emacs on the Microsoft Windows API.
 
-Copyright (C) 1992, 1995, 1999-2021 Free Software Foundation, Inc.
+Copyright (C) 1992, 1995, 1999-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -623,7 +623,7 @@ init_timers (void)
      need to probe for its availability dynamically, and call it
      through a pointer.  */
   s_pfn_Get_Thread_Times = NULL; /* in case dumped Emacs comes with a value */
-  if (os_subtype != OS_9X)
+  if (os_subtype != OS_SUBTYPE_9X)
     s_pfn_Get_Thread_Times = (GetThreadTimes_Proc)
       get_proc_addr (GetModuleHandle ("kernel32.dll"), "GetThreadTimes");
 
@@ -2654,7 +2654,7 @@ find_child_console (HWND hwnd, LPARAM arg)
 
       GetClassName (hwnd, window_class, sizeof (window_class));
       if (strcmp (window_class,
-		  (os_subtype == OS_9X)
+		  (os_subtype == OS_SUBTYPE_9X)
 		  ? "tty"
 		  : "ConsoleWindowClass") == 0)
 	{
@@ -2878,7 +2878,7 @@ sys_kill (pid_t pid, int sig)
       if (NILP (Vw32_start_process_share_console) && cp && cp->hwnd)
 	{
 #if 1
-	  if (os_subtype == OS_9X)
+	  if (os_subtype == OS_SUBTYPE_9X)
 	    {
 /*
    Another possibility is to try terminating the VDM out-right by
@@ -3793,7 +3793,7 @@ w32_compare_strings (const char *s1, const char *s2, char *locname,
 
   if (!g_b_init_compare_string_w)
     {
-      if (os_subtype == OS_9X)
+      if (os_subtype == OS_SUBTYPE_9X)
 	{
 	  pCompareStringW = (CompareStringW_Proc)
             get_proc_addr (LoadLibrary ("Unicows.dll"),
@@ -3878,14 +3878,6 @@ w32_compare_strings (const char *s1, const char *s2, char *locname,
   return val - 2;
 }
 
-DEFUN ("w32-get-nproc", Fw32_get_nproc,
-       Sw32_get_nproc, 0, 0, 0,
-       doc: /* Return the number of system's processor execution units.  */)
-  (void)
-{
-  return make_fixnum (w32_get_nproc ());
-}
-
 
 void
 syms_of_ntproc (void)
@@ -3919,8 +3911,6 @@ syms_of_ntproc (void)
   defsubr (&Sw32_get_valid_keyboard_layouts);
   defsubr (&Sw32_get_keyboard_layout);
   defsubr (&Sw32_set_keyboard_layout);
-
-  defsubr (&Sw32_get_nproc);
 
   DEFVAR_LISP ("w32-quote-process-args", Vw32_quote_process_args,
 	       doc: /* Non-nil enables quoting of process arguments to ensure correct parsing.

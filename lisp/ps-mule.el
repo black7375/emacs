@@ -1,6 +1,6 @@
 ;;; ps-mule.el --- provide multi-byte character facility to ps-print  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1998-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1998-2022 Free Software Foundation, Inc.
 
 ;; Author: Vinicius Jose Latorre <viniciusjl.gnu@gmail.com>
 ;;	Kenichi Handa <handa@gnu.org> (multi-byte characters)
@@ -673,7 +673,7 @@ the sequence."
 			(not (vectorp (aref (nth 2 composition) 0))))
 		   (car composition)
 		 to))
-	 (ascii-or-latin-1 "[\000-\377]+")
+	 (ascii-or-latin-1 "[\000-ÿ]+")
 	 (run-width 0)
 	 (endpos nil)
 	 (font-spec-table (aref ps-mule-font-spec-tables
@@ -699,6 +699,7 @@ the sequence."
 		 (setq composition (find-composition (point) to nil t))
 		 (setq stop (if composition (car composition) to)))))
 
+            ;; We fold lines that contain ASCII or Latin-1.
 	    ((looking-at ascii-or-latin-1)
 	     (let ((nchars (- (min (match-end 0) stop) (point))))
 	       (setq width (* average-width nchars))
@@ -710,6 +711,7 @@ the sequence."
 		 (setq run-width (+ run-width width))
 		 (forward-char nchars))))
 
+            ;; Don't fold other lines.  (But why?)
 	    (t
 	     (while (and (< (point) stop) (not endpos))
 	       (setq width (char-width (following-char)))

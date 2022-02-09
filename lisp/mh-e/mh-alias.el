@@ -1,6 +1,6 @@
 ;;; mh-alias.el --- MH-E mail alias completion and expansion  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1994-1997, 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1994-1997, 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: Peter S. Galbraith <psg@debian.org>
 ;; Maintainer: Bill Wohler <wohler@newt.com>
@@ -23,8 +23,6 @@
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
-
-;;; Change Log:
 
 ;;; Code:
 
@@ -113,10 +111,10 @@ COMMA-SEPARATOR is non-nil."
              (string-match "^\\([^,]+\\)," res))
         (setq res (match-string 1 res)))
     ;; Replace "&" with capitalized username
-    (if (string-match "&" res)
+    (if (string-search "&" res)
         (setq res (mh-replace-regexp-in-string "&" (capitalize username) res)))
     ;; Remove " character
-    (if (string-match "\"" res)
+    (if (string-search "\"" res)
         (setq res (mh-replace-regexp-in-string "\"" "" res)))
     ;; If empty string, use username instead
     (if (string-equal "" res)
@@ -287,7 +285,7 @@ Blind aliases or users from /etc/passwd are not expanded."
             (message "%s -> %s" the-name (mh-alias-expand the-name))
           ;; Check if it was a single word likely to be an alias
           (if (and (equal mh-alias-flash-on-comma 1)
-                   (not (string-match " " the-name)))
+                   (not (string-search " " the-name)))
               (message "No alias for %s" the-name))))))
   (self-insert-command 1))
 

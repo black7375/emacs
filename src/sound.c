@@ -1,6 +1,6 @@
 /* sound.c -- sound support.
 
-Copyright (C) 1998-1999, 2001-2021 Free Software Foundation, Inc.
+Copyright (C) 1998-1999, 2001-2022 Free Software Foundation, Inc.
 
 Author: Gerd Moellmann <gerd@gnu.org>
 
@@ -1459,8 +1459,9 @@ Internal use only, use `play-sound' instead.  */)
   if (STRINGP (attrs[SOUND_FILE]))
     {
       /* Open the sound file.  */
-      int fd = openp (Fcons (Vdata_directory, Qnil),
-		      attrs[SOUND_FILE], Qnil, &file, Qnil, false);
+      int fd =
+	openp (list1 (Vdata_directory), attrs[SOUND_FILE], Qnil, &file, Qnil,
+	       false, false);
 
       if (fd < 0)
 	{

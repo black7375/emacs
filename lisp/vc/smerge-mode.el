@@ -1,6 +1,6 @@
 ;;; smerge-mode.el --- Minor mode to resolve diff3 conflicts -*- lexical-binding: t -*-
 
-;; Copyright (C) 1999-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
 ;; Keywords: vc, tools, revision control, merge, diff3, cvs, conflict
@@ -213,6 +213,9 @@ Used in `smerge-diff-base-upper' and related functions."
     "--"
     ["Invoke Ediff" smerge-ediff
      :help "Use Ediff to resolve the conflicts"
+     :active (smerge-check 1)]
+    ["Refine" smerge-refine
+     :help "Highlight different words of the conflict"
      :active (smerge-check 1)]
     ["Auto Resolve" smerge-resolve
      :help "Try auto-resolution heuristics"
@@ -958,7 +961,7 @@ It has the following disadvantages:
 (defvar smerge--refine-long-words)
 
 (defun smerge--refine-chopup-region (beg end file &optional preproc)
-  "Chopup the region into small elements, one per line.
+  "Chopup the region from BEG to END into small elements, one per line.
 Save the result into FILE.
 If non-nil, PREPROC is called with no argument in a buffer that contains
 a copy of the text, just before chopping it up.  It can be used to replace

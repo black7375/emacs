@@ -1,6 +1,6 @@
 /* Interface definitions for display code.
 
-Copyright (C) 1985, 1993-1994, 1997-2021 Free Software Foundation, Inc.
+Copyright (C) 1985, 1993-1994, 1997-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -1270,8 +1270,6 @@ extern struct glyph space_glyph;
 /* True means last display completed.  False means it was preempted.  */
 
 extern bool display_completed;
-
-
 
 /************************************************************************
 			  Glyph Strings
@@ -1336,7 +1334,9 @@ struct glyph_string
   /* The area within row.  */
   enum glyph_row_area area;
 
-  /* Characters to be drawn, and number of characters.  */
+  /* Characters to be drawn, and number of characters.  Note that
+     NCHARS can be zero if this is a composition glyph string, as
+     evidenced by FIRST_GLYPH->type.  */
   unsigned *char2b;
   int nchars;
 
@@ -3148,6 +3148,9 @@ struct image
 
   /* Pointer to affine transformation matrix for image display.  */
   CGAffineTransform *cg_transform;
+
+  /* Whether image scaling does smoothing.  */
+  bool smoothing;
 #endif
 
   /* Hash value of image specification to speed up comparisons.  */
@@ -3226,7 +3229,7 @@ enum tab_bar_item_idx
 
 /* Default values of the above variables.  */
 
-#define DEFAULT_TAB_BAR_BUTTON_MARGIN 4
+#define DEFAULT_TAB_BAR_BUTTON_MARGIN 1
 #define DEFAULT_TAB_BAR_BUTTON_RELIEF 1
 
 /* The height in pixels of the default tab-bar images.  */
@@ -3439,8 +3442,8 @@ extern void get_glyph_string_clip_rect (struct glyph_string *,
                                         NativeRectangle *nr);
 extern Lisp_Object find_hot_spot (Lisp_Object, int, int);
 
-extern void handle_tab_bar_click (struct frame *,
-                                   int, int, bool, int);
+extern Lisp_Object handle_tab_bar_click (struct frame *,
+					 int, int, bool, int);
 extern void handle_tool_bar_click (struct frame *,
                                    int, int, bool, int);
 
@@ -3676,7 +3679,7 @@ extern void gui_update_window_begin (struct window *);
 extern void gui_update_window_end (struct window *, bool, bool);
 #endif
 void do_pending_window_change (bool);
-void change_frame_size (struct frame *, int, int, bool, bool, bool, bool);
+void change_frame_size (struct frame *, int, int, bool, bool, bool);
 void init_display (void);
 void syms_of_display (void);
 extern void spec_glyph_lookup_face (struct window *, GLYPH *);

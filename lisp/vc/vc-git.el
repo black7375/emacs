@@ -1,6 +1,6 @@
 ;;; vc-git.el --- VC backend for the git version control system -*- lexical-binding: t -*-
 
-;; Copyright (C) 2006-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2006-2022 Free Software Foundation, Inc.
 
 ;; Author: Alexandre Julliard <julliard@winehq.org>
 ;; Keywords: vc tools
@@ -127,6 +127,13 @@ If nil, use the value of `vc-annotate-switches'.  If t, use no switches."
 		 (repeat :tag "Argument List" :value ("") string))
   :version "25.1")
 
+(defcustom vc-git-log-switches nil
+  "String or list of strings specifying switches for Git log under VC."
+  :type '(choice (const :tag "None" nil)
+                 (string :tag "Argument String")
+                 (repeat :tag "Argument List" :value ("") string))
+  :version "28.1")
+
 (defcustom vc-git-resolve-conflicts t
   "When non-nil, mark conflicted file as resolved upon saving.
 That is performed after all conflict markers in it have been
@@ -215,6 +222,12 @@ included in the completions."
 
 ;; History of Git commands.
 (defvar vc-git-history nil)
+
+;; Default to t because commands which don't support literal pathspecs
+;; ignore the environment variable silently.
+(defvar vc-git-use-literal-pathspecs t
+  "Non-nil to treat pathspecs in commands literally.
+Good example of file name that needs this: \"test[56].xx\".")
 
 ;; Clear up the cache to force vc-call to check again and discover
 ;; new functions when we reload this file.
@@ -368,7 +381,7 @@ in the order given by `git status'."
   "Return a string for `vc-mode-line' to put in the mode line for FILE."
   (let* ((rev (vc-working-revision file 'Git))
          (disp-rev (or (vc-git--symbolic-ref file)
-                       (substring rev 0 7)))
+                       (and rev (substring rev 0 7))))
          (def-ml (vc-default-mode-line-string 'Git file))
          (help-echo (get-text-property 0 'help-echo def-ml))
          (face   (get-text-property 0 'face def-ml)))
@@ -386,7 +399,7 @@ in the order given by `git status'."
   orig-name)          ;; Original name for renames or copies.
 
 (defun vc-git-escape-file-name (name)
-  "Escape a file name if necessary."
+  "Escape filename NAME if necessary."
   (if (string-match "[\n\t\"\\]" name)
       (concat "\""
               (mapconcat (lambda (c)
@@ -875,8 +888,7 @@ The car of the list is the current branch."
 (declare-function log-edit--toggle-amend "log-edit" (last-msg-fn))
 
 (defun vc-git-log-edit-toggle-signoff ()
-  "Toggle whether to add the \"Signed-off-by\" line at the end of
-the commit message."
+  "Toggle whether to add the \"Signed-off-by\" line at the end of commit message."
   (interactive)
   (log-edit-toggle-header "Sign-Off" "yes"))
 
@@ -1126,10 +1138,20 @@ This prompts for a branch to merge from."
 
 (autoload 'vc-setup-buffer "vc-dispatcher")
 
+;; It's a weird option due to how Git handles '--follow', and it can
+;; hide certain (usually merge) commits in the `vc-print-log' buffers.
+;;
+;; (setq vc-git-log-switches '("-m")) can fix that, but at the cost of
+;; duplicating many merge commits in the log.
+;;
+;; Long explanation here:
+;; https://stackoverflow.com/questions/46487476/git-log-follow-graph-skips-commits
 (defcustom vc-git-print-log-follow nil
   "If true, follow renames in Git logs for a single file."
   :type 'boolean
   :version "26.1")
+
+(autoload 'vc-switches "vc")
 
 (defun vc-git-print-log (files buffer &optional shortlog start-revision limit)
   "Print commit log associated with FILES into specified BUFFER.
@@ -1162,9 +1184,10 @@ If LIMIT is a revision string, use it as an end-revision."
 		(when shortlog
 		  `("--graph" "--decorate" "--date=short"
                     ,(format "--pretty=tformat:%s"
-			     (car vc-git-root-log-format))
-		    "--abbrev-commit"))
-		(when (numberp limit)
+                             (car vc-git-root-log-format))
+                    "--abbrev-commit"))
+                vc-git-log-switches
+                (when (numberp limit)
                   (list "-n" (format "%s" limit)))
 		(when start-revision
                   (if (and limit (not (numberp limit)))
@@ -1225,7 +1248,10 @@ log entries."
 
 (defun vc-git-mergebase (rev1 &optional rev2)
   (unless rev2 (setq rev2 "HEAD"))
-  (string-trim-right (vc-git--run-command-string nil "merge-base" rev1 rev2)))
+  (let ((base (vc-git--run-command-string nil "merge-base" rev1 rev2)))
+    (if base
+        (string-trim-right base)
+      (error "No common ancestor for merge base"))))
 
 (defvar log-view-message-re)
 (defvar log-view-file-re)
@@ -1292,7 +1318,7 @@ or BRANCH^ (where \"^\" can be repeated)."
 
 (defun vc-git-expanded-log-entry (revision)
   (with-temp-buffer
-    (apply #'vc-git-command t nil nil (list "log" revision "-1" "--"))
+    (apply #'vc-git-command t nil nil (list "log" revision "-1"  "--no-color" "--"))
     (goto-char (point-min))
     (unless (eobp)
       ;; Indent the expanded log entry.
@@ -1312,7 +1338,7 @@ This requires git 1.8.4 or later, for the \"-L\" option of \"git log\"."
   ;; but since Git is one of the two backends that support this operation
   ;; so far, it's hard to tell; hg doesn't need this.
   (with-temp-buffer
-    (vc-call-backend 'git 'diff file "HEAD" nil (current-buffer))
+    (vc-call-backend 'git 'diff (list file) "HEAD" nil (current-buffer))
     (goto-char (point-min))
     (let ((last-offset 0)
           (from-offset nil)
@@ -1385,8 +1411,6 @@ This requires git 1.8.4 or later, for the \"-L\" option of \"git log\"."
                                 samp coding-system-for-read t)))
     (setq coding-system-for-read 'undecided)))
 
-(autoload 'vc-switches "vc")
-
 (defun vc-git-diff (files &optional rev1 rev2 buffer _async)
   "Get a difference report using Git between two revisions of FILES."
   (let (process-file-side-effects
@@ -1400,7 +1424,7 @@ This requires git 1.8.4 or later, for the \"-L\" option of \"git log\"."
     (if vc-git-diff-switches
         (apply #'vc-git-command (or buffer "*vc-diff*")
 	       1 ; bug#21969
-	       files
+               files
                command
                "--exit-code"
                (append (vc-switches 'git 'diff)
@@ -1590,8 +1614,8 @@ before it is executed.
 With two \\[universal-argument] prefixes, directly edit and run `grep-command'.
 
 Collect output in a buffer.  While git grep runs asynchronously, you
-can use \\[next-error] (M-x next-error), or \\<grep-mode-map>\\[compile-goto-error] \
-in the grep output buffer,
+can use \\[next-error] (`next-error'), or \\<grep-mode-map>\
+\\[compile-goto-error] in the grep output buffer,
 to go to the lines where grep found matches.
 
 This command shares argument histories with \\[rgrep] and \\[grep]."
@@ -1764,21 +1788,26 @@ The difference to vc-do-command is that this function always invokes
         (process-environment
          (append
           `("GIT_DIR"
+            ,@(when vc-git-use-literal-pathspecs
+                '("GIT_LITERAL_PATHSPECS=1"))
             ;; Avoid repository locking during background operations
             ;; (bug#21559).
             ,@(when revert-buffer-in-progress-p
                 '("GIT_OPTIONAL_LOCKS=0")))
           process-environment)))
     (apply #'vc-do-command (or buffer "*vc*") okstatus vc-git-program
-	   ;; https://debbugs.gnu.org/16897
-	   (unless (and (not (cdr-safe file-or-list))
-			(let ((file (or (car-safe file-or-list)
-					file-or-list)))
-			  (and file
-			       (eq ?/ (aref file (1- (length file))))
-			       (equal file (vc-git-root file)))))
-	     file-or-list)
-	   (cons "--no-pager" flags))))
+           ;; https://debbugs.gnu.org/16897
+           (unless (vc-git--file-list-is-rootdir file-or-list)
+             file-or-list)
+           (cons "--no-pager" flags))))
+
+(defun vc-git--file-list-is-rootdir (file-or-list)
+  (and (not (cdr-safe file-or-list))
+       (let ((file (or (car-safe file-or-list)
+                       file-or-list)))
+         (and file
+              (eq ?/ (aref file (1- (length file))))
+              (equal file (vc-git-root file))))))
 
 (defun vc-git--empty-db-p ()
   "Check if the git db is empty (no commit done yet)."
@@ -1798,6 +1827,8 @@ The difference to vc-do-command is that this function always invokes
 	(process-environment
 	 (append
 	  `("GIT_DIR"
+            ,@(when vc-git-use-literal-pathspecs
+                '("GIT_LITERAL_PATHSPECS=1"))
 	    ;; Avoid repository locking during background operations
 	    ;; (bug#21559).
 	    ,@(when revert-buffer-in-progress-p

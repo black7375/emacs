@@ -1,6 +1,6 @@
 ;;; cus-face.el --- customization support for faces  -*- lexical-binding: t; -*-
 ;;
-;; Copyright (C) 1996-1997, 1999-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1996-1997, 1999-2022 Free Software Foundation, Inc.
 ;;
 ;; Author: Per Abrahamsen <abraham@dina.kvl.dk>
 ;; Keywords: help, faces
@@ -394,8 +394,6 @@ This means reset FACE to its value in FROM-THEME."
   (apply 'custom-theme-reset-faces 'user args))
 
 (define-obsolete-function-alias 'custom-facep #'facep "28.1")
-
-;;; The End.
 
 (provide 'cus-face)
 

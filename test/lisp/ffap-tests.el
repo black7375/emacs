@@ -1,6 +1,6 @@
 ;;; ffap-tests.el --- Test suite for ffap.el -*- lexical-binding: t -*-
 
-;; Copyright (C) 2016-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2016-2022 Free Software Foundation, Inc.
 
 ;; Author: Tino Calancha <tino.calancha@gmail.com>
 
@@ -122,6 +122,25 @@ left alone when opening a URL in an external browser."
    (with-temp-buffer
      (save-excursion (insert "type="))
      (ffap-guess-file-name-at-point))))
+
+(ert-deftest ffap-ido-mode ()
+  (require 'ido)
+  (with-temp-buffer
+    (let ((ido-mode t)
+          (read-file-name-function read-file-name-function)
+          (read-buffer-function read-buffer-function))
+      ;; Says ert-deftest:
+      ;; Macros in BODY are expanded when the test is defined, not when it
+      ;; is run.  If a macro (possibly with side effects) is to be tested,
+      ;; it has to be wrapped in `(eval (quote ...))'.
+      (eval (quote (ido-everywhere)))
+      (let ((read-file-name-function (lambda (&rest args)
+                                       (expand-file-name
+                                        (nth 4 args)
+                                        (nth 1 args)))))
+        (save-excursion (insert "ffap-tests.el"))
+        (let (kill-buffer-query-functions)
+          (kill-buffer (call-interactively #'find-file-at-point)))))))
 
 (provide 'ffap-tests)
 

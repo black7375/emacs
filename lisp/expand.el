@@ -1,6 +1,6 @@
 ;;; expand.el --- make abbreviations more usable  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1995-1996, 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1995-1996, 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: Frederic Lepied <Frederic.Lepied@sugix.frmug.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -88,7 +88,7 @@
 
 ;;; Samples:
 
-(define-skeleton expand-c-for-skeleton "For loop skeleton"
+(define-skeleton expand-c-for-skeleton "For loop skeleton."
   "Loop var: "
   "for(" str _ @ "=0; " str @ "; " str @ ") {" \n
   @ _ \n
@@ -484,7 +484,6 @@ This is used only in conjunction with `expand-add-abbrevs'."
 
 (provide 'expand)
 
-;; run load hooks
 (run-hooks 'expand-load-hook)
 
 ;;; expand.el ends here

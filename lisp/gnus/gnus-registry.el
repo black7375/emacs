@@ -1,6 +1,6 @@
 ;;; gnus-registry.el --- article registry for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2022 Free Software Foundation, Inc.
 
 ;; Author: Ted Zlatanov <tzz@lifelogs.com>
 ;; Keywords: news registry
@@ -319,9 +319,12 @@ Encode names if ENCODE is non-nil, otherwise decode."
       (setf (oref db tracked)
             (append gnus-registry-track-extra
                     '(mark group keyword)))
-      (when (not (equal old (oref db tracked)))
+      (when (not (seq-set-equal-p old (oref db tracked)))
         (gnus-message 9 "Reindexing the Gnus registry (tracked change)")
-        (registry-reindex db))
+	(let ((message-log-max (if (< gnus-verbose 9)
+				   nil
+				 message-log-max)))
+          (registry-reindex db)))
       (gnus-registry--munge-group-names db)))
   db)
 
@@ -769,7 +772,7 @@ possible.  Uses `gnus-registry-split-strategy'."
         nil))))
 
 (defun gnus-registry-follow-group-p (group)
-  "Determines if a group name should be followed.
+  "Determine if a group name should be followed.
 Consults `gnus-registry-unfollowed-groups' and
 `nnmail-split-fancy-with-parent-ignore-groups'."
   (and group
@@ -786,7 +789,7 @@ Consults `gnus-registry-unfollowed-groups' and
 ;; we do special logic for ignoring to accept regular expressions and
 ;; nnmail-split-fancy-with-parent-ignore-groups as well
 (defun gnus-registry-ignore-group-p (group)
-  "Determines if a group name should be ignored.
+  "Determine if a group name should be ignored.
 Consults `gnus-registry-ignored-groups' and
 `nnmail-split-fancy-with-parent-ignore-groups'."
   (and group
@@ -1297,8 +1300,6 @@ from your existing entries."
 		 (registry-delete db (list k) nil)
 		 (gnus-registry-insert db k newv)))
       (registry-reindex db))))
-
-;; TODO: a few things
 
 (provide 'gnus-registry)
 

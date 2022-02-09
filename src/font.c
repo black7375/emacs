@@ -1,6 +1,6 @@
 /* font.c -- "Font" primitives.
 
-Copyright (C) 2006-2021 Free Software Foundation, Inc.
+Copyright (C) 2006-2022 Free Software Foundation, Inc.
 Copyright (C) 2006, 2007, 2008, 2009, 2010, 2011
   National Institute of Advanced Industrial Science and Technology (AIST)
   Registration Number H13PRO009
@@ -1035,8 +1035,8 @@ font_expand_wildcards (Lisp_Object *field, int n)
    X font backend driver, it is a font-entity.  In that case, NAME is
    a fully specified XLFD.  */
 
-int
-font_parse_xlfd (char *name, ptrdiff_t len, Lisp_Object font)
+static int
+font_parse_xlfd_1 (char *name, ptrdiff_t len, Lisp_Object font, int segments)
 {
   int i, j, n;
   char *f[XLFD_LAST_INDEX + 1];
@@ -1046,17 +1046,27 @@ font_parse_xlfd (char *name, ptrdiff_t len, Lisp_Object font)
   if (len > 255 || !len)
     /* Maximum XLFD name length is 255. */
     return -1;
+
   /* Accept "*-.." as a fully specified XLFD. */
   if (name[0] == '*' && (len == 1 || name[1] == '-'))
     i = 1, f[XLFD_FOUNDRY_INDEX] = name;
   else
     i = 0;
+
+  /* Split into segments. */
   for (p = name + i; *p; p++)
     if (*p == '-')
       {
-	f[i++] = p + 1;
-	if (i == XLFD_LAST_INDEX)
-	  break;
+	/* If we have too many segments, then gather them up into the
+	   FAMILY part of the name.  This allows using fonts with
+	   dashes in the FAMILY bit. */
+	if (segments > XLFD_LAST_INDEX && i == XLFD_WEIGHT_INDEX)
+	  segments--;
+	else {
+	  f[i++] = p + 1;
+	  if (i == XLFD_LAST_INDEX)
+	    break;
+	}
       }
   f[i] = name + len;
 
@@ -1220,6 +1230,28 @@ font_parse_xlfd (char *name, ptrdiff_t len, Lisp_Object font)
 
   return 0;
 }
+
+int
+font_parse_xlfd (char *name, ptrdiff_t len, Lisp_Object font)
+{
+  int found = font_parse_xlfd_1 (name, len, font, -1);
+  if (found > -1)
+    return found;
+
+  int segments = 0;
+  /* Count how many segments we have. */
+  for (char *p = name; *p; p++)
+    if (*p == '-')
+      segments++;
+
+  /* If we have a surplus of segments, then we try to parse again, in
+     case there's a font with dashes in the family name. */
+  if (segments > XLFD_LAST_INDEX)
+    return font_parse_xlfd_1 (name, len, font, segments);
+  else
+    return -1;
+}
+
 
 /* Store XLFD name of FONT (font-spec or font-entity) in NAME (NBYTES
    length), and return the name length.  If FONT_SIZE_INDEX of FONT is
@@ -2147,7 +2179,9 @@ font_score (Lisp_Object entity, Lisp_Object *spec_prop)
 
   /* Score three style numeric fields.  Maximum difference is 127. */
   for (i = FONT_WEIGHT_INDEX; i <= FONT_WIDTH_INDEX; i++)
-    if (! NILP (spec_prop[i]) && ! EQ (AREF (entity, i), spec_prop[i]))
+    if (! NILP (spec_prop[i])
+	&& ! EQ (AREF (entity, i), spec_prop[i])
+	&& FIXNUMP (AREF (entity, i)))
       {
 	EMACS_INT diff = ((XFIXNUM (AREF (entity, i)) >> 8)
 			  - (XFIXNUM (spec_prop[i]) >> 8));
@@ -2726,8 +2760,9 @@ font_delete_unmatched (Lisp_Object vec, Lisp_Object spec, int size)
 	}
       for (prop = FONT_WEIGHT_INDEX; prop < FONT_SIZE_INDEX; prop++)
 	if (FIXNUMP (AREF (spec, prop))
-	    && ((XFIXNUM (AREF (spec, prop)) >> 8)
-		!= (XFIXNUM (AREF (entity, prop)) >> 8)))
+	    && ! (FIXNUMP (AREF (entity, prop))
+		  && ((XFIXNUM (AREF (spec, prop)) >> 8)
+		      == (XFIXNUM (AREF (entity, prop)) >> 8))))
 	  prop = FONT_SPEC_MAX;
       if (prop < FONT_SPEC_MAX
 	  && size
@@ -3128,8 +3163,9 @@ font_clear_prop (Lisp_Object *attrs, enum font_property_index prop)
   attrs[LFACE_FONT_INDEX] = font;
 }
 
-/* Select a font from ENTITIES (list of font-entity vectors) that
-   supports C and is the best match for ATTRS and PIXEL_SIZE.  */
+/* Select a font from ENTITIES (list of one or more font-entity
+   vectors) that supports the character C (if non-negative) and is the
+   best match for ATTRS and PIXEL_SIZE.  */
 
 static Lisp_Object
 font_select_entity (struct frame *f, Lisp_Object entities,
@@ -3139,6 +3175,7 @@ font_select_entity (struct frame *f, Lisp_Object entities,
   Lisp_Object prefer;
   int i;
 
+  /* If we have a single candidate, return it if it supports C.  */
   if (NILP (XCDR (entities))
       && ASIZE (XCAR (entities)) == 1)
     {
@@ -3148,7 +3185,10 @@ font_select_entity (struct frame *f, Lisp_Object entities,
       return Qnil;
     }
 
-  /* Sort fonts by properties specified in ATTRS.  */
+  /* If we have several candidates, find the best match by sorting
+     them by properties specified in ATTRS.  Style attributes (weight,
+     slant, width, and size) are taken from the font spec in ATTRS (if
+     that is non-nil), or from ATTRS, or left as nil.  */
   prefer = scratch_font_prefer;
 
   for (i = FONT_WEIGHT_INDEX; i <= FONT_SIZE_INDEX; i++)
@@ -3185,6 +3225,8 @@ font_find_for_lface (struct frame *f, Lisp_Object *attrs, Lisp_Object spec, int 
   int i, j, k, l;
   USE_SAFE_ALLOCA;
 
+  /* Registry specification alternatives: from the most specific to
+     the least specific and finally an unspecified one.  */
   registry[0] = AREF (spec, FONT_REGISTRY_INDEX);
   if (NILP (registry[0]))
     {
@@ -3221,6 +3263,9 @@ font_find_for_lface (struct frame *f, Lisp_Object *attrs, Lisp_Object spec, int 
 	pixel_size = 1;
     }
   ASET (work, FONT_SIZE_INDEX, Qnil);
+
+  /* Foundry specification alternatives: from the most specific to the
+     least specific and finally an unspecified one.  */
   foundry[0] = AREF (work, FONT_FOUNDRY_INDEX);
   if (! NILP (foundry[0]))
     foundry[1] = zero_vector;
@@ -3234,6 +3279,8 @@ font_find_for_lface (struct frame *f, Lisp_Object *attrs, Lisp_Object spec, int 
   else
     foundry[0] = Qnil, foundry[1] = zero_vector;
 
+  /* Additional style specification alternatives: from the most
+     specific to the least specific and finally an unspecified one.  */
   adstyle[0] = AREF (work, FONT_ADSTYLE_INDEX);
   if (! NILP (adstyle[0]))
     adstyle[1] = zero_vector;
@@ -3254,6 +3301,8 @@ font_find_for_lface (struct frame *f, Lisp_Object *attrs, Lisp_Object spec, int 
     adstyle[0] = Qnil, adstyle[1] = zero_vector;
 
 
+  /* Family specification alternatives: from the most specific to
+     the least specific and finally an unspecified one.  */
   val = AREF (work, FONT_FAMILY_INDEX);
   if (NILP (val) && STRINGP (attrs[LFACE_FAMILY_INDEX]))
     {
@@ -3293,6 +3342,8 @@ font_find_for_lface (struct frame *f, Lisp_Object *attrs, Lisp_Object spec, int 
 	}
     }
 
+  /* Now look up suitable fonts, from the most specific spec to the
+     least specific spec.  Accept the first one that matches.  */
   for (i = 0; SYMBOLP (family[i]); i++)
     {
       ASET (work, FONT_FAMILY_INDEX, family[i]);
@@ -3305,9 +3356,12 @@ font_find_for_lface (struct frame *f, Lisp_Object *attrs, Lisp_Object spec, int 
 	      for (l = 0; SYMBOLP (adstyle[l]); l++)
 		{
 		  ASET (work, FONT_ADSTYLE_INDEX, adstyle[l]);
+		  /* Produce the list of candidates for the spec in WORK.  */
 		  entities = font_list_entities (f, work);
 		  if (! NILP (entities))
 		    {
+		      /* If there are several candidates, select the
+			 best match for PIXEL_SIZE and attributes in ATTRS.  */
 		      val = font_select_entity (f, entities,
 						attrs, pixel_size, c);
 		      if (! NILP (val))
@@ -3837,11 +3891,31 @@ font_at (int c, ptrdiff_t pos, struct face *face, struct window *w,
 
 #ifdef HAVE_WINDOW_SYSTEM
 
+/* Check if CH is a codepoint for which we should attempt to use the
+   emoji font, even if the codepoint itself has Emoji_Presentation =
+   No.  Vauto_composition_emoji_eligible_codepoints is filled in for
+   us by admin/unidata/emoji-zwj.awk.  */
+static bool
+codepoint_is_emoji_eligible (int ch)
+{
+  if (EQ (CHAR_TABLE_REF (Vchar_script_table, ch), Qemoji))
+    return true;
+
+  if (! NILP (Fmemq (make_fixnum (ch),
+		     Vauto_composition_emoji_eligible_codepoints)))
+    return true;
+
+  return false;
+}
+
 /* Check how many characters after character/byte position POS/POS_BYTE
    (at most to *LIMIT) can be displayed by the same font in the window W.
    FACE, if non-NULL, is the face selected for the character at POS.
    If STRING is not nil, it is the string to check instead of the current
    buffer.  In that case, FACE must be not NULL.
+
+   CH is the character that actually caused the composition
+   process to start, it may be different from the character at POS.
 
    The return value is the font-object for the character at POS.
    *LIMIT is set to the position where that font can't be used.
@@ -3850,15 +3924,16 @@ font_at (int c, ptrdiff_t pos, struct face *face, struct window *w,
 
 Lisp_Object
 font_range (ptrdiff_t pos, ptrdiff_t pos_byte, ptrdiff_t *limit,
-	    struct window *w, struct face *face, Lisp_Object string)
+	    struct window *w, struct face *face, Lisp_Object string,
+	    int ch)
 {
   ptrdiff_t ignore;
   int c;
   Lisp_Object font_object = Qnil;
+  struct frame *f = XFRAME (w->frame);
 
   if (!face)
     {
-      struct frame *f = XFRAME (w->frame);
       int face_id;
 
       if (NILP (string))
@@ -3875,6 +3950,23 @@ font_range (ptrdiff_t pos, ptrdiff_t pos_byte, ptrdiff_t *limit,
 	                                     face_id, false, 0);
 	}
       face = FACE_FROM_ID (f, face_id);
+    }
+
+  /* If the composition was triggered by an emoji, use a character
+     from 'script-representative-chars', rather than the first
+     character in the string, to determine the font to use.  */
+  if (codepoint_is_emoji_eligible (ch))
+    {
+      Lisp_Object val = assq_no_quit (Qemoji, Vscript_representative_chars);
+      if (CONSP (val))
+	{
+	  val = XCDR (val);
+	  if (CONSP (val))
+	    val = XCAR (val);
+	  else if (VECTORP (val))
+	    val = AREF (val, 0);
+	  font_object = font_for_char (face, XFIXNAT (val), pos, string);
+	}
     }
 
   while (pos < *limit)
@@ -5400,6 +5492,7 @@ syms_of_font (void)
   DEFSYM (Qiso8859_1, "iso8859-1");
   DEFSYM (Qiso10646_1, "iso10646-1");
   DEFSYM (Qunicode_bmp, "unicode-bmp");
+  DEFSYM (Qemoji, "emoji");
 
   /* Symbols representing keys of font extra info.  */
   DEFSYM (QCotf, ":otf");

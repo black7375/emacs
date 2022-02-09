@@ -1,5 +1,6 @@
 /* Elisp native compiler definitions
-Copyright (C) 2019-2020 Free Software Foundation, Inc.
+
+Copyright (C) 2019-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -19,22 +20,16 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #ifndef COMP_H
 #define COMP_H
 
-/* To keep ifdefs under control.  */
-enum {
-  NATIVE_COMP_FLAG =
-#ifdef HAVE_NATIVE_COMP
-  1
-#else
-  0
-#endif
-};
-
 #include <dynlib.h>
 
 struct Lisp_Native_Comp_Unit
 {
   union vectorlike_header header;
-  /* Original eln file loaded. */
+  /* The original eln file loaded.  In the pdumper file this is stored
+     as a cons cell of 2 alternative file names: the car is the
+     filename relative to the directory of an installed binary, the
+     cdr is the filename relative to the directory of an uninstalled
+     binary.  This is arranged in loadup.el.  */
   Lisp_Object file;
   Lisp_Object optimize_qualities;
   /* Guard anonymous lambdas against Garbage Collection and serve

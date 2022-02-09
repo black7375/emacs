@@ -1,6 +1,6 @@
 ;;; window.el --- GNU Emacs window commands aside from those written in C  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985, 1989, 1992-1994, 2000-2021 Free Software
+;; Copyright (C) 1985, 1989, 1992-1994, 2000-2022 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -634,7 +634,7 @@ is unpredictable."
 (defun window-with-parameter (parameter &optional value frame any minibuf)
   "Return first window on FRAME with PARAMETER non-nil.
 FRAME defaults to the selected frame.  Optional argument VALUE
-non-nil means only return a window whose window-parameter value
+non-nil means only return a window whose `window-parameter' value
 for PARAMETER equals VALUE (comparison is done with `equal').
 Optional argument ANY non-nil means consider internal windows
 too.
@@ -867,7 +867,7 @@ window annihilates any effect provided by this variable.")
 (defun window--sides-reverse-on-frame-p (frame)
   "Return non-nil when side windows should appear reversed on FRAME.
 This uses some heuristics to guess the user's intentions when the
-selected window of FRAME is a side window ."
+selected window of FRAME is a side window."
   (cond
    ;; Reverse when `window-sides-reversed' is t.  Do not reverse when
    ;; `window-sides-reversed' is nil.
@@ -1212,7 +1212,8 @@ it is found."
      ((setq state (frame-parameter frame 'window-state))
       ;; A window state was saved for FRAME.  Restore it and put the
       ;; current root window into its main window.
-      (let ((main-state (window-state-get (frame-root-window frame))))
+      (let ((window-combination-resize t)
+            (main-state (window-state-get (frame-root-window frame))))
         (window-state-put state (frame-root-window frame) t)
         (window-state-put main-state (window-main-window frame)))
       (window--sides-reverse-frame frame))
@@ -1406,9 +1407,12 @@ before writing to it."
 		 (cadr fringes)
 		 (window-scroll-bar-width window)
 		 (window-right-divider-width window))
-	 (format "height header-line: %s  mode-line: %s  divider: %s\n"
+	 (format "height tab-line: %s header-line: %s  mode-line: %s\n"
+		 (window-tab-line-height window)
 		 (window-header-line-height window)
-		 (window-mode-line-height window)
+		 (window-mode-line-height window))
+	 (format "height scroll-bar: %s divider: %s"
+		 (window-scroll-bar-height window)
 		 (window-bottom-divider-width window)))))
     (insert "\n")))
 
@@ -1690,6 +1694,7 @@ return the minimum pixel-size of WINDOW."
 	 ((let ((char-size (frame-char-size window))
 		(pixel-height
 		 (+ (window-safe-min-size window nil t)
+		    (window-tab-line-height window)
 		    (window-header-line-height window)
 		    (window-scroll-bar-height window)
 		    (window-mode-line-height window)
@@ -2499,14 +2504,16 @@ and no others."
 
 (defalias 'some-window 'get-window-with-predicate)
 
-(defun get-lru-window (&optional all-frames dedicated not-selected)
+(defun get-lru-window (&optional all-frames dedicated not-selected no-other)
    "Return the least recently used window on frames specified by ALL-FRAMES.
 Return a full-width window if possible.  A minibuffer window is
 never a candidate.  A dedicated window is never a candidate
 unless DEDICATED is non-nil, so if all windows are dedicated, the
 value is nil.  Avoid returning the selected window if possible.
 Optional argument NOT-SELECTED non-nil means never return the
-selected window.
+selected window.  Optional argument NO-OTHER non-nil means to
+never return a window whose 'no-other-window' parameter is
+non-nil.
 
 The following non-nil values of the optional argument ALL-FRAMES
 have special meanings:
@@ -2526,7 +2533,9 @@ selected frame and no others."
    (let (best-window best-time second-best-window second-best-time time)
     (dolist (window (window-list-1 nil 'nomini all-frames))
       (when (and (or dedicated (not (window-dedicated-p window)))
-		 (or (not not-selected) (not (eq window (selected-window)))))
+		 (or (not not-selected) (not (eq window (selected-window))))
+                 (or (not no-other)
+                     (not (window-parameter window 'no-other-window))))
 	(setq time (window-use-time window))
 	(if (or (eq window (selected-window))
 		(not (window-full-width-p window)))
@@ -2538,12 +2547,14 @@ selected frame and no others."
 	    (setq best-window window)))))
     (or best-window second-best-window)))
 
-(defun get-mru-window (&optional all-frames dedicated not-selected)
+(defun get-mru-window (&optional all-frames dedicated not-selected no-other)
    "Return the most recently used window on frames specified by ALL-FRAMES.
 A minibuffer window is never a candidate.  A dedicated window is
 never a candidate unless DEDICATED is non-nil, so if all windows
 are dedicated, the value is nil.  Optional argument NOT-SELECTED
-non-nil means never return the selected window.
+non-nil means never return the selected window.  Optional
+argument NO-OTHER non-nil means to never return a window whose
+'no-other-window' parameter is non-nil.
 
 The following non-nil values of the optional argument ALL-FRAMES
 have special meanings:
@@ -2565,17 +2576,21 @@ selected frame and no others."
       (setq time (window-use-time window))
       (when (and (or dedicated (not (window-dedicated-p window)))
 		 (or (not not-selected) (not (eq window (selected-window))))
-		 (or (not best-time) (> time best-time)))
+                 (or (not no-other)
+                     (not (window-parameter window 'no-other-window)))
+                 (or (not best-time) (> time best-time)))
 	(setq best-time time)
 	(setq best-window window)))
     best-window))
 
-(defun get-largest-window (&optional all-frames dedicated not-selected)
+(defun get-largest-window (&optional all-frames dedicated not-selected no-other)
   "Return the largest window on frames specified by ALL-FRAMES.
 A minibuffer window is never a candidate.  A dedicated window is
 never a candidate unless DEDICATED is non-nil, so if all windows
 are dedicated, the value is nil.  Optional argument NOT-SELECTED
-non-nil means never return the selected window.
+non-nil means never return the selected window.  Optional
+argument NO-OTHER non-nil means to never return a window whose
+'no-other-window' parameter is non-nil.
 
 The following non-nil values of the optional argument ALL-FRAMES
 have special meanings:
@@ -2596,7 +2611,9 @@ selected frame and no others."
 	best-window size)
     (dolist (window (window-list-1 nil 'nomini all-frames))
       (when (and (or dedicated (not (window-dedicated-p window)))
-		 (or (not not-selected) (not (eq window (selected-window)))))
+		 (or (not not-selected) (not (eq window (selected-window))))
+                 (or (not no-other)
+                     (not (window-parameter window 'no-other-window))))
 	(setq size (* (window-pixel-height window)
 		      (window-pixel-width window)))
 	(when (> size best-size)
@@ -3755,8 +3772,6 @@ WINDOW must be a valid window and defaults to the selected one.
 If the option `window-resize-pixelwise' is non-nil minimize
 WINDOW pixelwise."
   (interactive)
-  (when switch-to-buffer-preserve-window-point
-    (window--before-delete-windows window))
   (setq window (window-normalize-window window))
   (window-resize
    window
@@ -4119,7 +4134,7 @@ frame can be safely deleted."
 		  (let ((minibuf (active-minibuffer-window)))
 		    (and minibuf (eq frame (window-frame minibuf))
                          (not (eq (default-toplevel-value
-                                    minibuffer-follows-selected-frame)
+                                    'minibuffer-follows-selected-frame)
                                   t)))))
 	'frame))
      ((window-minibuffer-p window)
@@ -4132,53 +4147,56 @@ frame can be safely deleted."
       ;; of its frame.
       t))))
 
-(defun window--in-subtree-p (window root)
-  "Return t if WINDOW is either ROOT or a member of ROOT's subtree."
-  (or (eq window root)
-      (let ((parent (window-parent window)))
-	(catch 'done
-	  (while parent
-	    (if (eq parent root)
-		(throw 'done t)
-	      (setq parent (window-parent parent))))))))
+(defun window-at-x-y (x y &optional frame no-other)
+  "Return live window at coordinates X, Y on specified FRAME.
+X and Y are FRAME-relative pixel coordinates.  A coordinate on an
+edge shared by two windows is attributed to the window on the
+right (or below).  Return nil if no such window can be found.
 
-;; This function is called by `delete-window' and
-;; `delete-other-windows' when `switch-to-buffer-preserve-window-point'
-;; evaluates non-nil: it allows `winner-undo' to restore the
-;; buffer point from deleted windows (Bug#23621).
-(defun window--before-delete-windows (&optional window)
-  "Update `window-prev-buffers' before delete a window.
-Optional arg WINDOW, if non-nil, update WINDOW-START and POS
-in `window-prev-buffers' for all windows displaying same
-buffer as WINDOW.  Otherwise, update `window-prev-buffers' for
-all windows.
+Optional argument FRAME must specify a live frame and defaults to
+the selected one.  Optional argument NO-OTHER non-nil means to
+return nil if the window located at the specified coordinates has
+a non-nil `no-other-window' parameter."
+  (setq frame (window-normalize-frame frame))
+  (let* ((root-edges (window-edges (frame-root-window frame) nil nil t))
+         (root-left (nth 2 root-edges))
+         (root-bottom (nth 3 root-edges)))
+    (catch 'window
+      (walk-window-tree
+       (lambda (window)
+         (let ((edges (window-edges window nil nil t)))
+	   (when (and (>= x (nth 0 edges))
+                      (or (< x (nth 2 edges)) (= x root-left))
+		      (>= y (nth 1 edges))
+                      (or (< y (nth 3 edges)) (= y root-bottom)))
+             (if (and no-other (window-parameter window 'no-other-window))
+                 (throw 'window nil)
+	       (throw 'window window)))))
+       frame))))
 
-The new values for WINDOW-START and POS are those
-returned by `window-start' and `window-point' respectively.
+(defcustom delete-window-choose-selected 'mru
+  "How to choose a frame's selected window after window deletion.
+When a frame's selected window gets deleted, Emacs has to choose
+another live window on that frame to serve as its selected
+window.  This option allows to control which window gets selected
+instead.
 
-This function is called only if `switch-to-buffer-preserve-window-point'
-evaluates non-nil."
-  (dolist (win (window-list nil 'no-minibuf))
-    (let* ((buf   (window-buffer (or window win)))
-           (start (window-start win))
-           (pos   (window-point win))
-           (entry (assq buf (window-prev-buffers win))))
-      (cond (entry
-             (let ((marker (nth 2 entry)))
-               (unless (= pos marker)
-                 (set-marker (nth 1 entry) start buf)
-                 (set-marker marker pos buf))))
-            (t
-             (let ((prev-buf (window-prev-buffers win))
-                   (start-m  (make-marker))
-                   (pos-m    (make-marker)))
-               (set-marker start-m start buf)
-               (set-marker pos-m pos buf)
-               (push (list buf start-m pos-m) prev-buf)
-               (set-window-prev-buffers win prev-buf)))))))
+The possible choices are 'mru' (the default) to select the most
+recently used window on that frame, and 'pos' to choose the
+window at the frame coordinates of point of the previously
+selected window.  If this is nil, choose the frame's first window
+instead.  A window with a non-nil `no-other-window' parameter is
+chosen only if all windows on that frame have that parameter set
+to a non-nil value."
+  :type '(choice (const :tag "Most recently used" mru)
+                 (const :tag "At position of deleted" pos)
+                 (const :tag "Frame's first " nil))
+  :group 'windows
+  :group 'frames
+  :version "28.1")
 
 (defun delete-window (&optional window)
-  "Delete WINDOW.
+  "Delete specified WINDOW.
 WINDOW must be a valid window and defaults to the selected one.
 Return nil.
 
@@ -4193,10 +4211,12 @@ Otherwise, if WINDOW is part of an atomic window, call
 `delete-window' with the root of the atomic window as its
 argument.  Signal an error if WINDOW is either the only window on
 its frame, the last non-side window, or part of an atomic window
-that is its frame's root window."
+that is its frame's root window.
+
+If WINDOW is the selected window on its frame, choose some other
+window as that frame's selected window according to the value of
+the option `delete-window-choose-selected'."
   (interactive)
-  (when switch-to-buffer-preserve-window-point
-    (window--before-delete-windows))
   (setq window (window-normalize-window window))
   (let* ((frame (window-frame window))
 	 (function (window-parameter window 'delete-window))
@@ -4230,11 +4250,11 @@ that is its frame's root window."
              (window-combination-resize
               (or window-combination-resize
                   (window-parameter parent 'window-side)))
-	     (frame-selected
-	      (window--in-subtree-p (frame-selected-window frame) window))
+             (frame-selected-window (frame-selected-window frame))
 	     ;; Emacs 23 preferably gives WINDOW's space to its left
 	     ;; sibling.
-	     (sibling (or (window-left window) (window-right window))))
+	     (sibling (or (window-left window) (window-right window)))
+             frame-selected-window-edges frame-selected-window-pos)
 	(window--resize-reset frame horizontal)
 	(cond
 	 ((and (not (eq window-combination-resize t))
@@ -4250,15 +4270,63 @@ that is its frame's root window."
 	 (t
 	  ;; Can't do without resizing fixed-size windows.
 	  (window--resize-siblings window (- size) horizontal t)))
+
+        (when (eq delete-window-choose-selected 'pos)
+          ;; Remember edges and position of point of the selected window
+          ;; of WINDOW'S frame.
+          (setq frame-selected-window-edges
+                (window-edges frame-selected-window nil nil t))
+          (setq frame-selected-window-pos
+                (nth 2 (posn-at-point nil frame-selected-window))))
+
 	;; Actually delete WINDOW.
 	(delete-window-internal window)
 	(window--pixel-to-total frame horizontal)
-	(when (and frame-selected
-		   (window-parameter
-		    (frame-selected-window frame) 'no-other-window))
-	  ;; `delete-window-internal' has selected a window that should
-	  ;; not be selected, fix this here.
-	  (other-window -1 frame))
+
+        ;; If we deleted the selected window of WINDOW's frame, choose
+        ;; another one based on `delete-window-choose-selected'.  Note
+        ;; that both `window-at-x-y' and `get-mru-window' may fail to
+        ;; produce a suitable window in which case we will fall back on
+        ;; its frame's first window, chosen by `delete-window-internal'.
+        (cond
+         ((window-live-p frame-selected-window))
+         ((and frame-selected-window-pos
+               ;; We have a recorded position of point of the previously
+               ;; selected window.  Try to find the window that is now
+               ;; at that position.
+               (let ((new-frame-selected-window
+		      (window-at-x-y
+                       (+ (nth 0 frame-selected-window-edges)
+                          (car frame-selected-window-pos))
+                       (+ (nth 1 frame-selected-window-edges)
+                          (cdr frame-selected-window-pos))
+                       frame t)))
+                 (and new-frame-selected-window
+                      ;; Select window at WINDOW's position at point.
+	              (set-frame-selected-window
+                       frame new-frame-selected-window)))))
+         ((and (eq delete-window-choose-selected 'mru)
+               ;; Try to use the most recently used window.
+               (let ((mru-window (get-mru-window frame nil nil t)))
+                 (and mru-window
+	              (set-frame-selected-window frame mru-window)))))
+         ((and (window-parameter
+                (frame-selected-window frame) 'no-other-window)
+               ;; If `delete-window-internal' selected a window with a
+               ;; non-nil 'no-other-window' parameter as its frame's
+               ;; selected window, try to choose another one.
+               (catch 'found
+                 (walk-window-tree
+                  (lambda (other)
+                    (unless (window-parameter other 'no-other-window)
+                      (set-frame-selected-window frame other)
+                      (throw 'found t)))
+                  frame))))
+         (t
+          ;; Record the window chosen by `delete-window-internal'.
+          (set-frame-selected-window
+           frame (frame-selected-window frame))))
+
 	(window--check frame)
 	;; Always return nil.
 	nil))))
@@ -4400,43 +4468,45 @@ This may be a useful alternative binding for \\[delete-other-windows]
 
 ;; The following function is called by `set-window-buffer' _before_ it
 ;; replaces the buffer of the argument window with the new buffer.
+(defun push-window-buffer-onto-prev (&optional window)
+  "Push entry for WINDOW's buffer onto WINDOW's prev-buffers list.
+WINDOW must be a live window and defaults to the selected one.
+
+Any duplicate entries for the buffer in the list are removed."
+  (let* ((window (window-normalize-window window t))
+         (buffer (window-buffer window))
+         (w-list (window-prev-buffers window))
+         (entry (assq buffer w-list)))
+    (when entry
+      (setq w-list (assq-delete-all buffer w-list)))
+    (let ((start (window-start window))
+          (point (window-point window)))
+      (setq entry
+            (cons buffer
+                  (with-current-buffer buffer
+                    (if entry
+                        ;; We have an entry, update marker positions.
+                        (list (set-marker (nth 1 entry) start)
+                              (set-marker (nth 2 entry) point))
+                      (list (copy-marker start)
+                            (copy-marker
+                             ;; Preserve window-point-insertion-type
+                             ;; (Bug#12855)
+                             point window-point-insertion-type))))))
+      (set-window-prev-buffers window (cons entry w-list)))))
+
 (defun record-window-buffer (&optional window)
   "Record WINDOW's buffer.
 WINDOW must be a live window and defaults to the selected one."
   (let* ((window (window-normalize-window window t))
-	 (buffer (window-buffer window))
-	 (entry (assq buffer (window-prev-buffers window))))
+         (buffer (window-buffer window)))
     ;; Reset WINDOW's next buffers.  If needed, they are resurrected by
     ;; `switch-to-prev-buffer' and `switch-to-next-buffer'.
     (set-window-next-buffers window nil)
 
-    (when entry
-      ;; Remove all entries for BUFFER from WINDOW's previous buffers.
-      (set-window-prev-buffers
-       window (assq-delete-all buffer (window-prev-buffers window))))
-
     ;; Don't record insignificant buffers.
-    (when (or (not (eq (aref (buffer-name buffer) 0) ?\s))
-              (minibufferp buffer))
-      ;; Add an entry for buffer to WINDOW's previous buffers.
-      (with-current-buffer buffer
-	(let ((start (window-start window))
-	      (point (window-point window)))
-	  (setq entry
-		(cons buffer
-		      (if entry
-			  ;; We have an entry, update marker positions.
-			  (list (set-marker (nth 1 entry) start)
-				(set-marker (nth 2 entry) point))
-			;; Make new markers.
-			(list (copy-marker start)
-			      (copy-marker
-			       ;; Preserve window-point-insertion-type
-			       ;; (Bug#12855).
-			       point window-point-insertion-type)))))
-	  (set-window-prev-buffers
-	   window (cons entry (window-prev-buffers window)))))
-
+    (when (not (eq (aref (buffer-name buffer) 0) ?\s))
+      (push-window-buffer-onto-prev window)
       (run-hooks 'buffer-list-update-hook))))
 
 (defun unrecord-window-buffer (&optional window buffer)
@@ -4461,8 +4531,10 @@ point to POINT.  If WINDOW is selected this also sets BUFFER's
 before was current this also makes BUFFER the current buffer."
   (setq window (window-normalize-window window t))
   (let ((selected (eq window (selected-window)))
-	(current (eq (window-buffer window) (current-buffer))))
+	(current (eq (window-buffer window) (current-buffer)))
+        (dedicated-side (eq (window-dedicated-p window) 'side)))
     (set-window-buffer window buffer)
+    (and dedicated-side (set-window-dedicated-p window 'side))
     (when (and selected current)
       (set-buffer buffer))
     (when start
@@ -4565,7 +4637,7 @@ another window.  Also, if WINDOW's frame has a `buffer-predicate'
 parameter, that predicate may inhibit switching to certain
 buffers.
 
-This function is called by `prev-buffer'."
+This function is called by `previous-buffer'."
   (interactive)
   (let* ((window (window-normalize-window window t))
 	 (frame (window-frame window))
@@ -4596,11 +4668,11 @@ This function is called by `prev-buffer'."
       ;; Scan WINDOW's previous buffers first, skipping entries of next
       ;; buffers.
       (dolist (entry (window-prev-buffers window))
-	(when (and (setq new-buffer (car entry))
+	(when (and (not (eq (car entry) old-buffer))
+                   (setq new-buffer (car entry))
 		   (or (buffer-live-p new-buffer)
 		       (not (setq killed-buffers
 				  (cons new-buffer killed-buffers))))
-		   (not (eq new-buffer old-buffer))
                    (or (null pred) (funcall pred new-buffer))
 		   ;; When BURY-OR-KILL is nil, avoid switching to a
 		   ;; buffer in WINDOW's next buffers list.
@@ -4654,8 +4726,8 @@ This function is called by `prev-buffer'."
 	       window new-buffer (nth 1 entry) (nth 2 entry))
 	      (throw 'found t)))))
 
-      (when skipped
-        ;; Show first skipped buffer.
+      (when (and skipped (not (functionp switch-to-prev-buffer-skip)))
+        ;; Show first skipped buffer, unless skip was a function.
 	(setq new-buffer skipped)
 	(set-window-buffer-start-and-point window new-buffer)))
 
@@ -4763,11 +4835,12 @@ This function is called by `next-buffer'."
       ;; Scan WINDOW's reverted previous buffers last (must not use
       ;; nreverse here!)
       (dolist (entry (reverse (window-prev-buffers window)))
-	(when (and (setq new-buffer (car entry))
+	(when (and (not (eq new-buffer (car entry)))
+                   (not (eq old-buffer (car entry)))
+                   (setq new-buffer (car entry))
 		   (or (buffer-live-p new-buffer)
 		       (not (setq killed-buffers
 				  (cons new-buffer killed-buffers))))
-		   (not (eq new-buffer old-buffer))
                    (or (null pred) (funcall pred new-buffer)))
           (if (switch-to-prev-buffer-skip-p skip window new-buffer)
 	      (setq skipped (or skipped new-buffer))
@@ -4775,8 +4848,8 @@ This function is called by `next-buffer'."
 	     window new-buffer (nth 1 entry) (nth 2 entry))
 	    (throw 'found t))))
 
-      (when skipped
-        ;; Show first skipped buffer.
+      (when (and skipped (not (functionp switch-to-prev-buffer-skip)))
+        ;; Show first skipped buffer, unless skip was a function.
 	(setq new-buffer skipped)
 	(set-window-buffer-start-and-point window new-buffer)))
 
@@ -4994,9 +5067,10 @@ window's lists of previous and next buffers."
 	(all-frames (cond ((not frame) t) ((eq frame t) nil) (t frame))))
     (dolist (window (window-list-1 nil nil all-frames))
       (if (eq (window-buffer window) buffer)
-	  (let ((deletable (window-deletable-p window)))
+	  (let ((deletable (window-deletable-p window))
+                (dedicated (window-dedicated-p window)))
 	    (cond
-	     ((and (eq deletable 'frame) (window-dedicated-p window))
+	     ((and (eq deletable 'frame) dedicated)
 	      ;; Delete frame if and only if window is dedicated.
 	      (delete-frame (window-frame window)))
 	     ((eq deletable t)
@@ -5005,7 +5079,10 @@ window's lists of previous and next buffers."
 	     (t
 	      ;; In window switch to previous buffer.
 	      (set-window-dedicated-p window nil)
-	      (switch-to-prev-buffer window 'bury))))
+	      (switch-to-prev-buffer window 'bury)
+              ;; Restore the dedicated 'side' flag.
+              (when (eq dedicated 'side)
+                (set-window-dedicated-p window 'side)))))
 	;; If a window doesn't show BUFFER, unrecord BUFFER in it.
 	(unrecord-window-buffer window buffer)))))
 
@@ -5014,10 +5091,10 @@ window's lists of previous and next buffers."
 BUFFER-OR-NAME may be a buffer or the name of an existing buffer
 and defaults to the current buffer.
 
-When a window showing BUFFER-OR-NAME is dedicated, that window is
-deleted.  If that window is the only window on its frame, the
-frame is deleted too when there are other frames left.  If there
-are no other frames left, some other buffer is displayed in that
+With the exception of side windows, when a window showing BUFFER-OR-NAME
+is dedicated, that window is deleted.  If that window is the only window
+on its frame, the frame is deleted too when there are other frames left.
+If there are no other frames left, some other buffer is displayed in that
 window.
 
 This function removes the buffer denoted by BUFFER-OR-NAME from
@@ -5026,10 +5103,14 @@ all window-local buffer lists."
   (let ((buffer (window-normalize-buffer buffer-or-name)))
     (dolist (window (window-list-1 nil nil t))
       (if (eq (window-buffer window) buffer)
-	  (unless (window--delete window t t)
-	    ;; Switch to another buffer in window.
-	    (set-window-dedicated-p window nil)
-	    (switch-to-prev-buffer window 'kill))
+          ;; Delete a dedicated window unless it is a side window.
+          (let ((dedicated-side (eq (window-dedicated-p window) 'side)))
+            (when (or dedicated-side (not (window--delete window t t)))
+              ;; Switch to another buffer in that window.
+              (set-window-dedicated-p window nil)
+              (if (switch-to-prev-buffer window 'kill)
+                  (and dedicated-side (set-window-dedicated-p window 'side))
+                (window--delete window nil 'kill))))
 	;; Unrecord BUFFER in WINDOW.
 	(unrecord-window-buffer window buffer)))))
 
@@ -5050,6 +5131,10 @@ previously shown in WINDOW, or (4) make WINDOW display some other
 buffer.  If WINDOW is not deleted, reset its `quit-restore'
 parameter to nil.  See Info node `(elisp) Quitting Windows' for
 more details.
+
+If WINDOW's dedicated flag is t, try to delete WINDOW.  If it
+equals the value 'side', restore that value when WINDOW is not
+deleted.
 
 Optional second argument BURY-OR-KILL tells how to proceed with
 the buffer of WINDOW.  The following values are handled:
@@ -5073,16 +5158,19 @@ nil means to not handle the buffer in a particular way.  This
   (setq window (window-normalize-window window t))
   (let* ((buffer (window-buffer window))
 	 (quit-restore (window-parameter window 'quit-restore))
-	 (prev-buffer
-	  (let* ((prev-buffers (window-prev-buffers window))
-		 (prev-buffer (caar prev-buffers)))
-	    (and (or (not (eq prev-buffer buffer))
-		     (and (cdr prev-buffers)
-			  (not (eq (setq prev-buffer (cadr prev-buffers))
-				   buffer))))
-		 prev-buffer)))
+         (prev-buffer (catch 'prev-buffer
+                        (dolist (buf (window-prev-buffers window))
+                          (unless (eq (car buf) buffer)
+                            (throw 'prev-buffer (car buf))))))
+         (dedicated (window-dedicated-p window))
 	 quad entry)
     (cond
+     ;; First try to delete dedicated windows that are not side windows.
+     ((and dedicated (not (eq dedicated 'side))
+           (window--delete window 'dedicated (eq bury-or-kill 'kill)))
+      ;; If the previously selected window is still alive, select it.
+      (when (window-live-p (nth 2 quit-restore))
+        (select-window (nth 2 quit-restore))))
      ((and (not prev-buffer)
 	   (eq (nth 1 quit-restore) 'tab)
 	   (eq (nth 3 quit-restore) buffer))
@@ -5125,6 +5213,9 @@ nil means to not handle the buffer in a particular way.  This
       ;; Restore WINDOW's previous buffer, start and point position.
       (set-window-buffer-start-and-point
        window (nth 0 quad) (nth 1 quad) (nth 2 quad))
+      ;; Restore the 'side' dedicated flag as well.
+      (when (eq dedicated 'side)
+        (set-window-dedicated-p window 'side))
       ;; Deal with the buffer we just removed from WINDOW.
       (setq entry (and (eq bury-or-kill 'append)
 		       (assq buffer (window-prev-buffers window))))
@@ -5151,7 +5242,14 @@ nil means to not handle the buffer in a particular way.  This
       (set-window-parameter window 'quit-restore nil)
       ;; Make sure that WINDOW is no more dedicated.
       (set-window-dedicated-p window nil)
-      (switch-to-prev-buffer window bury-or-kill)))
+      ;; Try to switch to a previous buffer.  Delete the window only if
+      ;; that is not possible (Bug#48367).
+      (if (switch-to-prev-buffer window bury-or-kill)
+          (when (eq dedicated 'side)
+            (set-window-dedicated-p window 'side))
+        (window--delete window nil (eq bury-or-kill 'kill))
+        (when (window-live-p (nth 2 quit-restore))
+          (select-window (nth 2 quit-restore))))))
 
     ;; Deal with the buffer.
     (cond
@@ -6172,29 +6270,27 @@ value can be also stored on disk and read back in a new session."
 		;; Select window if it's the selected one.
 		(when (cdr (assq 'selected state))
 		  (select-window window))
-                (when next-buffers
-                  (set-window-next-buffers
-                   window
-                   (delq nil (mapcar (lambda (buffer)
-                                       (setq buffer (get-buffer buffer))
-                                       (when (buffer-live-p buffer) buffer))
-                                     next-buffers))))
-                (when prev-buffers
-                  (set-window-prev-buffers
-                   window
-                   (delq nil (mapcar (lambda (entry)
-                                       (let ((buffer (get-buffer (nth 0 entry)))
-                                             (m1 (nth 1 entry))
-                                             (m2 (nth 2 entry)))
-                                         (when (buffer-live-p buffer)
-                                           (list buffer
-                                                 (if (markerp m1) m1
-                                                   (set-marker (make-marker) m1
-                                                               buffer))
-                                                 (if (markerp m2) m2
-                                                   (set-marker (make-marker) m2
-                                                               buffer))))))
-                                     prev-buffers)))))
+                (set-window-next-buffers
+                 window
+                 (delq nil (mapcar (lambda (buffer)
+                                     (setq buffer (get-buffer buffer))
+                                     (when (buffer-live-p buffer) buffer))
+                                   next-buffers)))
+                (set-window-prev-buffers
+                 window
+                 (delq nil (mapcar (lambda (entry)
+                                     (let ((buffer (get-buffer (nth 0 entry)))
+                                           (m1 (nth 1 entry))
+                                           (m2 (nth 2 entry)))
+                                       (when (buffer-live-p buffer)
+                                         (list buffer
+                                               (if (markerp m1) m1
+                                                 (set-marker (make-marker) m1
+                                                             buffer))
+                                               (if (markerp m2) m2
+                                                 (set-marker (make-marker) m2
+                                                             buffer))))))
+                                   prev-buffers))))
 	    ;; We don't want to raise an error in case the buffer does
 	    ;; not exist anymore, so we switch to a previous one and
 	    ;; save the window with the intention of deleting it later
@@ -6479,9 +6575,6 @@ of the window used."
 (make-obsolete-variable 'display-buffer-function
 			'display-buffer-alist "24.3")
 
-;; Eventually, we want to turn this into a defvar; instead of
-;; customizing this, the user should use a `pop-up-frame-parameters'
-;; alist entry in `display-buffer-base-action'.
 (defcustom pop-up-frame-alist nil
   "Alist of parameters for automatically generated new frames.
 If non-nil, the value you specify here is used by the default
@@ -6491,7 +6584,12 @@ Since `pop-up-frame-function' is used by `display-buffer' for
 making new frames, any value specified here by default affects
 the automatic generation of new frames via `display-buffer' and
 all functions based on it.  The behavior of `make-frame' is not
-affected by this variable."
+affected by this variable.
+
+This option is provided for backward compatibility only.  New
+code should use a `pop-up-frame-parameters' action alist entry in
+`display-buffer-alist' instead.  See Info node `(elisp) Choosing
+Window Options' in the Emacs Lisp manual."
   :type '(repeat (cons :format "%v"
 		       (symbol :tag "Parameter")
 		       (sexp :tag "Value")))
@@ -6763,6 +6861,11 @@ the buffer name.  This is for compatibility with
 `special-display-buffer-names'; the cdr of the cons cell is
 ignored.
 
+This variable is provided for backward compatibility only and
+should not be used in new code.  Customize `display-buffer-alist'
+instead.  See Info node `(elisp) Choosing Window Options' in the
+Emacs Lisp manual for an example.
+
 See also `same-window-regexps'."
  :type '(repeat (string :format "%v"))
  :group 'windows)
@@ -6777,6 +6880,11 @@ An element of this list can be a cons cell instead of just a
 string.  In that case, the cell's car must be a regexp matching
 the buffer name.  This is for compatibility with
 `special-display-regexps'; the cdr of the cons cell is ignored.
+
+This variable is provided for backward compatibility only and
+should not be used in new code.  Customize `display-buffer-alist'
+instead.  See Info node `(elisp) Choosing Window Options' in the
+Emacs Lisp manual for an example.
 
 See also `same-window-buffer-names'."
   :type '(repeat (regexp :format "%v"))
@@ -6809,7 +6917,13 @@ selected rather than (as usual) some other window.  See
 If nil, never make a separate frame.
 If the value is `graphic-only', make a separate frame
 on graphic displays only.
-Any other non-nil value means always make a separate frame."
+Any other non-nil value means always make a separate frame.
+
+This variable is provided mainly for backward compatibility and
+should not be used in new code.  To make `display-buffer' behave
+as if this were t, customize `display-buffer-base-action'
+instead.  See Info node `(elisp) Choosing Window Options' in the
+Emacs Lisp manual for an example."
   :type '(choice
 	  (const :tag "Never" nil)
 	  (const :tag "On graphic displays only" graphic-only)
@@ -6830,7 +6944,12 @@ that frame."
  "24.3")
 
 (defcustom pop-up-windows t
-  "Non-nil means `display-buffer' should make a new window."
+  "Non-nil means `display-buffer' should make a new window.
+This variable is provided mainly for backward compatibility and
+should not be used in new code.  To make `display-buffer' behave
+as if this were t, customize `display-buffer-base-action'
+instead.  See Info node `(elisp) Choosing Window Options' in the
+Emacs Lisp manual for an example."
   :type 'boolean
   :group 'windows)
 
@@ -7411,8 +7530,8 @@ For instance:
 
 Buffer display can be further customized to a very high degree;
 the rest of this docstring explains some of the many
-possibilities, and also see `(emacs)Window Choice' for more
-information.
+possibilities, and also see Info node `(emacs)Window Choice' for
+more information.
 
 BUFFER-OR-NAME must be a buffer or a string naming a live buffer.
 Return the window chosen for displaying that buffer, or nil if no
@@ -8252,7 +8371,8 @@ indirectly called by the latter."
 	    (throw 'best t)))))
     ;; When ALIST has a `previous-window' entry, that entry may override
     ;; anything we found so far.
-    (when (and previous-window (boundp previous-window))
+    (when (and previous-window (symbolp previous-window)
+               (boundp previous-window))
       (setq previous-window (symbol-value previous-window)))
     (when (and (setq window previous-window)
 	       (window-live-p window)
@@ -8507,7 +8627,7 @@ the buffer in the window specified by the rules from these variables."
 
 WARNING: This is NOT the way to work on another buffer temporarily
 within a Lisp program!  Use `set-buffer' instead.  That avoids
-messing with the window-buffer correspondences.
+messing with the `window-buffer' correspondences.
 
 If the selected window cannot display the specified buffer
 because it is a minibuffer window or strongly dedicated to
@@ -8562,7 +8682,7 @@ Return the buffer switched to."
                        "Cannot switch buffers in a dedicated window"))
                 ('prompt
                  (if (y-or-n-p
-                      (format "Window is dedicated to %s; undedicate it"
+                      (format "Window is dedicated to %s; undedicate it?"
                               (window-buffer)))
                      (progn
                        (set-window-dedicated-p nil nil)
@@ -8646,6 +8766,13 @@ documentation for additional customization information."
 BUFFER-OR-NAME may be a buffer, a string (a buffer name), or
 nil.  Return the buffer switched to.
 
+This uses the function `display-buffer' as a subroutine to
+display the buffer; see its documentation for additional
+customization information.  By default, if the buffer is already
+displayed (even in the current frame), that window is selected.
+If the buffer isn't displayed in any frame, a new frame is popped
+up and the buffer is displayed there.
+
 If called interactively, read the buffer name using `read-buffer'.
 The variable `confirm-nonexistent-file-or-buffer' determines
 whether to request confirmation before creating a new buffer.
@@ -8657,10 +8784,7 @@ buffer, create a new buffer with that name.  If BUFFER-OR-NAME is
 nil, switch to the buffer returned by `other-buffer'.
 
 Optional second arg NORECORD non-nil means do not put this
-buffer at the front of the list of recently selected ones.
-
-This uses the function `display-buffer' as a subroutine; see its
-documentation for additional customization information."
+buffer at the front of the list of recently selected ones."
   (interactive
    (list (read-buffer-to-switch "Switch to buffer in other frame: ")))
   (pop-to-buffer buffer-or-name display-buffer--other-frame-action norecord))
@@ -8674,11 +8798,14 @@ meaning of these values in `window--display-buffer'.
 Optional `post-function' is called after the buffer is displayed in the
 window; the function takes two arguments: an old and new window.
 Optional string argument `echo' can be used to add a prefix to the
-command echo keystrokes that should describe the current prefix state."
+command echo keystrokes that should describe the current prefix state.
+This returns an \"exit function\", which can be called with no argument
+to deactivate this overriding action."
   (let* ((old-window (or (minibuffer-selected-window) (selected-window)))
          (new-window nil)
          (minibuffer-depth (minibuffer-depth))
          (clearfun (make-symbol "clear-display-buffer-overriding-action"))
+         (postfun (make-symbol "post-display-buffer-override-next-command"))
          (action (lambda (buffer alist)
                    (unless (> (minibuffer-depth) minibuffer-depth)
                      (let* ((ret (funcall pre-function buffer alist))
@@ -8687,21 +8814,23 @@ command echo keystrokes that should describe the current prefix state."
                        (setq new-window (window--display-buffer buffer window
                                                                 type alist))
                        ;; Reset display-buffer-overriding-action
-                       ;; after the first buffer display action
+                       ;; after the first display-buffer action (bug#39722).
                        (funcall clearfun)
-                       (setq post-function nil)
                        new-window))))
          (command this-command)
          (echofun (when echo (lambda () echo)))
          (exitfun
           (lambda ()
-            (setcar display-buffer-overriding-action
-                    (delq action (car display-buffer-overriding-action)))
-            (remove-hook 'post-command-hook clearfun)
+            (funcall clearfun)
+            (remove-hook 'post-command-hook postfun)
             (remove-hook 'prefix-command-echo-keystrokes-functions echofun)
             (when (functionp post-function)
               (funcall post-function old-window new-window)))))
     (fset clearfun
+          (lambda ()
+            (setcar display-buffer-overriding-action
+                    (delq action (car display-buffer-overriding-action)))))
+    (fset postfun
           (lambda ()
             (unless (or
 		     ;; Remove the hook immediately
@@ -8711,12 +8840,12 @@ command echo keystrokes that should describe the current prefix state."
 		     ;; adding the hook by the same command below.
 		     (eq this-command command))
               (funcall exitfun))))
-    ;; Reset display-buffer-overriding-action
-    ;; after the next command finishes
-    (add-hook 'post-command-hook clearfun)
+    ;; Call post-function after the next command finishes (bug#49057).
+    (add-hook 'post-command-hook postfun)
     (when echofun
       (add-hook 'prefix-command-echo-keystrokes-functions echofun))
-    (push action (car display-buffer-overriding-action))))
+    (push action (car display-buffer-overriding-action))
+    exitfun))
 
 
 (defun set-window-text-height (window height)
@@ -8826,7 +8955,11 @@ font on WINDOW's frame."
   (let* ((window (window-normalize-window window t))
 	 (frame (window-frame window))
 	 (default-font (face-font 'default frame)))
-    (if (and (display-multi-font-p (frame-parameter frame 'display))
+    ;; Client frames can have the 'display' parameter set like for X
+    ;; frames, even though they are TTY frames, so make sure we won't
+    ;; be duped by that up front with 'framep'.
+    (if (and (not (eq (framep frame) t))
+             (display-multi-font-p (frame-parameter frame 'display))
 	     (not (string-equal (frame-parameter frame 'font) default-font)))
         (aref (font-info default-font frame) 3)
       (frame-char-height frame))))
@@ -9645,7 +9778,7 @@ tool-bar's height to the minimum height needed); if
 `recenter-redisplay' has the special value `tty', then only tty frames
 are redrawn.
 
-Just C-u as prefix means put point in the center of the window
+Just \\[universal-argument] as prefix means put point in the center of the window
 and redisplay normally--don't erase and redraw the frame."
   (if (functionp recenter-window-group-function)
       (funcall recenter-window-group-function arg)
@@ -9774,7 +9907,7 @@ With plain \\[universal-argument], move current line to window center."
 
 A prefix argument is handled like `recenter':
  With numeric prefix ARG, move current line to window-line ARG.
- With plain `C-u', move current line to window center."
+ With plain \\[universal-argument], move current line to window center."
   (interactive "P")
   (with-selected-window (other-window-for-scrolling)
     (recenter-top-bottom arg)
@@ -10089,6 +10222,9 @@ is active.  This function is run by `mouse-autoselect-window-timer'."
                 ;; already selected.
                 (and (not (eq frame (selected-frame)))
                      (frame-parameter frame 'no-accept-focus))
+                ;; Don't switch if window autoselection with mouse is active
+                ;; and minibuffer window is selected.
+                (and mouse-autoselect-window (window-minibuffer-p))
                 ;; Don't switch to minibuffer window unless it's active.
                 (and (window-minibuffer-p window)
                      (not (minibuffer-window-active-p window))))
@@ -10261,7 +10397,7 @@ displaying that processes's buffer."
                           (setq repeat-map 'other-window-repeat-map)
                           (other-window -1)))
     map)
-  "Keymap to repeat other-window key sequences.  Used in `repeat-mode'.")
+  "Keymap to repeat `other-window' key sequences.  Used in `repeat-mode'.")
 (put 'other-window 'repeat-map 'other-window-repeat-map)
 
 (defvar resize-window-repeat-map

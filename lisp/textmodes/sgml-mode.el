@@ -1,6 +1,6 @@
 ;;; sgml-mode.el --- SGML- and HTML-editing modes -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992, 1995-1996, 1998, 2001-2021 Free Software
+;; Copyright (C) 1992, 1995-1996, 1998, 2001-2022 Free Software
 ;; Foundation, Inc.
 
 ;; Author: James Clark <jjc@jclark.com>
@@ -190,8 +190,19 @@ This takes effect when first loading the `sgml-mode' library.")
   "Syntax table used in SGML mode.  See also `sgml-specials'.")
 
 (defconst sgml-tag-syntax-table
-  (let ((table (sgml-make-syntax-table sgml-specials)))
-    (dolist (char '(?\( ?\) ?\{ ?\} ?\[ ?\] ?$ ?% ?& ?* ?+ ?/))
+  (let ((table (sgml-make-syntax-table sgml-specials))
+	brackets)
+    (map-char-table
+     (lambda (key value)
+       (setq brackets (cons (list
+			     (if (consp key)
+				 (list (car key) (cdr key))
+			       key)
+			     value)
+			    brackets)))
+     (unicode-property-table-internal 'paired-bracket))
+    (setq brackets (delete-dups (flatten-tree brackets)))
+    (dolist (char (append brackets (list ?$ ?% ?& ?* ?+ ?/)))
       (modify-syntax-entry char "." table))
     (unless (memq ?' sgml-specials)
       ;; Avoid that skipping a tag backwards skips any "'" prefixing it.
@@ -623,7 +634,8 @@ Do \\[describe-key] on the following bindings to discover what they do.
   (setq-local syntax-propertize-function #'sgml-syntax-propertize)
   (setq-local syntax-ppss-table sgml-tag-syntax-table)
   (setq-local facemenu-add-face-function 'sgml-mode-facemenu-add-face-function)
-  (setq-local sgml-xml-mode (sgml-xml-guess))
+  (when (sgml-xml-guess)
+    (setq-local sgml-xml-mode t))
   (unless sgml-xml-mode
     (setq-local skeleton-transformation-function sgml-transformation-function))
   ;; This will allow existing comments within declarations to be
@@ -1196,7 +1208,7 @@ and move to the line in the SGML document that caused it."
   (compilation-start command))
 
 (defsubst sgml-at-indentation-p ()
-  "Return true if point is at the first non-whitespace character on the line."
+  "Return t if point is at the first non-whitespace character on the line."
   (save-excursion
     (skip-chars-backward " \t")
     (bolp)))
@@ -1823,6 +1835,7 @@ This takes effect when first loading the library.")
       (define-key map "\C-cs" 'html-span))
     (define-key map "\C-c\C-s" 'html-autoview-mode)
     (define-key map "\C-c\C-v" 'browse-url-of-buffer)
+    (define-key map "\M-o" 'facemenu-keymap)
     map)
   "Keymap for commands for use in HTML mode.")
 
@@ -2360,10 +2373,11 @@ can also view with a browser to see what happens:
 have <h1>Very Major Headlines</h1> through <h6>Very Minor Headlines</h6>
 <hr> Parts can be separated with horizontal rules.
 
-<p>Paragraphs only need an opening tag.  Line breaks and multiple spaces are
-ignored unless the text is <pre>preformatted.</pre>  Text can be marked as
-<strong>bold</strong>, <em>italic</em> or <u>underlined</u> using the normal M-o
-or Edit/Text Properties/Face commands.
+<p>Paragraphs only need an opening tag.  Line breaks and multiple
+spaces are ignored unless the text is <pre>preformatted.</pre>
+Text can be marked as <strong>bold</strong>, <em>italic</em> or
+<u>underlined</u> using the facemenu M-o or Edit/Text
+Properties/Face commands.
 
 Pages can have <a name=\"SOMENAME\">named points</a> and can link other points
 to them with <a href=\"#SOMENAME\">see also somename</a>.  In the same way <a
@@ -2602,7 +2616,7 @@ HTML Autoview mode is a buffer-local minor mode for use with
   "</nav>")
 
 (define-skeleton html-html5-template
-  "Initial HTML5 template"
+  "Initial HTML5 template."
   nil
   "<!DOCTYPE html>" \n
   "<html lang=\"en\">" \n

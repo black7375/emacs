@@ -1,6 +1,6 @@
 ;;; bookmark.el --- set bookmarks, maybe annotate them, jump to them later -*- lexical-binding: t -*-
 
-;; Copyright (C) 1993-1997, 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1997, 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: Karl Fogel <kfogel@red-bean.com>
 ;; Created: July, 1993
@@ -27,7 +27,7 @@
 ;; associates a string with a location in a certain file.  Thus, you
 ;; can navigate your way to that location by providing the string.
 ;;
-;; Type `M-x customize-group RET boomark RET' for user options.
+;; Type `M-x customize-group RET bookmark RET' for user options.
 
 
 ;;; Code:
@@ -121,6 +121,12 @@ recently set ones come first, oldest ones come last)."
   :type 'boolean)
 
 
+(defcustom bookmark-menu-confirm-deletion nil
+  "Non-nil means confirm before deleting bookmarks in a bookmark menu buffer.
+Nil means don't prompt for confirmation."
+  :version "28.1"
+  :type 'boolean)
+
 (defcustom bookmark-automatically-show-annotations t
   "Non-nil means show annotations when jumping to a bookmark."
   :type 'boolean)
@@ -167,12 +173,32 @@ A non-nil value may result in truncated bookmark names."
   "Time before `bookmark-bmenu-search' updates the display."
   :type  'number)
 
+(defcustom bookmark-set-fringe-mark t
+  "Whether to set a fringe mark at bookmarked lines."
+  :type  'boolean
+  :version "28.1")
+
 ;; FIXME: No longer used.  Should be declared obsolete or removed.
 (defface bookmark-menu-heading
   '((t (:inherit font-lock-type-face)))
   "Face used to highlight the heading in bookmark menu buffers."
   :version "22.1")
 
+(defface bookmark-face
+  '((((class grayscale)
+      (background light))
+     :foreground "DimGray")
+    (((class grayscale)
+      (background dark))
+     :foreground "LightGray")
+    (((class color)
+      (background light))
+     :background "White" :foreground "DarkOrange1")
+    (((class color)
+      (background dark))
+     :background "Black" :foreground "DarkOrange1"))
+  "Face used to highlight current line."
+  :version "28.1")
 
 ;;; No user-serviceable parts beyond this point.
 
@@ -253,7 +279,7 @@ STR-BEFORE-POS is buffer text that immediately precedes POS.
 ANNOTATION is a string that describes the bookmark.
   See options `bookmark-use-annotations' and
   `bookmark-automatically-show-annotations'.
-HANDLER is a function that provides the bookmark-jump behavior for a
+HANDLER is a function that provides the `bookmark-jump' behavior for a
 specific kind of bookmark instead of the default `bookmark-default-handler'.
 This is the case for Info bookmarks, for instance.  HANDLER must accept
 a bookmark as its single argument.
@@ -427,6 +453,39 @@ In other words, return all information but the name."
 (defvar bookmark-history nil
   "The history list for bookmark functions.")
 
+(define-fringe-bitmap 'bookmark-fringe-mark
+  "\x3c\x7e\xff\xff\xff\xff\x7e\x3c")
+
+(defun bookmark--set-fringe-mark ()
+  "Apply a colorized overlay to the bookmarked location.
+See user option `bookmark-set-fringe-mark'."
+  (let ((bm (make-overlay (point-at-bol) (1+ (point-at-bol)))))
+    (overlay-put bm 'category 'bookmark)
+    (overlay-put bm 'evaporate t)
+    (overlay-put bm 'before-string
+                 (propertize
+                  "x" 'display
+                  `(left-fringe bookmark-fringe-mark bookmark-face)))))
+
+(defun bookmark--remove-fringe-mark (bm)
+  "Remove a bookmark's colorized overlay.
+BM is a bookmark as returned from function `bookmark-get-bookmark'.
+See user option `bookmark-set-fringe'."
+  (let ((filename (cdr (assq 'filename bm)))
+        (pos (cdr (assq 'position bm)))
+        overlays found temp)
+    (when (and pos filename)
+      (setq filename (expand-file-name filename))
+      (dolist (buf (buffer-list))
+        (with-current-buffer buf
+          (when (equal filename buffer-file-name)
+            (setq overlays
+                  (save-excursion
+                    (goto-char pos)
+                    (overlays-in (point-at-bol) (1+ (point-at-bol)))))
+            (while (and (not found) (setq temp (pop overlays)))
+              (when (eq 'bookmark (overlay-get temp 'category))
+                (delete-overlay (setq found temp))))))))))
 
 (defun bookmark-completing-read (prompt &optional default)
   "Prompting with PROMPT, read a bookmark name in completion.
@@ -509,10 +568,14 @@ old one."
     (set-text-properties 0 (length stripped-name) nil stripped-name)
     (if (and (not no-overwrite)
              (bookmark-get-bookmark stripped-name 'noerror))
-        ;; already existing bookmark under that name and
-        ;; no prefix arg means just overwrite old bookmark
-        ;; Use the new (NAME . ALIST) format.
-        (setcdr (bookmark-get-bookmark stripped-name) alist)
+        ;; Already existing bookmark under that name and
+        ;; no prefix arg means just overwrite old bookmark.
+        (let ((bm (bookmark-get-bookmark stripped-name)))
+          ;; First clean up if previously location was fontified.
+          (when bookmark-set-fringe-mark
+            (bookmark--remove-fringe-mark bm))
+          ;; Modify using the new (NAME . ALIST) format.
+          (setcdr bm alist))
 
       ;; otherwise just cons it onto the front (either the bookmark
       ;; doesn't exist already, or there is no prefix arg.  In either
@@ -825,7 +888,9 @@ still there, in order, if the topmost one is ever deleted."
 
            ;; Ask for an annotation buffer for this bookmark
            (when bookmark-use-annotations
-             (bookmark-edit-annotation str))))
+             (bookmark-edit-annotation str))
+           (when bookmark-set-fringe-mark
+             (bookmark--set-fringe-mark))))
     (setq bookmark-yank-point nil)
     (setq bookmark-current-buffer nil)))
 
@@ -843,14 +908,16 @@ others are still there, should the user decide to delete the most
 recent one.
 
 To yank words from the text of the buffer and use them as part of the
-bookmark name, type C-w while setting a bookmark.  Successive C-w's
+bookmark name, type \\<bookmark-minibuffer-read-name-map>\
+\\[bookmark-yank-word] while setting a bookmark.  Successive \
+\\[bookmark-yank-word]'s
 yank successive words.
 
-Typing C-u inserts (at the bookmark name prompt) the name of the last
+Typing \\[universal-argument] inserts (at the bookmark name prompt) the name of the last
 bookmark used in the document where the new bookmark is being set;
 this helps you use a single bookmark name to track progress through a
 large document.  If there is no prior bookmark for this document, then
-C-u inserts an appropriate name based on the buffer or file.
+\\[universal-argument] inserts an appropriate name based on the buffer or file.
 
 Use \\[bookmark-delete] to remove bookmarks (you give it a name and
 it removes only the first instance of a bookmark with that name from
@@ -876,14 +943,16 @@ Otherwise, if a bookmark named NAME already exists but PUSH-BOOKMARK
 is nil, raise an error.
 
 To yank words from the text of the buffer and use them as part of the
-bookmark name, type C-w while setting a bookmark.  Successive C-w's
+bookmark name, type \\<bookmark-minibuffer-read-name-map>\
+\\[bookmark-yank-word] while setting a bookmark.  Successive \
+\\[bookmark-yank-word]'s
 yank successive words.
 
-Typing C-u inserts (at the bookmark name prompt) the name of the last
+Typing \\[universal-argument] inserts (at the bookmark name prompt) the name of the last
 bookmark used in the document where the new bookmark is being set;
 this helps you use a single bookmark name to track progress through a
 large document.  If there is no prior bookmark for this document, then
-C-u inserts an appropriate name based on the buffer or file.
+\\[universal-argument] inserts an appropriate name based on the buffer or file.
 
 Use \\[bookmark-delete] to remove bookmarks (you give it a name and
 it removes only the first instance of a bookmark with that name from
@@ -1094,6 +1163,14 @@ and then show any annotations for this bookmark."
     (if win (set-window-point win (point))))
   ;; FIXME: we used to only run bookmark-after-jump-hook in
   ;; `bookmark-jump' itself, but in none of the other commands.
+  (when bookmark-set-fringe-mark
+    (let ((overlays (overlays-in (point-at-bol) (1+ (point-at-bol))))
+          temp found)
+      (while (and (not found) (setq temp (pop overlays)))
+        (when (eq 'bookmark (overlay-get temp 'category))
+          (setq found t)))
+      (unless found
+        (bookmark--set-fringe-mark))))
   (run-hooks 'bookmark-after-jump-hook)
   (if bookmark-automatically-show-annotations
       ;; if there is an annotation for this bookmark,
@@ -1291,7 +1368,8 @@ If called from Lisp, prompt for NEW-NAME if only OLD-NAME was passed
 as an argument.  If called with two strings, then no prompting is done.
 You must pass at least OLD-NAME when calling from Lisp.
 
-While you are entering the new name, consecutive C-w's insert
+While you are entering the new name, consecutive \
+\\<bookmark-minibuffer-read-name-map>\\[bookmark-yank-word]'s insert
 consecutive words from the text of the buffer into the new bookmark
 name."
   (interactive (list (bookmark-completing-read "Old bookmark name")))
@@ -1357,6 +1435,7 @@ probably because we were called from there."
   (bookmark-maybe-historicize-string bookmark-name)
   (bookmark-maybe-load-default-file)
   (let ((will-go (bookmark-get-bookmark bookmark-name 'noerror)))
+    (bookmark--remove-fringe-mark will-go)
     (setq bookmark-alist (delq will-go bookmark-alist))
     ;; Added by db, nil bookmark-current-bookmark if the last
     ;; occurrence has been deleted
@@ -1376,6 +1455,13 @@ probably because we were called from there."
 If optional argument NO-CONFIRM is non-nil, don't ask for
 confirmation."
   (interactive "P")
+  ;; We don't use `bookmark-menu-confirm-deletion' here because that
+  ;; variable is specifically to control confirmation prompting in a
+  ;; bookmark menu buffer, where the user has the marked-for-deletion
+  ;; bookmarks arrayed in front of them and might have accidentally
+  ;; hit the key that executes the deletions.  The UI situation here
+  ;; is quite different, by contrast: the user got to this point by a
+  ;; sequence of keystrokes unlikely to be typed by chance.
   (when (or no-confirm
             (yes-or-no-p "Permanently delete all bookmarks? "))
     (bookmark-maybe-load-default-file)
@@ -1416,7 +1502,7 @@ is greater than `bookmark-alist-modification-count'."
   "Save currently defined bookmarks in FILE.
 FILE defaults to `bookmark-default-file'.
 With prefix PARG, query user for a file to save in.
-If MAKE-DEFAULT is non-nil (interactively with prefix C-u C-u)
+If MAKE-DEFAULT is non-nil (interactively with prefix \\[universal-argument] \\[universal-argument])
 the file we save in becomes the new default in the current Emacs
 session (without affecting the value of `bookmark-default-file'.).
 
@@ -1656,8 +1742,8 @@ unique numeric suffixes \"<2>\", \"<3>\", etc."
     (define-key map [mouse-2] 'bookmark-bmenu-other-window-with-mouse)
     map))
 
-(easy-menu-define
-  bookmark-menu bookmark-bmenu-mode-map "Bookmark Menu"
+(easy-menu-define bookmark-menu bookmark-bmenu-mode-map
+  "Menu for `bookmark-bmenu'."
   '("Bookmark"
     ["Select Bookmark in This Window" bookmark-bmenu-this-window  t]
     ["Select Bookmark in Full-Frame Window" bookmark-bmenu-1-window  t]
@@ -1984,7 +2070,10 @@ You can mark bookmarks with the \\<bookmark-bmenu-mode-map>\\[bookmark-bmenu-mar
 
 (defun bookmark-bmenu-save ()
   "Save the current list into a bookmark file.
-With a prefix arg, prompts for a file to save them in."
+With a prefix arg, prompt for a file to save them in.
+
+See also the related behaviors of `bookmark-load' and
+`bookmark-bmenu-load'."
   (interactive nil bookmark-bmenu-mode)
   (save-excursion
     (save-window-excursion
@@ -1993,7 +2082,19 @@ With a prefix arg, prompts for a file to save them in."
 
 
 (defun bookmark-bmenu-load ()
-  "Load the bookmark file and rebuild the bookmark menu-buffer."
+  "Load bookmarks from a file and rebuild the bookmark menu-buffer.
+Prompt for a file, with the default choice being the value of
+`bookmark-default-file'.
+
+With a prefix argument, replace the current ambient bookmarks
+(i.e., the ones in `bookmark-alist') with the ones from the selected
+file and make that file be the new value of `bookmark-default-file'.
+In other words, a prefix argument means \"switch over to the bookmark
+universe defined in the loaded file\".  Without a prefix argument,
+just add the loaded bookmarks into the current ambient set.
+
+See the documentation for `bookmark-load' for more details; see also
+the related behaviors of `bookmark-save' and `bookmark-bmenu-save'."
   (interactive nil bookmark-bmenu-mode)
   (bookmark-bmenu-ensure-position)
   (save-excursion
@@ -2142,30 +2243,35 @@ To carry out the deletions that you've marked, use \\<bookmark-bmenu-mode-map>\\
 
 
 (defun bookmark-bmenu-execute-deletions ()
-  "Delete bookmarks flagged `D'."
+  "Delete bookmarks flagged `D'.
+If `bookmark-menu-confirm-deletion' is non-nil, prompt for
+confirmation first."
   (interactive nil bookmark-bmenu-mode)
-  (let ((reporter (make-progress-reporter "Deleting bookmarks..."))
-        (o-point  (point))
-        (o-str    (save-excursion
-                    (beginning-of-line)
-                    (unless (= (following-char) ?D)
-                      (buffer-substring
-                       (point)
-                       (progn (end-of-line) (point))))))
-        (o-col     (current-column)))
-    (goto-char (point-min))
-    (while (re-search-forward "^D" (point-max) t)
-      (bookmark-delete (bookmark-bmenu-bookmark) t)) ; pass BATCH arg
-    (bookmark-bmenu-list)
-    (if o-str
-        (progn
-          (goto-char (point-min))
-          (search-forward o-str)
-          (beginning-of-line)
-          (forward-char o-col))
-      (goto-char o-point))
-    (beginning-of-line)
-    (progress-reporter-done reporter)))
+  (if (and bookmark-menu-confirm-deletion
+           (not (yes-or-no-p "Delete selected bookmarks? ")))
+      (message "Bookmarks not deleted.")
+    (let ((reporter (make-progress-reporter "Deleting bookmarks..."))
+          (o-point  (point))
+          (o-str    (save-excursion
+                      (beginning-of-line)
+                      (unless (= (following-char) ?D)
+                        (buffer-substring
+                         (point)
+                         (progn (end-of-line) (point))))))
+          (o-col     (current-column)))
+      (goto-char (point-min))
+      (while (re-search-forward "^D" (point-max) t)
+        (bookmark-delete (bookmark-bmenu-bookmark) t)) ; pass BATCH arg
+      (bookmark-bmenu-list)
+      (if o-str
+          (progn
+            (goto-char (point-min))
+            (search-forward o-str)
+            (beginning-of-line)
+            (forward-char o-col))
+        (goto-char o-point))
+      (beginning-of-line)
+      (progress-reporter-done reporter))))
 
 
 (defun bookmark-bmenu-rename ()

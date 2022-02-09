@@ -1,6 +1,6 @@
-;;; tests/eshell-tests.el --- Eshell test suite  -*- lexical-binding:t -*-
+;;; eshell-tests.el --- Eshell test suite  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -262,4 +262,4 @@ chars"
 
 (provide 'eshell-tests)
 
-;;; tests/eshell-tests.el ends here
+;;; eshell-tests.el ends here

@@ -1,6 +1,6 @@
 ;;; mh-gnus.el --- make MH-E compatible with various versions of Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2003-2004, 2006-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2004, 2006-2022 Free Software Foundation, Inc.
 
 ;; Author: Satyaki Das <satyaki@theforce.stanford.edu>
 ;; Maintainer: Bill Wohler <wohler@newt.com>
@@ -23,8 +23,6 @@
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
-
-;;; Change Log:
 
 ;;; Code:
 

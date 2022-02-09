@@ -1,13 +1,12 @@
 ;;; isearchb.el --- a marriage between iswitchb and isearch  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2004-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2004-2022 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
 ;; Created: 16 Apr 2004
 ;; Version: 1.5
 ;; Keywords: lisp
-;; X-URL: http://www.newartisans.com/johnw/emacs.html
 
 ;; This file is part of GNU Emacs.
 

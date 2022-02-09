@@ -1,6 +1,6 @@
 /* Support for embedding graphical components in a buffer.
 
-Copyright (C) 2011-2021 Free Software Foundation, Inc.
+Copyright (C) 2011-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -35,20 +35,20 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #ifdef USE_GTK
 #include <webkit2/webkit2.h>
 #include <JavaScriptCore/JavaScript.h>
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
 #include "nsxwidget.h"
 #endif
 
 static struct xwidget *
 allocate_xwidget (void)
 {
-  return ALLOCATE_PSEUDOVECTOR (struct xwidget, script_callbacks, PVEC_XWIDGET);
+  return ALLOCATE_ZEROED_PSEUDOVECTOR (struct xwidget, script_callbacks, PVEC_XWIDGET);
 }
 
 static struct xwidget_view *
 allocate_xwidget_view (void)
 {
-  return ALLOCATE_PSEUDOVECTOR (struct xwidget_view, w, PVEC_XWIDGET_VIEW);
+  return ALLOCATE_ZEROED_PSEUDOVECTOR (struct xwidget_view, w, PVEC_XWIDGET_VIEW);
 }
 
 #define XSETXWIDGET(a, b) XSETPSEUDOVECTOR (a, b, PVEC_XWIDGET)
@@ -183,7 +183,7 @@ Returns the newly constructed xwidget, or nil if construction fails.  */)
 
       unblock_input ();
     }
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
   nsxwidget_init (xw);
 #endif
 
@@ -625,7 +625,7 @@ xwidget_init_view (struct xwidget *xww,
   xv->x = x;
   xv->y = y;
   gtk_widget_show_all (xv->widgetwindow);
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
   nsxwidget_init_view (xv, xww, s, x, y);
   nsxwidget_resize_view(xv, xww->width, xww->height);
 #endif
@@ -656,7 +656,7 @@ x_draw_xwidget_glyph_string (struct glyph_string *s)
 #ifdef USE_GTK
   if (!xv)
     xv = xwidget_init_view (xww, s, x, y);
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
   if (!xv)
     {
       /* Enforce 1 to 1, model and view for macOS Cocoa webkit2.  */
@@ -720,7 +720,7 @@ x_draw_xwidget_glyph_string (struct glyph_string *s)
 #ifdef USE_GTK
       gtk_fixed_move (GTK_FIXED (FRAME_GTK_WIDGET (s->f)),
                       xv->widgetwindow, x + clip_left, y + clip_top);
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
       nsxwidget_move_view (xv, x + clip_left, y + clip_top);
 #endif
     }
@@ -739,7 +739,7 @@ x_draw_xwidget_glyph_string (struct glyph_string *s)
                                    clip_bottom - clip_top);
       gtk_fixed_move (GTK_FIXED (xv->widgetwindow), xv->widget, -clip_left,
                       -clip_top);
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
       nsxwidget_resize_view (xv, clip_right - clip_left,
                              clip_bottom - clip_top);
       nsxwidget_move_widget_in_view (xv, -clip_left, -clip_top);
@@ -760,7 +760,7 @@ x_draw_xwidget_glyph_string (struct glyph_string *s)
 #ifdef USE_GTK
       gtk_widget_queue_draw (xv->widgetwindow);
       gtk_widget_queue_draw (xv->widget);
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
       nsxwidget_set_needsdisplay (xv);
 #endif
     }
@@ -771,7 +771,7 @@ xwidget_is_web_view (struct xwidget *xw)
 {
 #ifdef USE_GTK
   return xw->widget_osr != NULL && WEBKIT_IS_WEB_VIEW (xw->widget_osr);
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
   return nsxwidget_is_web_view (xw);
 #endif
 }
@@ -797,7 +797,7 @@ DEFUN ("xwidget-webkit-uri",
 #ifdef USE_GTK
   WebKitWebView *wkwv = WEBKIT_WEB_VIEW (xw->widget_osr);
   return build_string (webkit_web_view_get_uri (wkwv));
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
   return nsxwidget_webkit_uri (xw);
 #endif
 }
@@ -814,7 +814,7 @@ DEFUN ("xwidget-webkit-title",
   const gchar *title = webkit_web_view_get_title (wkwv);
 
   return build_string (title ? title : "");
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
   return nsxwidget_webkit_title (xw);
 #endif
 }
@@ -830,7 +830,7 @@ DEFUN ("xwidget-webkit-goto-uri",
   uri = ENCODE_FILE (uri);
 #ifdef USE_GTK
   webkit_web_view_load_uri (WEBKIT_WEB_VIEW (xw->widget_osr), SSDATA (uri));
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
   nsxwidget_webkit_goto_uri (xw, SSDATA (uri));
 #endif
   return Qnil;
@@ -855,8 +855,8 @@ DEFUN ("xwidget-webkit-goto-history",
     case 0: webkit_web_view_reload (wkwv); break;
     case 1: webkit_web_view_go_forward (wkwv); break;
     }
-#elif defined NS_IMPL_COCOA
-  nsxwidget_webkit_goto_history (xw, XFIXNAT (rel_pos));
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
+  nsxwidget_webkit_goto_history (xw, XFIXNUM (rel_pos));
 #endif
   return Qnil;
 }
@@ -876,7 +876,7 @@ DEFUN ("xwidget-webkit-zoom",
         (WEBKIT_WEB_VIEW (xw->widget_osr),
          webkit_web_view_get_zoom_level
          (WEBKIT_WEB_VIEW (xw->widget_osr)) + zoom_change);
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
       nsxwidget_webkit_zoom (xw, zoom_change);
 #endif
     }
@@ -936,7 +936,7 @@ argument procedure FUN.*/)
                                   NULL, /* cancelable */
                                   webkit_javascript_finished_cb,
 				  (gpointer) idx);
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
   nsxwidget_webkit_execute_script (xw, SSDATA (script), fun);
 #endif
   return Qnil;
@@ -964,7 +964,7 @@ DEFUN ("xwidget-resize", Fxwidget_resize, Sxwidget_resize, 3, 3, 0,
       gtk_widget_set_size_request (GTK_WIDGET (xw->widget_osr), xw->width,
                                    xw->height);
     }
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
   nsxwidget_resize (xw);
 #endif
 
@@ -978,7 +978,7 @@ DEFUN ("xwidget-resize", Fxwidget_resize, Sxwidget_resize, 3, 3, 0,
 #ifdef USE_GTK
               gtk_widget_set_size_request (GTK_WIDGET (xv->widget), xw->width,
                                            xw->height);
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
               nsxwidget_resize_view(xv, xw->width, xw->height);
 #endif
             }
@@ -1004,7 +1004,7 @@ Emacs allocated area accordingly.  */)
   GtkRequisition requisition;
   gtk_widget_size_request (XXWIDGET (xwidget)->widget_osr, &requisition);
   return list2i (requisition.width, requisition.height);
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
   return nsxwidget_get_size (XXWIDGET (xwidget));
 #endif
 }
@@ -1091,7 +1091,7 @@ DEFUN ("delete-xwidget-view",
                                          G_SIGNAL_MATCH_DATA,
                                          0, 0, 0, 0,
                                          xv->widget);
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
   nsxwidget_delete_view (xv);
 #endif
 
@@ -1381,7 +1381,7 @@ xwidget_end_redisplay (struct window *w, struct glyph_matrix *matrix)
 		     If not, the code probably needs fixing.  */
 		  eassume (xv);
 		  xwidget_touch (xv);
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
                   /* In NS xwidget, xv can be NULL for the second or
                      later views for a model, the result of 1 to 1
                      model view relation enforcement.  */
@@ -1407,7 +1407,7 @@ xwidget_end_redisplay (struct window *w, struct glyph_matrix *matrix)
                 {
 #ifdef USE_GTK
                   xwidget_show_view (xv);
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
                   nsxwidget_show_view (xv);
 #endif
                 }
@@ -1415,7 +1415,7 @@ xwidget_end_redisplay (struct window *w, struct glyph_matrix *matrix)
                 {
 #ifdef USE_GTK
                   xwidget_hide_view (xv);
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
                   nsxwidget_hide_view (xv);
 #endif
                 }
@@ -1451,7 +1451,7 @@ kill_buffer_xwidgets (Lisp_Object buffer)
 		xfree (xmint_pointer (XCAR (cb)));
 	      ASET (xw->script_callbacks, idx, Qnil);
 	    }
-#elif defined NS_IMPL_COCOA
+#elif defined HAVE_MACGUI || defined NS_IMPL_COCOA
         nsxwidget_kill (xw);
 #endif
       }

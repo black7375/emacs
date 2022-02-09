@@ -1,6 +1,6 @@
 ;;; mh-utils.el --- MH-E general utilities  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993, 1995, 1997, 2000-2021 Free Software Foundation,
+;; Copyright (C) 1993, 1995, 1997, 2000-2022 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Bill Wohler <wohler@newt.com>
@@ -23,8 +23,6 @@
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
 ;;; Commentary:
-
-;;; Change Log:
 
 ;;; Code:
 
@@ -380,7 +378,7 @@ names and the function is called when OUTPUT is available."
         (prevailing-match-data (match-data))
         line-end folder)
     (unwind-protect
-        (while (setq line-end (string-match "\n" output position))
+        (while (setq line-end (string-search "\n" output position))
           (setq folder (format "+%s%s"
                                mh-flists-partial-line
                                (substring output position line-end)))
@@ -704,7 +702,7 @@ See Info node `(elisp) Programmed Completion' for details."
                      (let ((slash (mh-search-from-end ?/ orig-name)))
                        (if slash (1+ slash)
                          (if (string-match "\\`\\+" orig-name) 1 0)))
-                     (if (cdr flag) (string-match "/" (cdr flag)))))
+                     (if (cdr flag) (string-search "/" (cdr flag)))))
           ((eq flag nil)
            (let ((try-res
                   (try-completion

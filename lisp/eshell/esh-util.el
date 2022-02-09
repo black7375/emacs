@@ -1,6 +1,6 @@
 ;;; esh-util.el --- general utilities  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1999-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
 
 ;; Author: John Wiegley <johnw@gnu.org>
 
@@ -204,7 +204,7 @@ then quoting is done by a backslash, rather than a doubled delimiter."
 	  string
 	(if (eq (aref string (1- len)) ?\n)
 	    (setq string (substring string 0 (1- len))))
-	(if (string-match "\n" string)
+	(if (string-search "\n" string)
 	    (split-string string "\n")
 	  (if (and eshell-convert-numeric-arguments
 		   (string-match

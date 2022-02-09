@@ -1,6 +1,6 @@
 ;;; gnus-srvr.el --- virtual server support for Gnus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1995-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1995-2022 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: news
@@ -204,7 +204,7 @@ If nil, a faster, but more primitive, buffer is used instead."
   '((((class color) (background light)) (:foreground "ForestGreen" :inverse-video t :italic t))
     (((class color) (background dark)) (:foreground "PaleGreen" :inverse-video t :italic t))
     (t (:inverse-video t :italic t)))
-  "Face used for displaying the Cloud Host"
+  "Face used for displaying the Cloud Host."
   :group 'gnus-server-visual)
 
 (defface gnus-server-opened
@@ -570,7 +570,7 @@ The following commands are available:
   (when (assoc to gnus-server-alist)
     (error "%s already exists" to))
   (unless (gnus-server-to-method from)
-    (error "%s: no such server" from))
+    (error "%s: No such server" from))
   (let ((to-entry (cons from (copy-tree
 			      (gnus-server-to-method from)))))
     (setcar to-entry to)
@@ -716,7 +716,7 @@ claim them."
     "\M-n" gnus-browse-next-group
     "\M-p" gnus-browse-prev-group
     "\r" gnus-browse-select-group
-    "u" gnus-browse-unsubscribe-current-group
+    "u" gnus-browse-toggle-subscription-at-point
     "l" gnus-browse-exit
     "L" gnus-browse-exit
     "q" gnus-browse-exit
@@ -735,7 +735,7 @@ claim them."
     (easy-menu-define
      gnus-browse-menu gnus-browse-mode-map ""
      '("Browse"
-       ["Subscribe" gnus-browse-unsubscribe-current-group t]
+       ["Toggle Subscribe" gnus-browse-toggle-subscription-at-point t]
        ["Read" gnus-browse-read-group t]
        ["Select" gnus-browse-select-group t]
        ["Describe" gnus-browse-describe-group t]
@@ -881,9 +881,9 @@ All normal editing commands are switched off.
 \\<gnus-browse-mode-map>
 The only things you can do in this buffer is
 
-1) `\\[gnus-browse-unsubscribe-current-group]' to subscribe to a group.
-The group will be inserted into the group buffer upon exit from this
-buffer.
+1) `\\[gnus-browse-toggle-subscription-at-point]' to subscribe or unsubscribe to
+a group.  The group will be inserted into the group buffer upon exit from
+this buffer.
 
 2) `\\[gnus-browse-read-group]' to read a group ephemerally.
 
@@ -933,7 +933,12 @@ If NUMBER, fetch this number of articles."
   (interactive "p" gnus-browse-mode)
   (gnus-browse-next-group (- n)))
 
-(defun gnus-browse-unsubscribe-current-group (arg)
+(define-obsolete-function-alias 'gnus-browse-unsubscribe-current-group
+  'gnus-browse-toggle-subscription-at-point "28.1")
+(define-obsolete-function-alias 'gnus-browse-unsubscribe-group
+  'gnus-browse-toggle-subscription "28.1")
+
+(defun gnus-browse-toggle-subscription-at-point (arg)
   "(Un)subscribe to the next ARG groups.
 The variable `gnus-browse-subscribe-newsgroup-method' determines
 how new groups will be entered into the group buffer."
@@ -944,7 +949,7 @@ how new groups will be entered into the group buffer."
 	(arg (abs arg)))
     (while (and (> arg 0)
 		(not (eobp))
-		(gnus-browse-unsubscribe-group)
+		(gnus-browse-toggle-subscription)
 		(zerop (gnus-browse-next-group ward)))
       (cl-decf arg))
     (gnus-group-position-point)
@@ -976,7 +981,7 @@ doing the deletion."
 	       gnus-browse-mode)
   (gnus-group-delete-group group force))
 
-(defun gnus-browse-unsubscribe-group ()
+(defun gnus-browse-toggle-subscription ()
   "Toggle subscription of the current group in the browse buffer."
   (let ((sub nil)
 	(buffer-read-only nil)
@@ -1123,7 +1128,7 @@ Requesting compaction of %s... (this may take a long time)"
       (customize-set-variable 'gnus-cloud-method server)
       ;; Note we can't use `Custom-save' here.
       (when (gnus-yes-or-no-p
-             (format "The new cloud host server is %S now. Save it? " server))
+             (format "The new cloud host server is `%S' now.  Save it?" server))
         (customize-save-variable 'gnus-cloud-method server)))
     (when (gnus-yes-or-no-p (format "Upload Cloud data to %S now? " server))
       (gnus-message 1 "Uploading all data to Emacs Cloud server %S" server)

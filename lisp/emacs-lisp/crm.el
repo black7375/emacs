@@ -1,6 +1,6 @@
 ;;; crm.el --- read multiple strings with completion  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985-1986, 1993-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1985-1986, 1993-2022 Free Software Foundation, Inc.
 
 ;; Author: Sen Nagata <sen@eccosys.com>
 ;; Keywords: completion, minibuffer, multiple elements
@@ -183,8 +183,7 @@ Return t if the current element is now a valid match; otherwise return nil."
 Like `minibuffer-complete-word' but for `completing-read-multiple'."
   (interactive)
   (crm--completion-command beg end
-    (completion-in-region--single-word
-     beg end minibuffer-completion-table minibuffer-completion-predicate)))
+    (completion-in-region--single-word beg end)))
 
 (defun crm-complete-and-exit ()
   "If all of the minibuffer elements are valid completions then exit.

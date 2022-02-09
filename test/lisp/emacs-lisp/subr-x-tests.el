@@ -1,6 +1,6 @@
 ;;; subr-x-tests.el --- Testing the extended lisp routines  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2014-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2014-2022 Free Software Foundation, Inc.
 
 ;; Author: Fabián E. Gallina <fgallina@gnu.org>
 ;; Keywords:
@@ -455,18 +455,18 @@
   "Test `thread-first' wraps single function names."
   (should (equal (macroexpand
                   '(thread-first 5
-                     -))
+                                 -))
                  '(- 5)))
   (should (equal (macroexpand
                   '(thread-first (+ 1 2)
-                     -))
+                                 -))
                  '(- (+ 1 2)))))
 
 (ert-deftest subr-x-test-thread-first-expansion ()
   "Test `thread-first' expands correctly."
   (should (equal
            (macroexpand '(thread-first
-                             5
+                           5
                            (+ 20)
                            (/ 25)
                            -
@@ -477,13 +477,13 @@
   "Test several `thread-first' examples."
   (should (equal (thread-first (+ 40 2)) 42))
   (should (equal (thread-first
-                     5
+                   5
                    (+ 20)
                    (/ 25)
                    -
                    (+ 40)) 39))
   (should (equal (thread-first
-                     "this-is-a-string"
+                   "this-is-a-string"
                    (split-string "-")
                    (nbutlast 2)
                    (append (list "good")))
@@ -500,18 +500,18 @@
   "Test `thread-last' wraps single function names."
   (should (equal (macroexpand
                   '(thread-last 5
-                     -))
+                                -))
                  '(- 5)))
   (should (equal (macroexpand
                   '(thread-last (+ 1 2)
-                     -))
+                                -))
                  '(- (+ 1 2)))))
 
 (ert-deftest subr-x-test-thread-last-expansion ()
   "Test `thread-last' expands correctly."
   (should (equal
            (macroexpand '(thread-last
-                             5
+                           5
                            (+ 20)
                            (/ 25)
                            -
@@ -522,13 +522,13 @@
   "Test several `thread-last' examples."
   (should (equal (thread-last (+ 40 2)) 42))
   (should (equal (thread-last
-                     5
+                   5
                    (+ 20)
                    (/ 25)
                    -
                    (+ 40)) 39))
   (should (equal (thread-last
-                     (list 1 -2 3 -4 5)
+                   (list 1 -2 3 -4 5)
                    (mapcar #'abs)
                    (cl-reduce #'+)
                    (format "abs sum is: %s"))
@@ -607,18 +607,21 @@
   (should (equal (string-limit "foó" 4 nil 'utf-8) "fo\303\263"))
   (should (equal (string-limit "foóa" 4 nil 'utf-8) "fo\303\263"))
   (should (equal (string-limit "foóá" 4 nil 'utf-8) "fo\303\263"))
+  (should (equal (string-limit "foóá" 4 nil 'utf-8-with-signature)
+                 "fo\303\263"))
   (should (equal (string-limit "foóa" 4 nil 'iso-8859-1) "fo\363a"))
   (should (equal (string-limit "foóá" 4 nil 'iso-8859-1) "fo\363\341"))
-  (should (equal (string-limit "foóá" 4 nil 'utf-16) "\376\377\000f"))
+  (should (equal (string-limit "foóá" 4 nil 'utf-16) "\000f\000o"))
 
   (should (equal (string-limit "foó" 10 t 'utf-8) "fo\303\263"))
   (should (equal (string-limit "foó" 3 t 'utf-8) "o\303\263"))
   (should (equal (string-limit "foó" 4 t 'utf-8) "fo\303\263"))
   (should (equal (string-limit "foóa" 4 t 'utf-8) "o\303\263a"))
   (should (equal (string-limit "foóá" 4 t 'utf-8) "\303\263\303\241"))
+  (should (equal (string-limit "foóá" 2 t 'utf-8-with-signature) "\303\241"))
   (should (equal (string-limit "foóa" 4 t 'iso-8859-1) "fo\363a"))
   (should (equal (string-limit "foóá" 4 t 'iso-8859-1) "fo\363\341"))
-  (should (equal (string-limit "foóá" 4 t 'utf-16) "\376\377\000\341")))
+  (should (equal (string-limit "foóá" 4 t 'utf-16) "\000\363\000\341")))
 
 (ert-deftest subr-string-lines ()
   (should (equal (string-lines "foo") '("foo")))

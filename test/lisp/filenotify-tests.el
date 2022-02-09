@@ -1,6 +1,6 @@
 ;;; filenotify-tests.el --- Tests of file notifications  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2013-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2013-2022 Free Software Foundation, Inc.
 
 ;; Author: Michael Albinus <michael.albinus@gmx.de>
 
@@ -200,7 +200,10 @@ Return nil when any other file notification watch is still active."
 
 (setq file-notify-debug nil
       password-cache-expiry nil
-      tramp-verbose 0)
+      tramp-verbose 0
+      ;; When the remote user id is 0, Tramp refuses unsafe temporary files.
+      tramp-allow-unsafe-temporary-files
+      (or tramp-allow-unsafe-temporary-files noninteractive))
 
 ;; This should happen on hydra only.
 (when (getenv "EMACS_HYDRA_CI")
@@ -740,7 +743,7 @@ delivered."
 	     ;; the directory.  Except for
 	     ;; GFam{File,Directory}Monitor, GPollFileMonitor and
 	     ;; kqueue.  And GFam{File,Directory}Monitor and
-	     ;; GPollFileMonitordo not raise a `changed' event.
+	     ;; GPollFileMonitor do not raise a `changed' event.
 	     ((memq (file-notify--test-monitor)
                     '(GFamFileMonitor GFamDirectoryMonitor GPollFileMonitor))
 	      '(created deleted stopped))
@@ -924,7 +927,7 @@ delivered."
     (file-notify--test-cleanup)))
 
 (file-notify--deftest-remote file-notify-test03-events
-  "Check file creation/change/removal notifications for remote files.")
+  "Check file creation/change/removal notifications for remote files." t)
 
 (require 'autorevert)
 (setq auto-revert-notify-exclude-dir-regexp "nothing-to-be-excluded"

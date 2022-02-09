@@ -1,6 +1,6 @@
 ;;; re-builder.el --- building Regexps with visual feedback -*- lexical-binding: t -*-
 
-;; Copyright (C) 1999-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
 
 ;; Author: Detlev Zundel <dzu@gnu.org>
 ;; Keywords: matching, lisp, tools
@@ -341,7 +341,12 @@ the regexp builder.  It displays a buffer named \"*RE-Builder*\"
 in another window, initially containing an empty regexp.
 
 As you edit the regexp in the \"*RE-Builder*\" buffer, the
-matching parts of the target buffer will be highlighted."
+matching parts of the target buffer will be highlighted.
+
+Case-sensitivity can be toggled with \\[reb-toggle-case].  The
+regexp builder supports three different forms of input which can
+be set with \\[reb-change-syntax].  More options and details are
+provided in the Commentary section of this library."
   (interactive)
   (if (and (string= (buffer-name) reb-buffer)
 	   (reb-mode-buffer-p))
@@ -350,11 +355,16 @@ matching parts of the target buffer will be highlighted."
       (reb-delete-overlays))
     (setq reb-target-buffer (current-buffer)
           reb-target-window (selected-window))
-    (select-window (or (get-buffer-window reb-buffer)
-		       (progn
-			 (setq reb-window-config (current-window-configuration))
-			 (split-window (selected-window) (- (window-height) 4)))))
-    (switch-to-buffer (get-buffer-create reb-buffer))
+    (select-window
+     (or (get-buffer-window reb-buffer)
+         (let ((dir (if (window-parameter nil 'window-side)
+                        'bottom 'down)))
+           (setq reb-window-config (current-window-configuration))
+           (display-buffer
+            (get-buffer-create reb-buffer)
+            `((display-buffer-in-direction)
+              (direction . ,dir)
+              (dedicated . t))))))
     (font-lock-mode 1)
     (reb-initialize-buffer)))
 
@@ -426,7 +436,7 @@ matching parts of the target buffer will be highlighted."
   (let ((re (with-output-to-string
 	      (print (reb-target-binding reb-regexp)))))
     (setq re (substring re 1 (1- (length re))))
-    (setq re (replace-regexp-in-string "\n" "\\n" re nil t))
+    (setq re (string-replace "\n" "\\n" re))
     (kill-new re)
     (message "Copied regexp `%s' to kill-ring" re)))
 
