@@ -1,6 +1,6 @@
 ;;; pop3.el --- Post Office Protocol (RFC 1460) interface  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1996-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1996-2022 Free Software Foundation, Inc.
 
 ;; Author: Richard L. Pieri <ratinox@peorth.gweep.net>
 ;; Maintainer: emacs-devel@gnu.org
@@ -551,8 +551,8 @@ Returns the process associated with the connection."
       (when result
 	(let ((response (plist-get (cdr result) :greeting)))
 	  (setq pop3-timestamp
-		(substring response (or (string-match "<" response) 0)
-			   (+ 1 (or (string-match ">" response) -1)))))
+		(substring response (or (string-search "<" response) 0)
+			   (+ 1 (or (string-search ">" response) -1)))))
 	(set-process-query-on-exit-flag (car result) nil)
 	(erase-buffer)
 	(car result)))))

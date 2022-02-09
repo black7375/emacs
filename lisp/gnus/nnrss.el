@@ -1,6 +1,6 @@
 ;;; nnrss.el --- interfacing with RSS  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: Shenghuo Zhu <zsh@cs.rochester.edu>
 ;; Keywords: RSS
@@ -450,7 +450,7 @@ nnrss: %s: Not valid XML %s and libxml-parse-html-region doesn't work %s"
 This function handles the ISO 8601 date format described in
 URL `https://www.w3.org/TR/NOTE-datetime', and also the RFC 822 style
 which RSS 2.0 allows."
-  (let (case-fold-search vector year month day time zone cts given)
+  (let (case-fold-search vector year month day time zone given)
     (cond ((null date))			; do nothing for this case
 	  ;; if the date is just digits (unix time stamp):
 	  ((string-match "^[0-9]+$" date)
@@ -481,13 +481,13 @@ which RSS 2.0 allows."
 			    0
 			  (decoded-time-zone decoded))))))
     (if month
-	(progn
-	  (setq cts (current-time-string (encode-time 0 0 0 day month year)))
-	  (format "%s, %02d %s %04d %s%s"
-		  (substring cts 0 3) day (substring cts 4 7) year time
-		  (if zone
-		      (concat " " (format-time-string "%z" nil zone))
-		    "")))
+	(concat (let ((system-time-locale "C"))
+		  (format-time-string "%a, %d %b %Y "
+				      (encode-time 0 0 0 day month year)))
+		time
+		(if zone
+		    (format-time-string " %z" nil zone)
+		  ""))
       (message-make-date given))))
 
 ;;; data functions
@@ -715,7 +715,7 @@ Read the file and attempt to subscribe to each Feed in the file."
        (when (and xmlurl
 		  (not (string-match "\\`[\t ]*\\'" xmlurl))
 		  (prog1
-		      (y-or-n-p (format "Subscribe to %s " xmlurl))
+                      (y-or-n-p (format "Subscribe to %s?" xmlurl))
 		    (message "")))
 	 (condition-case err
 	     (progn
@@ -785,7 +785,7 @@ It is useful when `(setq nnrss-use-local t)'."
 		   (nnrss-node-just-text node)
 		 node))
 	 (cleaned-text (if text
-			   (replace-regexp-in-string
+			   (string-replace
 			    "\r\n" "\n"
 			    (replace-regexp-in-string
 			     "^[\000-\037\177]+\\|^ +\\| +$" ""
@@ -849,7 +849,7 @@ DATA should be the output of `xml-parse-region'."
 
 (defmacro nnrss-match-macro (base-uri item onsite-list offsite-list)
   `(cond ((or (string-match (concat "^" ,base-uri) ,item)
-	      (not (string-match "://" ,item)))
+	      (not (string-search "://" ,item)))
 	  (setq ,onsite-list (append ,onsite-list (list ,item))))
 	 (t (setq ,offsite-list (append ,offsite-list (list ,item))))))
 
@@ -954,9 +954,10 @@ Simply ensures that the first element is rss or rdf."
   "Given EL (containing a parsed element) and URI (containing a string
 that gives the URI for which you want to retrieve the namespace
 prefix), return the prefix."
-  (let* ((prefix (car (rassoc uri (dom-attributes
-				   (dom-search
-				    el
+  (let* ((dom (car el))
+         (prefix (car (rassoc uri (dom-attributes
+			           (dom-search
+				    dom
 				    (lambda (node)
 				      (rassoc uri (dom-attributes node))))))))
 	 (nslist (if prefix

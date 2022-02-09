@@ -1,6 +1,6 @@
 ;;; frame.el --- multi-frame management independent of window systems  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1993-1994, 1996-1997, 2000-2021 Free Software
+;; Copyright (C) 1993-1994, 1996-1997, 2000-2022 Free Software
 ;; Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
@@ -36,7 +36,7 @@ as its argument.")
 (cl-generic-define-context-rewriter window-system (value)
   ;; If `value' is a `consp', it's probably an old-style specializer,
   ;; so just use it, and anyway `eql' isn't very useful on cons cells.
-  `(window-system ,(if (consp value) value `(eql ,value))))
+  `(window-system ,(if (consp value) value `(eql ',value))))
 
 (cl-defmethod frame-creation-function (params &context (window-system nil))
   ;; It's tempting to get rid of tty-create-frame-with-faces and turn it into
@@ -615,15 +615,6 @@ there (in decreasing order of priority)."
 	      (face-set-after-frame-default frame-initial-frame)
 	      (setq newparms (delq new-bg newparms)))
 
-	    (when (numberp (car frame-size-history))
-	      (setq frame-size-history
-		    (cons (1- (car frame-size-history))
-			  (cons
-			   (list frame-initial-frame
-				 "FRAME-NOTICE-USER"
-				 nil newparms)
-			   (cdr frame-size-history)))))
-
 	    (modify-frame-parameters frame-initial-frame newparms)))))
 
     ;; Restore the original buffer.
@@ -710,9 +701,8 @@ Return nil if we don't know how to interpret DISPLAY."
   "Make a frame on display DISPLAY.
 The optional argument PARAMETERS specifies additional frame parameters."
   (interactive (if (fboundp 'x-display-list)
-                   (list (completing-read
-                          (format "Make frame on display: ")
-                          (x-display-list)))
+                   (list (completing-read "Make frame on display: "
+                                          (x-display-list)))
                  (user-error "This Emacs build does not support X displays")))
   (make-frame (cons (cons 'display display) parameters)))
 
@@ -796,13 +786,39 @@ When called from Lisp, returns the new frame."
       (make-frame)
     (select-frame (make-frame))))
 
+(defun clone-frame (&optional frame no-windows)
+  "Make a new frame with the same parameters and windows as FRAME.
+With a prefix arg NO-WINDOWS, don't clone the window configuration.
+
+FRAME defaults to the selected frame.  The frame is created on the
+same terminal as FRAME.  If the terminal is a text-only terminal then
+also select the new frame."
+  (interactive (list (selected-frame) current-prefix-arg))
+  (let* ((frame (or frame (selected-frame)))
+         (windows (unless no-windows
+                    (window-state-get (frame-root-window frame))))
+         (default-frame-alist
+          (seq-remove (lambda (elem)
+                        (memq (car elem) frame-internal-parameters))
+                      (frame-parameters frame)))
+         (new-frame (make-frame)))
+    (when windows
+      (window-state-put windows (frame-root-window new-frame) 'safe))
+    (unless (display-graphic-p)
+      (select-frame new-frame))
+    new-frame))
+
 (defvar before-make-frame-hook nil
-  "Functions to run before `make-frame' creates a new frame.")
+  "Functions to run before `make-frame' creates a new frame.
+Note that these functions are usually not run for the initial
+frame, unless you add them to the hook in your early-init file.")
 
 (defvar after-make-frame-functions nil
   "Functions to run after `make-frame' created a new frame.
 The functions are run with one argument, the newly created
-frame.")
+frame.
+Note that these functions are usually not run for the initial
+frame, unless you add them to the hook in your early-init file.")
 
 (defvar after-setting-font-hook nil
   "Functions to run after a frame's font has been changed.")
@@ -925,12 +941,6 @@ the new frame according to its own rules."
       (unless (assq param parameters)
         (let ((val (frame-parameter oldframe param)))
           (when val (set-frame-parameter frame param val)))))
-
-    (when (numberp (car frame-size-history))
-      (setq frame-size-history
-	    (cons (1- (car frame-size-history))
-		  (cons (list frame "MAKE-FRAME")
-			(cdr frame-size-history)))))
 
     ;; We can run `window-configuration-change-hook' for this frame now.
     (frame-after-make-frame frame t)
@@ -1246,7 +1256,7 @@ face specs for the new background mode."
                          ;; during startup with -rv on the command
                          ;; line for the initial frame, because frames
                          ;; are not recorded in the pdump file.
-                         (assq face (frame-face-alist frame))
+                         (gethash face (frame--face-hash-table))
                          (face-spec-match-p face
                                             (face-user-default-spec face)
                                             frame)))
@@ -1412,7 +1422,7 @@ FRAME defaults to the selected frame."
 (declare-function x-list-fonts "xfaces.c"
                   (pattern &optional face frame maximum width))
 
-(defun set-frame-font (font &optional keep-size frames)
+(defun set-frame-font (font &optional keep-size frames inhibit-customize)
   "Set the default font to FONT.
 When called interactively, prompt for the name of a font, and use
 that font on the selected frame.  When called from Lisp, FONT
@@ -1429,7 +1439,10 @@ If FRAMES is non-nil, it should be a list of frames to act upon,
 or t meaning all existing graphical frames.
 Also, if FRAMES is non-nil, alter the user's Customization settings
 as though the font-related attributes of the `default' face had been
-\"set in this session\", so that the font is applied to future frames."
+\"set in this session\", so that the font is applied to future frames.
+
+If INHIBIT-CUSTOMIZE is non-nil, don't update the user's
+Customization settings."
   (interactive
    (let* ((completion-ignore-case t)
           (default (frame-parameter nil 'font))
@@ -1466,7 +1479,8 @@ as though the font-related attributes of the `default' face had been
 	       f
 	       (list (cons 'height (round height (frame-char-height f)))
 		     (cons 'width  (round width  (frame-char-width f))))))))
-      (when frames
+      (when (and frames
+                 (not inhibit-customize))
 	;; Alter the user's Custom setting of the `default' face, but
 	;; only for font-related attributes.
 	(let ((specs (cadr (assq 'user (get 'default 'theme-face))))
@@ -1518,7 +1532,7 @@ To get the frame's current background color, use `frame-parameters'."
   "Set the foreground color of the selected frame to COLOR-NAME.
 When called interactively, prompt for the name of the color to use.
 To get the frame's current foreground color, use `frame-parameters'."
-  (interactive (list (read-color "Foreground color: ")))
+  (interactive (list (read-color "Foreground color: " nil nil nil t)))
   (modify-frame-parameters (selected-frame)
 			   (list (cons 'foreground-color color-name)))
   (or window-system
@@ -1576,6 +1590,11 @@ acquires focus to be automatically raised.
 Note that this minor mode controls Emacs's own auto-raise
 feature.  Window managers that switch focus on mouse movement
 often have their own auto-raise feature."
+  ;; This isn't really a global minor mode; rather, it's local to the
+  ;; selected frame, but declaring it as global prevents a misleading
+  ;; "Auto-Raise mode enabled in current buffer" message from being
+  ;; displayed when it is turned on.
+  :global t
   :variable (frame-parameter nil 'auto-raise)
   (if (frame-parameter nil 'auto-raise)
       (raise-frame)))
@@ -1625,6 +1644,7 @@ live frame and defaults to the selected one."
 (declare-function w32-frame-geometry "w32fns.c" (&optional frame))
 (declare-function ns-frame-geometry "nsfns.m" (&optional frame))
 (declare-function pgtk-frame-geometry "pgtkfns.c" (&optional frame))
+(declare-function haiku-frame-geometry "haikufns.c" (&optional frame))
 
 (defun frame-geometry (&optional frame)
   "Return geometric attributes of FRAME.
@@ -1676,6 +1696,8 @@ and width values are in pixels.
       (ns-frame-geometry frame))
      ((eq frame-type 'pgtk)
       (pgtk-frame-geometry frame))
+     ((eq frame-type 'haiku)
+      (haiku-frame-geometry frame))
      (t
       (list
        '(outer-position 0 . 0)
@@ -1698,31 +1720,110 @@ and width values are in pixels.
 
 (defun frame--size-history (&optional frame)
   "Print history of resize operations for FRAME.
-Print prettified version of `frame-size-history' into a buffer
-called *frame-size-history*.  Optional argument FRAME denotes the
-frame whose history will be printed.  FRAME defaults to the
-selected frame."
+This function dumps a prettified version of `frame-size-history'
+into a buffer called *frame-size-history*.  The optional argument
+FRAME denotes the frame whose history will be dumped; it defaults
+to the selected frame.
+
+Storing information about resize operations is off by default.
+If you set the variable `frame-size-history' like this
+
+(setq frame-size-history '(100))
+
+then Emacs will save information about the next 100 significant
+operations affecting any frame's size in that variable.  This
+function prints the entries for FRAME stored in that variable in
+a more legible way.
+
+All lines start with an indication of the requested action.  An
+entry like `menu-bar-lines' or `scroll-bar-width' indicates that
+a change of the corresponding frame parameter or Lisp variable
+was requested.  An entry like gui_figure_window_size indicates
+that that C function was executed, an entry like ConfigureNotify
+indicates that that event was received.
+
+In long entries, a number in parentheses displays the INHIBIT
+parameter passed to the C function adjust_frame_size.  Such
+entries may also display changes of frame rectangles in a form
+like R=n1xn2~>n3xn4 where R denotes the rectangle type (TS for
+text, NS for native and IS for inner frame rectangle sizes, all
+in pixels, TC for text rectangle sizes in frame columns and
+lines), n1 and n2 denote the old width and height and n3 and n4
+the new width and height in the according units.  MS stands for
+the minimum inner frame size in pixels, IH and IV, if present,
+indicate that resizing horizontally and/or vertically was
+inhibited (either by `frame-inhibit-implied-resize' or because of
+the frame's fullscreen state).
+
+Shorter entries represent C functions that process width and
+height changes of the native rectangle where PS stands for the
+frame's present pixel width and height, XS for a requested pixel
+width and height and DS for some earlier requested but so far
+delayed pixel width and height.
+
+Very short entries represent calls of C functions that do not
+directly ask for size changes but may indirectly affect the size
+of frames like calls to map a frame or change its visibility."
   (let ((history (reverse frame-size-history))
-	entry)
+	entry item)
     (setq frame (window-normalize-frame frame))
     (with-current-buffer (get-buffer-create "*frame-size-history*")
       (erase-buffer)
       (insert (format "Frame size history of %s\n" frame))
       (while (consp (setq entry (pop history)))
-	(when (eq (car entry) frame)
-          (pop entry)
-          (insert (format "%s" (pop entry)))
-          (move-to-column 24 t)
-          (while entry
-            (insert (format " %s" (pop entry))))
-          (insert "\n")))
-      (unless frame-size-history
-        (insert "Frame size history is nil.\n")))))
+        (setq item (car entry))
+	(cond
+         ((not (consp item))
+          ;; An item added quickly for debugging purposes.
+          (insert (format "%s\n" entry)))
+         ((and (eq (nth 0 item) frame) (= (nth 1 item) 1))
+          ;; Length 1 is a "plain event".
+          (insert (format "%s\n" (nth 2 item))))
+         ((and (eq (nth 0 item) frame) (= (nth 1 item) 2))
+          ;; Length 2 is an "extra" item.
+          (insert (format "%s" (nth 2 item)))
+          (setq item (nth 0 (cdr entry)))
+          (insert (format ", PS=%sx%s" (nth 0 item) (nth 1 item)))
+          (when (or (>= (nth 2 item) 0) (>= (nth 3 item) 0))
+            (insert (format ", XS=%sx%s" (nth 2 item) (nth 3 item))))
+          (setq item (nth 1 (cdr entry)))
+          (when (or (>= (nth 0 item) 0) (>= (nth 1 item) 0))
+            (insert (format ", DS=%sx%s" (nth 0 item) (nth 1 item))))
+          (insert "\n"))
+         ((and (eq (nth 0 item) frame) (= (nth 1 item) 5))
+          ;; Length 5 is an `adjust-frame-size' item.
+          (insert (format "%s (%s)" (nth 3 item) (nth 2 item)))
+          (setq item (nth 0 (cdr entry)))
+          (unless (and (= (nth 0 item) (nth 2 item))
+                       (= (nth 1 item) (nth 3 item)))
+            (insert (format ", TS=%sx%s~>%sx%s"
+                            (nth 0 item) (nth 1 item) (nth 2 item) (nth 3 item))))
+          (setq item (nth 1 (cdr entry)))
+          (unless (and (= (nth 0 item) (nth 2 item))
+                       (= (nth 1 item) (nth 3 item)))
+            (insert (format ", TC=%sx%s~>%sx%s"
+                            (nth 0 item) (nth 1 item) (nth 2 item) (nth 3 item))))
+          (setq item (nth 2 (cdr entry)))
+          (unless (and (= (nth 0 item) (nth 2 item))
+                       (= (nth 1 item) (nth 3 item)))
+            (insert (format ", NS=%sx%s~>%sx%s"
+                            (nth 0 item) (nth 1 item) (nth 2 item) (nth 3 item))))
+          (setq item (nth 3 (cdr entry)))
+          (unless (and (= (nth 0 item) (nth 2 item))
+                       (= (nth 1 item) (nth 3 item)))
+            (insert (format ", IS=%sx%s~>%sx%s"
+                            (nth 0 item) (nth 1 item) (nth 2 item) (nth 3 item))))
+          (setq item (nth 4 (cdr entry)))
+          (insert (format ", MS=%sx%s" (nth 0 item) (nth 1 item)))
+          (when (nth 2 item) (insert " IH"))
+          (when (nth 3 item) (insert " IV"))
+          (insert "\n")))))))
 
 (declare-function x-frame-edges "xfns.c" (&optional frame type))
 (declare-function w32-frame-edges "w32fns.c" (&optional frame type))
 (declare-function ns-frame-edges "nsfns.m" (&optional frame type))
 (declare-function pgtk-frame-edges "pgtkfns.c" (&optional frame type))
+(declare-function haiku-frame-edges "haikufns.c" (&optional frame type))
 
 (defun frame-edges (&optional frame type)
   "Return coordinates of FRAME's edges.
@@ -1748,6 +1849,8 @@ FRAME."
       (ns-frame-edges frame type))
      ((eq frame-type 'pgtk)
       (pgtk-frame-edges frame type))
+     ((eq frame-type 'haiku)
+      (haiku-frame-edges frame type))
      (t
       (list 0 0 (frame-width frame) (frame-height frame))))))
 
@@ -1755,6 +1858,7 @@ FRAME."
 (declare-function x-mouse-absolute-pixel-position "xfns.c")
 (declare-function ns-mouse-absolute-pixel-position "nsfns.m")
 (declare-function pgtk-mouse-absolute-pixel-position "pgtkfns.c")
+(declare-function haiku-mouse-absolute-pixel-position "haikufns.c")
 
 (defun mouse-absolute-pixel-position ()
   "Return absolute position of mouse cursor in pixels.
@@ -1771,6 +1875,8 @@ position (0, 0) of the selected frame's terminal."
       (ns-mouse-absolute-pixel-position))
      ((eq frame-type 'pgtk)
       (pgtk-mouse-absolute-pixel-position))
+     ((eq frame-type 'haiku)
+      (haiku-mouse-absolute-pixel-position))
      (t
       (cons 0 0)))))
 
@@ -1778,6 +1884,7 @@ position (0, 0) of the selected frame's terminal."
 (declare-function ns-set-mouse-absolute-pixel-position "nsfns.m" (x y))
 (declare-function w32-set-mouse-absolute-pixel-position "w32fns.c" (x y))
 (declare-function x-set-mouse-absolute-pixel-position "xfns.c" (x y))
+(declare-function haiku-set-mouse-absolute-pixel-position "haikufns.c" (x y))
 
 (defun set-mouse-absolute-pixel-position (x y)
   "Move mouse pointer to absolute pixel position (X, Y).
@@ -1792,7 +1899,9 @@ position (0, 0) of the selected frame's terminal."
      ((eq frame-type 'x)
       (x-set-mouse-absolute-pixel-position x y))
      ((eq frame-type 'w32)
-      (w32-set-mouse-absolute-pixel-position x y)))))
+      (w32-set-mouse-absolute-pixel-position x y))
+     ((eq frame-type 'haiku)
+      (haiku-set-mouse-absolute-pixel-position x y)))))
 
 (defun frame-monitor-attributes (&optional frame)
   "Return the attributes of the physical monitor dominating FRAME.
@@ -1886,6 +1995,7 @@ workarea attribute."
 (declare-function w32-frame-list-z-order "w32fns.c" (&optional display))
 (declare-function ns-frame-list-z-order "nsfns.m" (&optional display))
 (declare-function pgtk-frame-list-z-order "pgtkfns.c" (&optional display))
+(declare-function haiku-frame-list-z-order "haikufns.c" (&optional display))
 
 (defun frame-list-z-order (&optional display)
   "Return list of Emacs' frames, in Z (stacking) order.
@@ -1907,12 +2017,15 @@ Return nil if DISPLAY contains no Emacs frame."
      ((eq frame-type 'ns)
       (ns-frame-list-z-order display))
      ((eq frame-type 'pgtk)
-      (pgtk-frame-list-z-order display)))))
+      (pgtk-frame-list-z-order display))
+     ((eq frame-type 'haiku)
+      (haiku-frame-list-z-order display)))))
 
 (declare-function x-frame-restack "xfns.c" (frame1 frame2 &optional above))
 (declare-function w32-frame-restack "w32fns.c" (frame1 frame2 &optional above))
 (declare-function ns-frame-restack "nsfns.m" (frame1 frame2 &optional above))
 (declare-function pgtk-frame-restack "pgtkfns.c" (frame1 frame2 &optional above))
+(declare-function haiku-frame-restack "haikufns.c" (frame1 frame2 &optional above))
 
 (defun frame-restack (frame1 frame2 &optional above)
   "Restack FRAME1 below FRAME2.
@@ -1943,6 +2056,8 @@ Some window managers may refuse to restack windows."
           (w32-frame-restack frame1 frame2 above))
          ((eq frame-type 'ns)
           (ns-frame-restack frame1 frame2 above))
+         ((eq frame-type 'haiku)
+          (haiku-frame-restack frame1 frame2 above))
          ((eq frame-type 'pgtk)
           (pgtk-frame-restack frame1 frame2 above))))
     (error "Cannot restack frames")))
@@ -1991,8 +2106,8 @@ frame's display)."
      ((eq frame-type 'w32)
       (with-no-warnings
        (> w32-num-mouse-buttons 0)))
-     ((memq frame-type '(x ns pgtk))
-      t)    ;; We assume X and NeXTstep *always* have a pointing device
+     ((memq frame-type '(x ns haiku pgtk))
+      t)    ;; We assume X, NeXTstep, GTK, and Haiku *always* have a pointing device
      (t
       (or (and (featurep 'xt-mouse)
 	       xterm-mouse-mode)
@@ -2017,7 +2132,7 @@ frames and several different fonts at once.  This is true for displays
 that use a window system such as X, and false for text-only terminals.
 DISPLAY can be a display name, a frame, or nil (meaning the selected
 frame's display)."
-  (not (null (memq (framep-on-display display) '(x w32 ns pgtk)))))
+  (not (null (memq (framep-on-display display) '(x w32 ns pgtk haiku)))))
 
 (defun display-images-p (&optional display)
   "Return non-nil if DISPLAY can display images.
@@ -2068,7 +2183,7 @@ DISPLAY should be either a frame or a display name (a string).
 If DISPLAY is omitted or nil, it defaults to the selected frame's display."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 ns pgtk))
+     ((memq frame-type '(x w32 ns haiku pgtk))
       (x-display-screens display))
      (t
       1))))
@@ -2088,7 +2203,7 @@ with DISPLAY.  To get information for each physical monitor, use
 `display-monitor-attributes-list'."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 ns pgtk))
+     ((memq frame-type '(x w32 ns haiku pgtk))
       (x-display-pixel-height display))
      (t
       (frame-height (if (framep display) display (selected-frame)))))))
@@ -2108,7 +2223,7 @@ with DISPLAY.  To get information for each physical monitor, use
 `display-monitor-attributes-list'."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 ns pgtk))
+     ((memq frame-type '(x w32 ns haiku pgtk))
       (x-display-pixel-width display))
      (t
       (frame-width (if (framep display) display (selected-frame)))))))
@@ -2146,7 +2261,7 @@ For graphical terminals, note that on \"multi-monitor\" setups this
 refers to the height in millimeters for all physical monitors
 associated with DISPLAY.  To get information for each physical
 monitor, use `display-monitor-attributes-list'."
-  (and (memq (framep-on-display display) '(x w32 ns pgtk))
+  (and (memq (framep-on-display display) '(x w32 ns haiku pgtk))
        (or (cddr (assoc (or display (frame-parameter nil 'display))
 			display-mm-dimensions-alist))
 	   (cddr (assoc t display-mm-dimensions-alist))
@@ -2167,7 +2282,7 @@ For graphical terminals, note that on \"multi-monitor\" setups this
 refers to the width in millimeters for all physical monitors
 associated with DISPLAY.  To get information for each physical
 monitor, use `display-monitor-attributes-list'."
-  (and (memq (framep-on-display display) '(x w32 ns pgtk))
+  (and (memq (framep-on-display display) '(x w32 ns haiku pgtk))
        (or (cadr (assoc (or display (frame-parameter nil 'display))
 			display-mm-dimensions-alist))
 	   (cadr (assoc t display-mm-dimensions-alist))
@@ -2185,7 +2300,7 @@ DISPLAY can be a display name or a frame.
 If DISPLAY is omitted or nil, it defaults to the selected frame's display."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 ns pgtk))
+     ((memq frame-type '(x w32 ns haiku pgtk))
       (x-display-backing-store display))
      (t
       'not-useful))))
@@ -2198,7 +2313,7 @@ DISPLAY can be a display name or a frame.
 If DISPLAY is omitted or nil, it defaults to the selected frame's display."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 ns pgtk))
+     ((memq frame-type '(x w32 ns haiku pgtk))
       (x-display-save-under display))
      (t
       'not-useful))))
@@ -2211,7 +2326,7 @@ DISPLAY can be a display name or a frame.
 If DISPLAY is omitted or nil, it defaults to the selected frame's display."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 ns pgtk))
+     ((memq frame-type '(x w32 ns haiku pgtk))
       (x-display-planes display))
      ((eq frame-type 'pc)
       4)
@@ -2226,7 +2341,7 @@ DISPLAY can be a display name or a frame.
 If DISPLAY is omitted or nil, it defaults to the selected frame's display."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 ns pgtk))
+     ((memq frame-type '(x w32 ns haiku pgtk))
       (x-display-color-cells display))
      ((eq frame-type 'pc)
       16)
@@ -2243,7 +2358,7 @@ DISPLAY can be a display name or a frame.
 If DISPLAY is omitted or nil, it defaults to the selected frame's display."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 ns pgtk))
+     ((memq frame-type '(x w32 ns haiku pgtk))
       (x-display-visual-class display))
      ((and (memq frame-type '(pc t))
 	   (tty-display-color-p display))
@@ -2420,6 +2535,77 @@ deleting them."
         (if iconify (iconify-frame this) (delete-frame this)))
       (setq this next))))
 
+(defvar undelete-frame--deleted-frames nil
+  "Internal variable used by `undelete-frame--save-deleted-frame'.")
+
+(defun undelete-frame--save-deleted-frame (frame)
+  "Save the configuration of frames deleted with `delete-frame'.
+Only the 16 most recently deleted frames are saved."
+  (when (and after-init-time (frame-live-p frame))
+    (setq undelete-frame--deleted-frames
+          (cons
+           (list
+            (display-graphic-p)
+            (seq-remove
+             (lambda (elem)
+               (or (memq (car elem) frame-internal-parameters)
+                   ;; When the daemon is started from a graphical
+                   ;; environment, TTY frames have a 'display' parameter set
+                   ;; to the value of $DISPLAY (see the note in
+                   ;; `server--on-display-p').  Do not store that parameter
+                   ;; in the frame data, otherwise `undelete-frame' attempts
+                   ;; to restore a graphical frame.
+                   (and (eq (car elem) 'display) (not (display-graphic-p)))))
+             (frame-parameters frame))
+            (window-state-get (frame-root-window frame)))
+           undelete-frame--deleted-frames))
+    (if (> (length undelete-frame--deleted-frames) 16)
+        (setq undelete-frame--deleted-frames
+              (butlast undelete-frame--deleted-frames)))))
+
+(define-minor-mode undelete-frame-mode
+  "Enable the `undelete-frame' command."
+  :group 'frames
+  :global t
+  (if undelete-frame-mode
+      (add-hook 'delete-frame-functions
+                #'undelete-frame--save-deleted-frame -75)
+    (remove-hook 'delete-frame-functions
+                 #'undelete-frame--save-deleted-frame)
+    (setq undelete-frame--deleted-frames nil)))
+
+(defun undelete-frame (&optional arg)
+  "Undelete a frame deleted with `delete-frame'.
+Without a prefix argument, undelete the most recently deleted
+frame.
+With a numerical prefix argument ARG between 1 and 16, where 1 is
+most recently deleted frame, undelete the ARGth deleted frame.
+When called from Lisp, returns the new frame."
+  (interactive "P")
+  (if (not undelete-frame-mode)
+      (user-error "Undelete-Frame mode is disabled")
+    (if (consp arg)
+        (user-error "Missing deleted frame number argument")
+      (let* ((number (pcase arg ('nil 1) ('- -1) (_ arg)))
+             (frame-data (nth (1- number) undelete-frame--deleted-frames))
+             (graphic (display-graphic-p)))
+        (if (not (<= 1 number 16))
+            (user-error "%d is not a valid deleted frame number argument"
+                        number)
+          (if (not frame-data)
+              (user-error "No deleted frame with number %d" number)
+            (if (not (eq graphic (nth 0 frame-data)))
+                (user-error
+                 "Cannot undelete a %s display frame on a %s display"
+                 (if graphic "non-graphic" "graphic")
+                 (if graphic "graphic" "non-graphic"))
+              (setq undelete-frame--deleted-frames
+                    (delq frame-data undelete-frame--deleted-frames))
+              (let* ((default-frame-alist (nth 1 frame-data))
+                     (frame (make-frame)))
+                (window-state-put (nth 2 frame-data) (frame-root-window frame) 'safe)
+                (select-frame-set-input-focus frame)
+                frame))))))))
 
 ;;; Window dividers.
 (defgroup window-divider nil
@@ -2763,6 +2949,8 @@ See also `toggle-frame-maximized'."
 (define-key ctl-x-5-map "0" #'delete-frame)
 (define-key ctl-x-5-map "o" #'other-frame)
 (define-key ctl-x-5-map "5" #'other-frame-prefix)
+(define-key ctl-x-5-map "c" #'clone-frame)
+(define-key ctl-x-5-map "u" #'undelete-frame)
 (define-key global-map [f11] #'toggle-frame-fullscreen)
 (define-key global-map [(meta f10)] #'toggle-frame-maximized)
 (define-key esc-map    [f10]        #'toggle-frame-maximized)

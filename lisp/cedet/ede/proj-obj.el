@@ -1,6 +1,6 @@
 ;;; ede/proj-obj.el --- EDE Generic Project Object code generation support  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1998-2021  Free Software Foundation, Inc.
+;; Copyright (C) 1998-2022 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 ;; Keywords: project, make
@@ -34,8 +34,8 @@
 ;;; Code:
 (defclass ede-proj-target-makefile-objectcode (ede-proj-target-makefile)
   (;; Give this a new default
-   (configuration-variables :initform ("debug" . (("CFLAGS" . "-g")
-						  ("LDFLAGS" . "-g"))))
+   (configuration-variables :initform '("debug" . (("CFLAGS" . "-g")
+						   ("LDFLAGS" . "-g"))))
    ;; @TODO - add an include path.
    (availablecompilers :initform '(ede-gcc-compiler
 				   ede-g++-compiler

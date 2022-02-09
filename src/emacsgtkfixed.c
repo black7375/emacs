@@ -1,7 +1,7 @@
 /* A Gtk Widget that inherits GtkFixed, but can be shrunk.
 This file is only use when compiling with Gtk+ 3.
 
-Copyright (C) 2011-2021 Free Software Foundation, Inc.
+Copyright (C) 2011-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -27,7 +27,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #else
 #include "xterm.h"
 #endif
-#include "xwidget.h"
 #include "emacsgtkfixed.h"
 
 /* Silence a bogus diagnostic; see GNOME bug 683906.  */
@@ -51,6 +50,9 @@ static void emacs_fixed_get_preferred_width  (GtkWidget *widget,
 static void emacs_fixed_get_preferred_height (GtkWidget *widget,
                                               gint      *minimum,
                                               gint      *natural);
+#ifndef HAVE_PGTK
+static GType emacs_fixed_get_type (void);
+#endif
 G_DEFINE_TYPE (EmacsFixed, emacs_fixed, GTK_TYPE_FIXED)
 
 static EmacsFixed *
@@ -59,92 +61,6 @@ EMACS_FIXED (GtkWidget *widget)
   return G_TYPE_CHECK_INSTANCE_CAST (widget, emacs_fixed_get_type (),
 				     EmacsFixed);
 }
-
-#ifdef HAVE_XWIDGETS
-
-static EmacsFixedClass *
-EMACS_FIXED_GET_CLASS (GtkWidget *widget)
-{
-  return G_TYPE_INSTANCE_GET_CLASS (widget, emacs_fixed_get_type (),
-				    EmacsFixedClass);
-}
-
-struct GtkFixedPrivateL
-{
-  GList *children;
-};
-
-static void
-emacs_fixed_gtk_widget_size_allocate (GtkWidget *widget,
-				      GtkAllocation *allocation)
-{
-  /* For xwidgets.
-
-     This basically re-implements the base class method and adds an
-     additional case for an xwidget view.
-
-     It would be nicer if the bse class method could be called first,
-     and the xview modification only would remain here. It wasn't
-     possible to solve it that way yet.  */
-  EmacsFixedClass *klass;
-  GtkWidgetClass *parent_class;
-  struct GtkFixedPrivateL *priv;
-
-  klass = EMACS_FIXED_GET_CLASS (widget);
-  parent_class = g_type_class_peek_parent (klass);
-  parent_class->size_allocate (widget, allocation);
-
-  priv = G_TYPE_INSTANCE_GET_PRIVATE (widget, GTK_TYPE_FIXED,
-				      struct GtkFixedPrivateL);
-
-  gtk_widget_set_allocation (widget, allocation);
-
-  if (gtk_widget_get_has_window (widget))
-    {
-      if (gtk_widget_get_realized (widget))
-        gdk_window_move_resize (gtk_widget_get_window (widget),
-                                allocation->x,
-                                allocation->y,
-                                allocation->width,
-                                allocation->height);
-    }
-
-  for (GList *children = priv->children; children; children = children->next)
-    {
-      GtkFixedChild *child = children->data;
-
-      if (!gtk_widget_get_visible (child->widget))
-        continue;
-
-      GtkRequisition child_requisition;
-      gtk_widget_get_preferred_size (child->widget, &child_requisition, NULL);
-
-      GtkAllocation child_allocation;
-      child_allocation.x = child->x;
-      child_allocation.y = child->y;
-
-      if (!gtk_widget_get_has_window (widget))
-        {
-          child_allocation.x += allocation->x;
-          child_allocation.y += allocation->y;
-        }
-
-      child_allocation.width = child_requisition.width;
-      child_allocation.height = child_requisition.height;
-
-      struct xwidget_view *xv
-        = g_object_get_data (G_OBJECT (child->widget), XG_XWIDGET_VIEW);
-      if (xv)
-        {
-          child_allocation.width = xv->clip_right;
-          child_allocation.height = xv->clip_bottom - xv->clip_top;
-        }
-
-      gtk_widget_size_allocate (child->widget, &child_allocation);
-    }
-}
-
-#endif  /* HAVE_XWIDGETS */
 
 static void
 emacs_fixed_class_init (EmacsFixedClass *klass)
@@ -155,9 +71,6 @@ emacs_fixed_class_init (EmacsFixedClass *klass)
 
   widget_class->get_preferred_width = emacs_fixed_get_preferred_width;
   widget_class->get_preferred_height = emacs_fixed_get_preferred_height;
-#ifdef HAVE_XWIDGETS
-  widget_class->size_allocate = emacs_fixed_gtk_widget_size_allocate;
-#endif
   g_type_class_add_private (klass, sizeof (EmacsFixedPrivate));
 }
 
@@ -251,13 +164,9 @@ XSetWMSizeHints (Display *d,
 
   if ((hints->flags & PMinSize) && f)
     {
-#ifdef HAVE_PGTK
-      int w = f->output_data.pgtk->size_hints.min_width;
-      int h = f->output_data.pgtk->size_hints.min_height;
-#else
       int w = f->output_data.x->size_hints.min_width;
       int h = f->output_data.x->size_hints.min_height;
-#endif
+
       data[5] = w;
       data[6] = h;
     }

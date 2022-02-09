@@ -1,6 +1,6 @@
 ;;; hi-lock-tests.el --- Tests for hi-lock.el  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2017-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2022 Free Software Foundation, Inc.
 
 ;; Author: Tino Calancha <tino.calancha@gmail.com>
 ;; Keywords:
@@ -30,9 +30,9 @@
   (let ((faces hi-lock-face-defaults))
     (with-temp-buffer
       (insert "a A b B\n")
-      (cl-letf (((symbol-function 'completing-read)
-                   (lambda (_prompt _coll _x _y _z _hist defaults)
-                     (car defaults))))
+      (cl-letf (((symbol-function 'read-face-name)
+                   (lambda (_prompt &optional defaults)
+                     (intern (car defaults)))))
         (dotimes (_ 2)
           (let ((face (hi-lock-read-face-name)))
             (hi-lock-set-pattern "a" face))))
@@ -42,9 +42,9 @@
   (let ((faces hi-lock-face-defaults))
     (with-temp-buffer
       (insert "foo bar")
-      (cl-letf (((symbol-function 'completing-read)
-                 (lambda (_prompt _coll _x _y _z _hist defaults)
-                   (car defaults))))
+      (cl-letf (((symbol-function 'read-face-name)
+                   (lambda (_prompt &optional defaults)
+                     (intern (car defaults)))))
         (hi-lock-set-pattern "9999" (hi-lock-read-face-name)) ; No match
         (hi-lock-set-pattern "foo" (hi-lock-read-face-name)))
       ;; Only one match, then we have used just 1 face
@@ -89,7 +89,8 @@
       (let ((search-spaces-regexp search-whitespace-regexp)) (highlight-regexp "a   a"))
       (should (= (length (overlays-in (point-min) (point-max))) 1))
       (cl-letf (((symbol-function 'completing-read)
-                 (lambda (_prompt _coll _x _y _z _hist defaults)
+                 (lambda (_prompt _coll
+                                  &optional _x _y _z _hist defaults _inherit)
                    (car defaults))))
         (call-interactively 'unhighlight-regexp))
       (should (= (length (overlays-in (point-min) (point-max))) 0))
@@ -142,7 +143,8 @@
       (font-lock-ensure)
       (should (memq 'hi-yellow (get-text-property 1 'face)))
       (cl-letf (((symbol-function 'completing-read)
-                 (lambda (_prompt _coll _x _y _z _hist defaults)
+                 (lambda (_prompt _coll
+                                  &optional _x _y _z _hist defaults _inherit)
                    (car defaults)))
                 (font-lock-fontified t))
         (call-interactively 'unhighlight-regexp))
@@ -155,7 +157,8 @@
       (insert "aAbB\n")
 
       (cl-letf (((symbol-function 'completing-read)
-                 (lambda (_prompt _coll _x _y _z _hist defaults)
+                 (lambda (_prompt _coll
+                                  &optional _x _y _z _hist defaults _inherit)
                    (car defaults))))
 
         (highlight-regexp "a")

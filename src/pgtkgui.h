@@ -1,5 +1,5 @@
 /* Definitions and headers for communication on the pure Gtk+3.
-   Copyright (C) 1995, 2005, 2008-2020 Free Software Foundation, Inc.
+   Copyright (C) 1995, 2005, 2008-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -53,15 +53,15 @@ typedef struct _GdkDisplay Display;
 typedef void *XrmDatabase;
 
 
-/* some sort of attempt to normalize rectangle handling.. seems a bit much
-   for what is accomplished */
+/* Some sort of attempt to normalize rectangle handling.. seems a bit much
+   for what is accomplished.  */
 typedef struct
 {
   int x, y;
   unsigned width, height;
 } XRectangle;
 
-/* This stuff needed by frame.c. */
+/* This stuff is needed by frame.c.  */
 #define ForgetGravity		0
 #define NorthWestGravity	1
 #define NorthGravity		2

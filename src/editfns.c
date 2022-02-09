@@ -1,6 +1,6 @@
 /* Lisp functions pertaining to editing.                 -*- coding: utf-8 -*-
 
-Copyright (C) 1985-1987, 1989, 1993-2021 Free Software Foundation, Inc.
+Copyright (C) 1985-1987, 1989, 1993-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -1233,7 +1233,11 @@ return "unknown".
 If optional argument UID is an integer, return the full name
 of the user with that uid, or nil if there is no such user.
 If UID is a string, return the full name of the user with that login
-name, or nil if there is no such user.  */)
+name, or nil if there is no such user.
+
+If the full name includes commas, remove everything starting with
+the first comma, because the \\='gecos\\=' field of the \\='/etc/passwd\\=' file
+is in general a comma-separated list.  */)
   (Lisp_Object uid)
 {
   struct passwd *pw;
@@ -1263,7 +1267,8 @@ name, or nil if there is no such user.  */)
     return Qnil;
 
   p = USER_FULL_NAME;
-  /* Chop off everything after the first comma. */
+  /* Chop off everything after the first comma, since 'pw_gecos' is a
+     comma-separated list. */
   q = strchr (p, ',');
   full = make_string (p, q ? q - p : strlen (p));
 
@@ -1452,8 +1457,8 @@ DEFUN ("insert-char", Finsert_char, Sinsert_char, 1, 3,
               (prefix-numeric-value current-prefix-arg)\
               t))",
        doc: /* Insert COUNT copies of CHARACTER.
-Interactively, prompt for CHARACTER.  You can specify CHARACTER in one
-of these ways:
+Interactively, prompt for CHARACTER using `read-char-by-name'.
+You can specify CHARACTER in one of these ways:
 
  - As its Unicode character name, e.g. \"LATIN SMALL LETTER A\".
    Completion is available; if you type a substring of the name
@@ -2137,7 +2142,7 @@ nil.  */)
 	 the file now.  */
       if (SAVE_MODIFF == MODIFF
 	  && STRINGP (BVAR (a, file_truename)))
-	unlock_file (BVAR (a, file_truename));
+	Funlock_file (BVAR (a, file_truename));
     }
 
   return Qt;
@@ -2371,7 +2376,7 @@ Both characters must have the same length of multi-byte form.  */)
 	      /* replace_range is less efficient, because it moves the gap,
 		 but it handles combining correctly.  */
 	      replace_range (pos, pos + 1, string,
-			     false, false, true, false);
+			     false, false, true, false, false);
 	      pos_byte_next = CHAR_TO_BYTE (pos);
 	      if (pos_byte_next > pos_byte)
 		/* Before combining happened.  We should not increment
@@ -2578,7 +2583,7 @@ It returns the number of characters changed.  */)
 		     but it should handle multibyte characters correctly.  */
 		  string = make_multibyte_string ((char *) str, 1, str_len);
 		  replace_range (pos, pos + 1, string,
-				 true, false, true, false);
+				 true, false, true, false, false);
 		  len = str_len;
 		}
 	      else
@@ -2613,7 +2618,8 @@ It returns the number of characters changed.  */)
 		= (VECTORP (val)
 		   ? Fconcat (1, &val)
 		   : Fmake_string (make_fixnum (1), val, Qnil));
-	      replace_range (pos, pos + len, string, true, false, true, false);
+	      replace_range (pos, pos + len, string, true, false, true, false,
+			     false);
 	      pos_byte += SBYTES (string);
 	      pos += SCHARS (string);
 	      characters_changed += SCHARS (string);
@@ -2941,6 +2947,8 @@ DEFUN ("propertize", Fpropertize, Spropertize, 1, MANY, 0,
 First argument is the string to copy.
 Remaining arguments form a sequence of PROPERTY VALUE pairs for text
 properties to add to the result.
+
+See Info node `(elisp) Text Properties' for more information.
 usage: (propertize STRING &rest PROPERTIES)  */)
   (ptrdiff_t nargs, Lisp_Object *args)
 {
@@ -3388,7 +3396,7 @@ styled_format (ptrdiff_t nargs, Lisp_Object *args, bool message)
 		  ptrdiff_t nch, nby;
 		  nchars_string = SCHARS (arg);
 		  width = lisp_string_width (arg, 0, nchars_string, prec,
-					     &nch, &nby);
+					     &nch, &nby, false);
 		  if (prec < 0)
 		    nbytes = SBYTES (arg);
 		  else
@@ -4261,9 +4269,6 @@ ring.  */)
   /* Hmmm... how about checking to see if the gap is large
      enough to use as the temporary storage?  That would avoid an
      allocation... interesting.  Later, don't fool with it now.  */
-
-  /* Working without memmove, for portability (sigh), so must be
-     careful of overlapping subsections of the array...  */
 
   if (end1 == start2)		/* adjacent regions */
     {

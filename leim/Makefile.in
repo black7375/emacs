@@ -1,6 +1,6 @@
 ### @configure_input@
 
-# Copyright (C) 1997-2021 Free Software Foundation, Inc.
+# Copyright (C) 1997-2022 Free Software Foundation, Inc.
 # Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002, 2003, 2004, 2005,
 #   2006, 2007, 2008, 2009, 2010, 2011
 #   National Institute of Advanced Industrial Science and Technology (AIST)
@@ -35,15 +35,14 @@ EXEEXT = @EXEEXT@
 -include ${top_builddir}/src/verbose.mk
 
 # Prevent any settings in the user environment causing problems.
-unexport EMACSDATA EMACSDOC EMACSPATH
+unexport EMACSDATA EMACSDOC EMACSLOADPATH EMACSPATH
 
 # Which Emacs to use to convert TIT files to Emacs Lisp files,
 # and generate the file leim-list.el.
 EMACS = ../src/emacs${EXEEXT}
 
 # How to run Emacs.
-# Prevent any setting of EMACSLOADPATH in user environment causing problems.
-RUN_EMACS = EMACSLOADPATH= '$(EMACS)' -batch --no-site-file --no-site-lisp
+RUN_EMACS = '$(EMACS)' -batch --no-site-file --no-site-lisp
 
 MKDIR_P = @MKDIR_P@
 
@@ -123,6 +122,7 @@ leim-list.el: ${leimdir}/leim-list.el
 ${leimdir}/leim-list.el: ${srcdir}/leim-ext.el ${TIT_MISC}
 	$(AM_V_GEN)rm -f $@
 	$(AM_V_at)${RUN_EMACS} -l international/quail \
+	  --eval "(setq max-specpdl-size 5000)" \
 	  --eval "(update-leim-list-file (unmsys--file-name \"${leimdir}\"))"
 	$(AM_V_at)sed -n -e '/^[^;]/p' -e 's/^;\(;*\)inc /;\1 /p' < $< >> $@
 
@@ -137,7 +137,7 @@ ${srcdir}/../lisp/language/pinyin.el: ${srcdir}/MISC-DIC/pinyin.map
 	$(AM_V_GEN)${RUN_EMACS} -l titdic-cnv -f pinyin-convert $< $@
 
 
-.PHONY: bootstrap-clean distclean maintainer-clean extraclean gen-clean
+.PHONY: bootstrap-clean distclean maintainer-clean gen-clean
 
 ## Perhaps this should run gen-clean.
 bootstrap-clean:
@@ -153,7 +153,5 @@ maintainer-clean: gen-clean distclean
 gen-clean:
 	rm -f ${TIT_MISC} ${leimdir}/leim-list.el
 	rm -rf ${leimdir}/ja-dic
-
-extraclean: maintainer-clean
 
 ### Makefile.in ends here

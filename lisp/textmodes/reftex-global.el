@@ -1,6 +1,6 @@
 ;;; reftex-global.el --- operations on entire documents with RefTeX  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2022 Free Software Foundation, Inc.
 
 ;; Author: Carsten Dominik <dominik@science.uva.nl>
 ;; Maintainer: auctex-devel@gnu.org
@@ -148,8 +148,10 @@ No active TAGS table is required."
     (erase-buffer)
     (insert "                MULTIPLE LABELS IN CURRENT DOCUMENT:\n")
     (insert
-     " Move point to label and type `r' to run a query-replace on the label\n"
-     " and its references.  Type `q' to exit this buffer.\n\n")
+     (substitute-command-keys
+      " Move point to label and type \\`r' to run a query-replace on the label\n")
+     (substitute-command-keys
+      " and its references.  Type \\`q' to exit this buffer.\n\n"))
     (insert " LABEL               FILE\n")
     (insert " -------------------------------------------------------------\n")
     (use-local-map (make-sparse-keymap))
@@ -182,8 +184,8 @@ No active TAGS table is required."
                                       default))))
     (if (string= from "") (setq from default))
     (unless to
-      (setq to (read-string (format "Replace label %s with: "
-                                    from))))
+      (setq to (read-string (format "Replace label %s with: " from)
+                            nil nil from)))
     (reftex-query-replace-document
      (concat "{" (regexp-quote from) "}")
      (format "{%s}" to))))
@@ -338,17 +340,17 @@ Also checks if buffers visiting the files are in read-only mode."
     (while (setq file (pop files))
       (unless (file-exists-p file)
         (ding)
-        (or (y-or-n-p (format "No such file %s. Continue? " file))
+        (or (y-or-n-p (format "No such file %s. Continue?" file))
             (error "Abort")))
       (unless (file-writable-p file)
         (ding)
-        (or (y-or-n-p (format "No write access to %s. Continue? " file))
+        (or (y-or-n-p (format "No write access to %s. Continue?" file))
             (error "Abort")))
       (when (and (setq buf (find-buffer-visiting file))
                  (with-current-buffer buf
                    buffer-read-only))
         (ding)
-        (or (y-or-n-p (format "Buffer %s is read-only. Continue? "
+        (or (y-or-n-p (format "Buffer %s is read-only.  Continue?"
                               (buffer-name buf)))
             (error "Abort"))))))
 

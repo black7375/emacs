@@ -1,5 +1,5 @@
 /* Indentation functions.
-   Copyright (C) 1985-1988, 1993-1995, 1998, 2000-2021 Free Software
+   Copyright (C) 1985-1988, 1993-1995, 1998, 2000-2022 Free Software
    Foundation, Inc.
 
 This file is part of GNU Emacs.
@@ -468,31 +468,40 @@ check_display_width (ptrdiff_t pos, ptrdiff_t col, ptrdiff_t *endpos)
 {
   Lisp_Object val, overlay;
 
-  if (CONSP (val = get_char_property_and_overlay
-	     (make_fixnum (pos), Qdisplay, Qnil, &overlay))
-      && EQ (Qspace, XCAR (val)))
-    { /* FIXME: Use calc_pixel_width_or_height.  */
-      Lisp_Object plist = XCDR (val), prop;
+  if (!NILP (val = get_char_property_and_overlay (make_fixnum (pos), Qdisplay,
+						  Qnil, &overlay)))
+    {
       int width = -1;
-      EMACS_INT align_to_max =
-	(col < MOST_POSITIVE_FIXNUM - INT_MAX
-	 ? (EMACS_INT) INT_MAX + col
-	 : MOST_POSITIVE_FIXNUM);
+      Lisp_Object plist = Qnil;
 
-      if ((prop = Fplist_get (plist, QCwidth),
-	   RANGED_FIXNUMP (0, prop, INT_MAX))
-	  || (prop = Fplist_get (plist, QCrelative_width),
-	      RANGED_FIXNUMP (0, prop, INT_MAX)))
-	width = XFIXNUM (prop);
-      else if (FLOATP (prop) && 0 <= XFLOAT_DATA (prop)
-	       && XFLOAT_DATA (prop) <= INT_MAX)
-	width = (int)(XFLOAT_DATA (prop) + 0.5);
-      else if ((prop = Fplist_get (plist, QCalign_to),
-		RANGED_FIXNUMP (col, prop, align_to_max)))
-	width = XFIXNUM (prop) - col;
-      else if (FLOATP (prop) && col <= XFLOAT_DATA (prop)
-	       && (XFLOAT_DATA (prop) <= align_to_max))
-	width = (int)(XFLOAT_DATA (prop) + 0.5) - col;
+      /* Handle '(space ...)' display specs.  */
+      if (CONSP (val) && EQ (Qspace, XCAR (val)))
+	{ /* FIXME: Use calc_pixel_width_or_height.  */
+	  Lisp_Object prop;
+	  EMACS_INT align_to_max =
+	    (col < MOST_POSITIVE_FIXNUM - INT_MAX
+	     ? (EMACS_INT) INT_MAX + col
+	     : MOST_POSITIVE_FIXNUM);
+
+	  plist = XCDR (val);
+	  if ((prop = Fplist_get (plist, QCwidth),
+	       RANGED_FIXNUMP (0, prop, INT_MAX))
+	      || (prop = Fplist_get (plist, QCrelative_width),
+		  RANGED_FIXNUMP (0, prop, INT_MAX)))
+	    width = XFIXNUM (prop);
+	  else if (FLOATP (prop) && 0 <= XFLOAT_DATA (prop)
+		   && XFLOAT_DATA (prop) <= INT_MAX)
+	    width = (int)(XFLOAT_DATA (prop) + 0.5);
+	  else if ((prop = Fplist_get (plist, QCalign_to),
+		    RANGED_FIXNUMP (col, prop, align_to_max)))
+	    width = XFIXNUM (prop) - col;
+	  else if (FLOATP (prop) && col <= XFLOAT_DATA (prop)
+		   && (XFLOAT_DATA (prop) <= align_to_max))
+	    width = (int)(XFLOAT_DATA (prop) + 0.5) - col;
+	}
+      /* Handle 'display' strings.   */
+      else if (STRINGP (val))
+	width = XFIXNUM (Fstring_width (val, Qnil, Qnil));
 
       if (width >= 0)
 	{
@@ -504,7 +513,8 @@ check_display_width (ptrdiff_t pos, ptrdiff_t col, ptrdiff_t *endpos)
 
 	  /* For :relative-width, we need to multiply by the column
 	     width of the character at POS, if it is greater than 1.  */
-	  if (!NILP (Fplist_get (plist, QCrelative_width))
+	  if (!NILP (plist)
+	      && !NILP (Fplist_get (plist, QCrelative_width))
 	      && !NILP (BVAR (current_buffer, enable_multibyte_characters)))
 	    {
 	      int b, wd;
@@ -516,6 +526,7 @@ check_display_width (ptrdiff_t pos, ptrdiff_t col, ptrdiff_t *endpos)
 	  return width;
 	}
     }
+
   return -1;
 }
 
@@ -1967,9 +1978,13 @@ line_number_display_width (struct window *w, int *width, int *pixel_width)
       struct it it;
       struct text_pos startpos;
       bool saved_restriction = false;
+      struct buffer *old_buf = current_buffer;
       ptrdiff_t count = SPECPDL_INDEX ();
       SET_TEXT_POS_FROM_MARKER (startpos, w->start);
       void *itdata = bidi_shelve_cache ();
+
+      /* Make sure W's buffer is the current one.  */
+      set_buffer_internal_1 (XBUFFER (w->contents));
       /* We want to start from window's start point, but it could be
 	 outside the accessible region, in which case we widen the
 	 buffer temporarily.  It could even be beyond the buffer's end
@@ -1998,6 +2013,7 @@ line_number_display_width (struct window *w, int *width, int *pixel_width)
       *pixel_width = it.lnum_pixel_width;
       if (saved_restriction)
 	unbind_to (count, Qnil);
+      set_buffer_internal_1 (old_buf);
       bidi_unshelve_cache (itdata, 0);
     }
 }
@@ -2046,6 +2062,7 @@ window_column_x (struct window *w, Lisp_Object window,
 
 /* Restore window's buffer and point.  */
 
+/* FIXME: Merge with `with_echo_area_buffer_unwind_data`?  */
 static void
 restore_window_buffer (Lisp_Object list)
 {

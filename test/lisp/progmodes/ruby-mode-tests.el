@@ -1,6 +1,6 @@
 ;;; ruby-mode-tests.el --- Test suite for ruby-mode  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2012-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2012-2022 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -31,6 +31,13 @@
      (insert ,contents)
      (ruby-mode)
      ,@body))
+
+(defmacro ruby-with-temp-file (contents &rest body)
+  `(ruby-with-temp-buffer ,contents
+     (set-visited-file-name "ruby-mode-tests")
+     ,@body
+     (set-buffer-modified-p nil)
+     (delete-file buffer-file-name)))
 
 (defun ruby-should-indent (content column)
   "Assert indentation COLUMN on the last line of CONTENT."
@@ -350,7 +357,7 @@ VALUES-PLIST is a list with alternating index and value elements."
   (let ((ruby-align-chained-calls t))
     (ruby-should-indent-buffer
      "one.two.three
-     |       .four
+     |   .four
      |
      |my_array.select { |str| str.size > 5 }
      |        .map    { |str| str.downcase }"
@@ -399,6 +406,13 @@ VALUES-PLIST is a list with alternating index and value elements."
     (beginning-of-line)
     (ruby-toggle-block)
     (should (string= "foo { \"#{bar}\" }" (buffer-string)))))
+
+(ert-deftest ruby-toggle-block-to-brace-no-space ()
+  (ruby-with-temp-buffer "foo do |b|\n  b + 2\nend"
+    (beginning-of-line)
+    (let (ruby-toggle-block-space-before-parameters)
+      (ruby-toggle-block))
+    (should (string= "foo {|b| b + 2 }" (buffer-string)))))
 
 (ert-deftest ruby-recognize-symbols-starting-with-at-character ()
   (ruby-assert-face ":@abc" 3 font-lock-constant-face))
@@ -844,6 +858,52 @@ VALUES-PLIST is a list with alternating index and value elements."
       (ruby--insert-coding-comment "utf-8")
       (should (string= "# encoding: utf-8\n\n" (buffer-string))))))
 
+(ert-deftest ruby--set-encoding-when-ascii ()
+  (ruby-with-temp-file "ascii"
+    (let ((ruby-encoding-magic-comment-style 'ruby)
+          (ruby-insert-encoding-magic-comment t))
+      (setq save-buffer-coding-system 'us-ascii)
+      (ruby-mode-set-encoding)
+      (should (string= "ascii" (buffer-string))))))
+
+(ert-deftest ruby--set-encoding-when-utf8 ()
+  (ruby-with-temp-file "💎"
+    (let ((ruby-encoding-magic-comment-style 'ruby)
+          (ruby-insert-encoding-magic-comment t))
+      (setq save-buffer-coding-system 'utf-8)
+      (ruby-mode-set-encoding)
+      (should (string= "💎" (buffer-string))))))
+
+(ert-deftest ruby--set-encoding-when-latin-15 ()
+  (ruby-with-temp-file "Ⓡ"
+    (let ((ruby-encoding-magic-comment-style 'ruby)
+          (ruby-insert-encoding-magic-comment t))
+      (setq save-buffer-coding-system 'iso-8859-15)
+      (ruby-mode-set-encoding)
+      (should (string= "# coding: iso-8859-15\nⓇ" (buffer-string))))))
+
+(ert-deftest ruby-imenu-with-private-modifier ()
+  (ruby-with-temp-buffer
+      (ruby-test-string
+       "class Blub
+       |  def hi
+       |    'Hi!'
+       |  end
+       |
+       |  def bye
+       |    'Bye!'
+       |  end
+       |
+       |  private def hiding
+       |    'You can't see me'
+       |  end
+       |end")
+    (should (equal (mapcar #'car (ruby-imenu-create-index))
+                   '("Blub"
+                     "Blub#hi"
+                     "Blub#bye"
+                     "Blub#hiding")))))
+
 (ert-deftest ruby--indent/converted-from-manual-test ()
   :tags '(:expensive-test)
   ;; Converted from manual test.
@@ -854,6 +914,33 @@ VALUES-PLIST is a list with alternating index and value elements."
             (indent-region (point-min) (point-max))
             (should (equal (buffer-string) orig))))
       (kill-buffer buf))))
+
+(ert-deftest ruby--test-chained-indentation ()
+  (with-temp-buffer
+    (ruby-mode)
+    (setq-local ruby-align-chained-calls t)
+    (insert "some_variable.where
+.not(x: nil)
+.where(y: 2)
+")
+    (indent-region (point-min) (point-max))
+    (should (equal (buffer-string)
+                   "some_variable.where
+             .not(x: nil)
+             .where(y: 2)
+")))
+
+  (with-temp-buffer
+    (ruby-mode)
+    (setq-local ruby-align-chained-calls t)
+    (insert "some_variable.where.not(x: nil)
+.where(y: 2)
+")
+    (indent-region (point-min) (point-max))
+    (should (equal (buffer-string)
+                   "some_variable.where.not(x: nil)
+             .where(y: 2)
+"))))
 
 (provide 'ruby-mode-tests)
 

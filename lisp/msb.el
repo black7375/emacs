@@ -1,6 +1,6 @@
 ;;; msb.el --- customizable buffer-selection with multiple menus  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1993-1995, 1997-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1993-1995, 1997-2022 Free Software Foundation, Inc.
 
 ;; Author: Lars Lindberg <lars.lindberg@home.se>
 ;; Maintainer: emacs-devel@gnu.org
@@ -1052,9 +1052,12 @@ variable `msb-menu-cond'."
       (msb--split-menus-2 list 0 nil)
     list))
 
+(defun msb--select-buffer ()
+  (interactive)
+  (switch-to-buffer last-command-event))
+
 (defun msb--make-keymap-menu (raw-menu)
-  (let ((end 'menu-bar-select-buffer)
-	(mcount 0))
+  (let ((mcount 0))
     (mapcar
      (lambda (sub-menu)
        (cond
@@ -1063,7 +1066,7 @@ variable `msb-menu-cond'."
 	(t
 	 (let ((buffers (mapcar (lambda (item)
 				  (cons (buffer-name (cdr item))
-					(cons (car item) end)))
+					(cons (car item) 'msb--select-buffer)))
 				(cdr sub-menu))))
 	   (nconc (list (cl-incf mcount) (car sub-menu)
 			'keymap (car sub-menu))

@@ -1,6 +1,6 @@
 ;;; scheme.el --- Scheme (and DSSSL) editing mode    -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1986-1988, 1997-1998, 2001-2021 Free Software
+;; Copyright (C) 1986-1988, 1997-1998, 2001-2022 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Bill Rozas <jinx@martigny.ai.mit.edu>
@@ -115,12 +115,53 @@
 (define-abbrev-table 'scheme-mode-abbrev-table ())
 
 (defvar scheme-imenu-generic-expression
-      '((nil
-         "^(define\\(?:-\\(?:generic\\(?:-procedure\\)?\\|method\\)\\)?\\s-+(?\\(\\sw+\\)" 1)
-        ("Types"
-         "^(define-class\\s-+(?\\(\\sw+\\)" 1)
-        ("Macros"
-         "^(\\(defmacro\\|define-macro\\|define-syntax\\)\\s-+(?\\(\\sw+\\)" 2))
+  `((nil
+     ,(rx bol "(define"
+          (zero-or-one "*")
+          (zero-or-one "-public")
+          (one-or-more space)
+          (zero-or-one "(")
+          (group (one-or-more (or word (syntax symbol)))))
+     1)
+    ("Methods"
+     ,(rx bol "(define-"
+          (or "generic" "method" "accessor")
+          (one-or-more space)
+          (zero-or-one "(")
+          (group (one-or-more (or word (syntax symbol)))))
+     1)
+    ("Classes"
+     ,(rx bol "(define-class"
+          (one-or-more space)
+          (zero-or-one "(")
+          (group (one-or-more (or word (syntax symbol)))))
+     1)
+    ("Records"
+     ,(rx bol "(define-record-type"
+          (zero-or-one "*")
+          (one-or-more space)
+          (group (one-or-more (or word (syntax symbol)))))
+     1)
+    ("Conditions"
+     ,(rx bol "(define-condition-type"
+          (one-or-more space)
+          (group (one-or-more (or word (syntax symbol)))))
+     1)
+    ("Modules"
+     ,(rx bol "(define-module"
+          (one-or-more space)
+          (group "(" (one-or-more any) ")"))
+     1)
+    ("Macros"
+     ,(rx bol "("
+          (or (and "defmacro"
+                   (zero-or-one "*")
+                   (zero-or-one "-public"))
+              "define-macro" "define-syntax" "define-syntax-rule")
+          (one-or-more space)
+          (zero-or-one "(")
+          (group (one-or-more (or word (syntax symbol)))))
+     1))
   "Imenu generic expression for Scheme mode.  See `imenu-generic-expression'.")
 
 (defun scheme-mode-variables ()
@@ -143,7 +184,6 @@
   (setq-local comment-start-skip ";+[ \t]*")
   (setq-local comment-use-syntax t)
   (setq-local comment-column 40)
-  (setq-local parse-sexp-ignore-comments t)
   (setq-local lisp-indent-function 'scheme-indent-function)
   (setq mode-line-process '("" scheme-mode-line-process))
   (setq-local imenu-case-fold-search t)
@@ -299,7 +339,9 @@ See `run-hooks'."
        (concat
         "(" (regexp-opt
              '("begin" "call-with-current-continuation" "call/cc"
-               "call-with-input-file" "call-with-output-file" "case" "cond"
+               "call-with-input-file" "call-with-output-file"
+               "call-with-port"
+               "case" "cond"
                "do" "else" "for-each" "if" "lambda" "λ"
                "let" "let*" "let-syntax" "letrec" "letrec-syntax"
                ;; R6RS library subforms.
@@ -542,6 +584,7 @@ indentation."
 (put 'library 'scheme-indent-function 1) ; R6RS
 
 (put 'call-with-input-file 'scheme-indent-function 1)
+(put 'call-with-port 'scheme-indent-function 1)
 (put 'with-input-from-file 'scheme-indent-function 1)
 (put 'with-input-from-port 'scheme-indent-function 1)
 (put 'call-with-output-file 'scheme-indent-function 1)

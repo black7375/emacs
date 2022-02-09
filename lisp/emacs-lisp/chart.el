@@ -1,6 +1,6 @@
 ;;; chart.el --- Draw charts (bar charts, etc)  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1996, 1998-1999, 2001, 2004-2005, 2007-2021 Free
+;; Copyright (C) 1996, 1998-1999, 2001, 2004-2005, 2007-2022 Free
 ;; Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
@@ -203,7 +203,7 @@ Make sure the width/height is correct."
 
 (defclass chart-bar (chart)
   ((direction :initarg :direction
-	      :initform vertical))
+	      :initform 'vertical))
   "Subclass for bar charts (vertical or horizontal).")
 
 (cl-defmethod chart-draw ((c chart) &optional buff)

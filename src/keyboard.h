@@ -1,5 +1,5 @@
 /* Declarations useful when processing input.
-   Copyright (C) 1985-1987, 1993, 2001-2021 Free Software Foundation,
+   Copyright (C) 1985-1987, 1993, 2001-2022 Free Software Foundation,
    Inc.
 
 This file is part of GNU Emacs.
@@ -486,12 +486,10 @@ extern bool kbd_buffer_events_waiting (void);
 extern void add_user_signal (int, const char *);
 
 extern int tty_read_avail_input (struct terminal *, struct input_event *);
-extern bool volatile pending_signals;
-extern void process_pending_signals (void);
 extern struct timespec timer_check (void);
 extern void mark_kboards (void);
 
-#ifdef HAVE_NTGUI
+#if defined HAVE_NTGUI || defined HAVE_X_WINDOWS || defined HAVE_PGTK
 extern const char *const lispy_function_keys[];
 #endif
 

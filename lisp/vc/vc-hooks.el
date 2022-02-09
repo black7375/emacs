@@ -1,6 +1,6 @@
 ;;; vc-hooks.el --- resident support for version-control  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992-1996, 1998-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1992-1996, 1998-2022 Free Software Foundation, Inc.
 
 ;; Author: FSF (see vc.el for full credits)
 ;; Maintainer: emacs-devel@gnu.org
@@ -143,6 +143,7 @@ visited and a warning displayed."
 		 (const :tag "Visit link and warn" nil)
 		 (const :tag "Follow link" t))
   :group 'vc)
+(put 'vc-follow-symlinks 'safe-local-variable #'null)
 
 (defcustom vc-display-status t
   "If non-nil, display revision number and lock status in mode line.
@@ -256,9 +257,9 @@ It is usually called via the `vc-call' macro."
 (defmacro vc-call (fun file &rest args)
   "A convenience macro for calling VC backend functions.
 Functions called by this macro must accept FILE as the first argument.
-ARGS specifies any additional arguments.  FUN should be unquoted.
-BEWARE!! FILE is evaluated twice!!"
-  `(vc-call-backend (vc-backend ,file) ',fun ,file ,@args))
+ARGS specifies any additional arguments.  FUN should be unquoted."
+  (macroexp-let2 nil file file
+    `(vc-call-backend (vc-backend ,file) ',fun ,file ,@args)))
 
 (defsubst vc-parse-buffer (pattern i)
   "Find PATTERN in the current buffer and return its Ith submatch."
@@ -483,7 +484,7 @@ status of this file.  Otherwise, the value returned is one of:
    (vc-call-backend backend 'state file)))
 
 (defsubst vc-up-to-date-p (file)
-  "Convenience function that checks whether `vc-state' of FILE is `up-to-date'."
+  "Convenience function to check whether `vc-state' of FILE is `up-to-date'."
   (eq (vc-state file) 'up-to-date))
 
 (defun vc-working-revision (file &optional backend)
@@ -627,7 +628,7 @@ Before doing that, check if there are any old backups and get rid of them."
 
 (declare-function vc-dir-resynch-file "vc-dir" (&optional fname))
 
-(defvar vc-dir-buffers nil "List of vc-dir buffers.")
+(defvar vc-dir-buffers nil "List of `vc-dir' buffers.")
 
 (defun vc-after-save ()
   "Function to be called by `basic-save-buffer' (in files.el)."
@@ -798,9 +799,10 @@ In the latter case, VC mode is deactivated for this buffer."
     (add-hook 'vc-mode-line-hook #'vc-mode-line nil t)
     (let (backend)
       (cond
-        ((setq backend (with-demoted-errors (vc-backend buffer-file-name)))
-         ;; Let the backend setup any buffer-local things he needs.
-         (vc-call-backend backend 'find-file-hook)
+       ((setq backend (with-demoted-errors "VC refresh error: %S"
+                        (vc-backend buffer-file-name)))
+        ;; Let the backend setup any buffer-local things he needs.
+        (vc-call-backend backend 'find-file-hook)
 	;; Compute the state and put it in the mode line.
 	(vc-mode-line buffer-file-name backend)
 	(unless vc-make-backup-files
@@ -864,7 +866,8 @@ In the latter case, VC mode is deactivated for this buffer."
 (defvar vc-prefix-map
   (let ((map (make-sparse-keymap)))
     (define-key map "a" #'vc-update-change-log)
-    (define-key map "b" #'vc-switch-backend)
+    (with-suppressed-warnings ((obsolete vc-switch-backend))
+      (define-key map "b" #'vc-switch-backend))
     (define-key map "d" #'vc-dir)
     (define-key map "g" #'vc-annotate)
     (define-key map "G" #'vc-ignore)

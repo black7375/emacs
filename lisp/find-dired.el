@@ -1,6 +1,6 @@
 ;;; find-dired.el --- run a `find' command and dired the output  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1992, 1994-1995, 2000-2021 Free Software Foundation,
+;; Copyright (C) 1992, 1994-1995, 2000-2022 Free Software Foundation,
 ;; Inc.
 
 ;; Author: Roland McGrath <roland@gnu.org>,
@@ -225,8 +225,8 @@ it finishes, type \\[kill-find]."
       (use-local-map map))
     (setq-local dired-sort-inhibit t)
     (setq-local revert-buffer-function
-                `(lambda (ignore-auto noconfirm)
-                   (find-dired ,dir ,find-args)))
+                (lambda (_ignore-auto _noconfirm)
+                  (find-dired dir find-args)))
     ;; Set subdir-alist so that Tree Dired will work:
     (if (fboundp 'dired-simple-subdir-alist)
 	;; will work even with nested dired format (dired-nstd.el,v 1.15
@@ -234,8 +234,8 @@ it finishes, type \\[kill-find]."
 	(dired-simple-subdir-alist)
       ;; else we have an ancient tree dired (or classic dired, where
       ;; this does no harm)
-      (setq-local dired-subdir-alist
-                  (list (cons default-directory (point-min-marker)))))
+      (setq dired-subdir-alist
+            (list (cons default-directory (point-min-marker)))))
     (setq-local dired-subdir-switches find-ls-subdir-switches)
     (setq buffer-read-only nil)
     ;; Subdir headlerline must come first because the first marker in
@@ -266,7 +266,7 @@ it finishes, type \\[kill-find]."
 
 ;;;###autoload
 (defun find-name-dired (dir pattern)
-  "Search DIR recursively for files matching the globbing pattern PATTERN,
+  "Search DIR recursively for files matching the globbing PATTERN,
 and run Dired on those files.
 PATTERN is a shell wildcard (not an Emacs regexp) and need not be quoted.
 The default command run (after changing into DIR) is

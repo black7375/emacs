@@ -1,6 +1,6 @@
 ;;; reftex-toc.el --- RefTeX's table of contents mode  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1997-2000, 2003-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1997-2000, 2003-2022 Free Software Foundation, Inc.
 
 ;; Author: Carsten Dominik <dominik@science.uva.nl>
 ;; Maintainer: auctex-devel@gnu.org
@@ -180,7 +180,7 @@ z          Jump to a specific section (e.g. '3 z' goes to section 3).")
 (defun reftex-toc (&optional _rebuild reuse)
   ;; FIXME: Get rid of the `rebuild' argument.
   "Show the table of contents for the current document.
-When called with a raw C-u prefix, rescan the document first."
+When called with a raw \\[universal-argument] prefix, rescan the document first."
 
 ;; The REUSE argument means, search all visible frames for a window
 ;; displaying the toc window.  If yes, reuse this window.
@@ -381,7 +381,7 @@ SPC=view TAB=goto RET=goto+hide [q]uit [r]escan [l]abels [f]ollow [x]r [?]Help
 		 (- (or reftex-last-window-height (window-height))
 		    (window-height)))))
     (when (> count 0)
-      (with-demoted-errors           ;E.g. the window might be the root window!
+      (with-demoted-errors "Enlarge window error: %S"
         (enlarge-window count reftex-toc-split-windows-horizontally)))))
 
 (defun reftex-toc-dframe-p (&optional frame error)
@@ -856,10 +856,10 @@ label prefix determines the wording of a reference."
          (label (car toc)) newlabel)
     (if (not (stringp label))
         (error "This is not a label entry"))
-    (setq newlabel (read-string (format "Rename label \"%s\" to:" label)))
+    (setq newlabel (read-string (format "Rename label \"%s\" to: " label)))
     (if (assoc newlabel (symbol-value reftex-docstruct-symbol))
         (if (not (y-or-n-p
-                  (format-message "Label `%s' exists.  Use anyway? " label)))
+                  (format-message "Label `%s' exists.  Use anyway? " newlabel)))
             (error "Abort")))
     (save-excursion
       (save-window-excursion

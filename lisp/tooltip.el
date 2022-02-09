@@ -1,6 +1,6 @@
 ;;; tooltip.el --- show tooltip windows  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1997, 1999-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1997, 1999-2022 Free Software Foundation, Inc.
 
 ;; Author: Gerd Moellmann <gerd@acm.org>
 ;; Keywords: help c mouse tools
@@ -58,9 +58,11 @@ echo area, instead of making a pop-up window."
   (if (and tooltip-mode (fboundp 'x-show-tip))
       (progn
 	(add-hook 'pre-command-hook 'tooltip-hide)
-	(add-hook 'tooltip-functions 'tooltip-help-tips))
+	(add-hook 'tooltip-functions 'tooltip-help-tips)
+        (add-hook 'x-pre-popup-menu-hook 'tooltip-hide))
     (unless (and (boundp 'gud-tooltip-mode) gud-tooltip-mode)
-      (remove-hook 'pre-command-hook 'tooltip-hide))
+      (remove-hook 'pre-command-hook 'tooltip-hide)
+      (remove-hook 'x-pre-popup-menu-hook 'tooltip-hide))
     (remove-hook 'tooltip-functions 'tooltip-help-tips))
   (setq show-help-function
 	(if tooltip-mode 'tooltip-show-help 'tooltip-show-help-non-mode)))
@@ -339,6 +341,8 @@ This is used by `tooltip-show-help' and
 (defvar tooltip-previous-message nil
   "The previous content of the echo area.")
 
+(defvar haiku-use-system-tooltips)
+
 (defun tooltip-show-help-non-mode (help)
   "Function installed as `show-help-function' when Tooltip mode is off.
 It is also called if Tooltip mode is on, for text-only displays."
@@ -346,7 +350,7 @@ It is also called if Tooltip mode is on, for text-only displays."
              (not cursor-in-echo-area))  ;Don't overwrite a prompt.
     (cond
      ((stringp help)
-      (setq help (replace-regexp-in-string "\n" ", " help))
+      (setq help (string-replace "\n" ", " help))
       (unless (or tooltip-previous-message
 		  (equal-including-properties help (current-message))
 		  (and (stringp tooltip-help-message)
@@ -368,19 +372,24 @@ It is also called if Tooltip mode is on, for text-only displays."
      ((equal-including-properties tooltip-help-message (current-message))
       (message nil)))))
 
+(declare-function menu-or-popup-active-p "xmenu.c" ())
+
 (defun tooltip-show-help (msg)
   "Function installed as `show-help-function'.
 MSG is either a help string to display, or nil to cancel the display."
-  (if (display-graphic-p)
+  (if (and (display-graphic-p))
       (let ((previous-help tooltip-help-message))
 	(setq tooltip-help-message msg)
 	(cond ((null msg)
 	       ;; Cancel display.  This also cancels a delayed tip, if
 	       ;; there is one.
 	       (tooltip-hide))
-	      ((equal-including-properties previous-help msg)
-	       ;; Same help as before (but possibly the mouse has moved).
-	       ;; Keep what we have.
+	      ((equal previous-help msg)
+	       ;; Same help as before (but possibly the mouse has
+	       ;; moved or the text properties have changed).  Keep
+	       ;; what we have.  If only text properties have changed,
+	       ;; the tooltip won't be updated, but that shouldn't
+	       ;; occur.
 	       )
 	      (t
 	       ;; A different help.  Remove a previous tooltip, and

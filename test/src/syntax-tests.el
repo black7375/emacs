@@ -1,6 +1,6 @@
 ;;; syntax-tests.el --- tests for syntax.c functions -*- lexical-binding: t -*-
 
-;; Copyright (C) 2017-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2017-2022 Free Software Foundation, Inc.
 
 ;; This file is part of GNU Emacs.
 
@@ -21,6 +21,7 @@
 
 (require 'ert)
 (require 'ert-x)
+(require 'cl-lib)
 
 (ert-deftest parse-partial-sexp-continue-over-comment-marker ()
   "Continue a parse that stopped in the middle of a comment marker."
@@ -55,6 +56,16 @@
                      pps-aftC))
       (should (equal (parse-partial-sexp aftC pointX nil nil pps-aftC)
                      ppsX)))))
+
+(ert-deftest syntax-class-character-test ()
+  (cl-loop for char across " .w_()'\"$\\/<>@!|"
+           for i from 0
+           do (should (= char (syntax-class-to-char i)))
+           when (string-to-syntax (string char))
+           do (should (= char (syntax-class-to-char
+                               (car (string-to-syntax (string char)))))))
+  (should-error (syntax-class-to-char -1))
+  (should-error (syntax-class-to-char 200)))
 
 (ert-deftest parse-partial-sexp-paren-comments ()
   "Test syntax parsing with paren comment markers.
@@ -488,5 +499,26 @@ the `parse-partial-sexp's are expected to stop.  See
 (syntax-pps-comments /* 54 74 55 20)
 (syntax-pps-comments /* 56 76 77 58)
 (syntax-pps-comments /* 60 78 79)
+
+(ert-deftest test-from-to-parse-partial-sexp ()
+  (with-temp-buffer
+    (insert "foo")
+    (should (parse-partial-sexp 1 1))
+    (should-error (parse-partial-sexp 2 1))))
+
+(ert-deftest syntax-char-syntax ()
+  ;; Verify that char-syntax behaves identically in interpreted and
+  ;; byte-compiled code (bug#53260).
+  (let ((cs (byte-compile (lambda (x) (char-syntax x)))))
+    ;; Use a unibyte buffer with a syntax table using symbol syntax
+    ;; for raw byte 128.
+    (with-temp-buffer
+      (set-buffer-multibyte nil)
+      (let ((st (make-syntax-table)))
+        (modify-syntax-entry (unibyte-char-to-multibyte 128) "_" st)
+        (set-syntax-table st)
+        (should (equal (eval '(char-syntax 128) t) ?_))
+        (should (equal (funcall cs 128) ?_))))
+    (list (char-syntax 128) (funcall cs 128))))
 
 ;;; syntax-tests.el ends here

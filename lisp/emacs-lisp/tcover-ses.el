@@ -1,6 +1,6 @@
-;;;; testcover-ses.el -- Example use of `testcover' to test "SES"  -*- lexical-binding: t; -*-
+;;; tcover-ses.el --- Example use of `testcover' to test "SES"  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2002-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2002-2022 Free Software Foundation, Inc.
 
 ;; Author: Jonathan Yavner <jyavner@member.fsf.org>
 ;; Keywords: spreadsheet lisp utility
@@ -716,4 +716,4 @@ spreadsheet files with invalid formatting."
   ;;Could do this here: (testcover-end "ses.el")
   (message "Done"))
 
-;;; testcover-ses.el ends here.
+;;; tcover-ses.el ends here

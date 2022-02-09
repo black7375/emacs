@@ -1,6 +1,6 @@
 ;;; benchmark.el --- support for benchmarking code  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2003-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2022 Free Software Foundation, Inc.
 
 ;; Author: Dave Love <fx@gnu.org>
 ;; Keywords: lisp, extensions
@@ -37,8 +37,7 @@
   "Return the time in seconds elapsed for execution of FORMS."
   (declare (indent 0) (debug t))
   (let ((t1 (make-symbol "t1")))
-    `(let (,t1)
-       (setq ,t1 (current-time))
+    `(let ((,t1 (current-time)))
        ,@forms
        (float-time (time-since ,t1)))))
 
@@ -122,7 +121,11 @@ result.  The overhead of the `lambda's is accounted for."
   (unless (or (natnump repetitions) (and repetitions (symbolp repetitions)))
     (setq forms (cons repetitions forms)
 	  repetitions 1))
-  `(benchmark-call (byte-compile '(lambda () ,@forms)) ,repetitions))
+  `(benchmark-call (,(if (native-comp-available-p)
+                         'native-compile
+                       'byte-compile)
+                    '(lambda () ,@forms))
+                   ,repetitions))
 
 ;;;###autoload
 (defun benchmark (repetitions form)

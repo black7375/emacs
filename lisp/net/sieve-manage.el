@@ -1,6 +1,6 @@
 ;;; sieve-manage.el --- Implementation of the managesieve protocol in elisp  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: Simon Josefsson <simon@josefsson.org>
 ;;         Albert Krewinkel <tarleb@moltkeplatz.de>
@@ -79,6 +79,7 @@
 (require 'sasl)
 (autoload 'sasl-find-mechanism "sasl")
 (autoload 'auth-source-search "auth-source")
+(autoload 'auth-info-password "auth-source")
 
 ;; User customizable variables:
 
@@ -89,18 +90,15 @@
 
 (defcustom sieve-manage-log "*sieve-manage-log*"
   "Name of buffer for managesieve session trace."
-  :type 'string
-  :group 'sieve-manage)
+  :type 'string)
 
 (defcustom sieve-manage-server-eol "\r\n"
   "The EOL string sent from the server."
-  :type 'string
-  :group 'sieve-manage)
+  :type 'string)
 
 (defcustom sieve-manage-client-eol "\r\n"
   "The EOL string we send to the server."
-  :type 'string
-  :group 'sieve-manage)
+  :type 'string)
 
 (defcustom sieve-manage-authenticators '(digest-md5
 					 cram-md5
@@ -112,8 +110,7 @@
   ;; FIXME Improve this.  It's not `set'.
   ;; It's like (repeat (choice (const ...))), where each choice can
   ;; only appear once.
-  :type '(repeat symbol)
-  :group 'sieve-manage)
+  :type '(repeat symbol))
 
 (defcustom sieve-manage-authenticator-alist
   '((cram-md5   sieve-manage-cram-md5-p       sieve-manage-cram-md5-auth)
@@ -130,26 +127,22 @@ NAME names the authenticator.  CHECK is a function returning non-nil if
 the server support the authenticator and AUTHENTICATE is a function
 for doing the actual authentication."
   :type '(repeat (list (symbol :tag "Name") (function :tag "Check function")
-		       (function :tag "Authentication function")))
-  :group 'sieve-manage)
+		       (function :tag "Authentication function"))))
 
 (defcustom sieve-manage-default-port "sieve"
   "Default port number or service name for managesieve protocol."
   :type '(choice integer string)
-  :version "24.4"
-  :group 'sieve-manage)
+  :version "24.4")
 
 (defcustom sieve-manage-default-stream 'network
   "Default stream type to use for `sieve-manage'."
   :version "24.1"
-  :type 'symbol
-  :group 'sieve-manage)
+  :type 'symbol)
 
 (defcustom sieve-manage-ignore-starttls nil
   "Ignore STARTTLS even if STARTTLS capability is provided."
   :version "26.1"
-  :type 'boolean
-  :group 'sieve-manage)
+  :type 'boolean)
 
 ;; Internal variables:
 
@@ -238,16 +231,13 @@ Return the buffer associated with the connection."
                                           :max 1
                                           :create t))
            (user-name (or (plist-get (nth 0 auth-info) :user) ""))
-           (user-password (or (plist-get (nth 0 auth-info) :secret) ""))
-           (user-password (if (functionp user-password)
-                              (funcall user-password)
-                            user-password))
+           (user-password (or (auth-info-password (nth 0 auth-info)) ""))
            (client (sasl-make-client (sasl-find-mechanism (list mech))
                                      user-name "sieve" sieve-manage-server))
            (sasl-read-passphrase
             ;; We *need* to copy the password, because sasl will modify it
             ;; somehow.
-            `(lambda (prompt) ,(copy-sequence user-password)))
+            (lambda (_prompt) (copy-sequence user-password)))
            (step (sasl-next-step client nil))
            (_tag (sieve-manage-send
                  (concat
@@ -418,7 +408,7 @@ If BUFFER is nil, the current buffer is used."
 
 (defun sieve-manage-capability (&optional name value buffer)
   "Check if capability NAME of server BUFFER match VALUE.
-If it does, return the server value of NAME. If not returns nil.
+If it does, return the server value of NAME.  If not return nil.
 If VALUE is nil, do not check VALUE and return server value.
 If NAME is nil, return the full server list of capabilities."
   (with-current-buffer (or buffer (current-buffer))
@@ -580,4 +570,4 @@ to local variable `sieve-manage-capability'."
 
 (provide 'sieve-manage)
 
-;; sieve-manage.el ends here
+;;; sieve-manage.el ends here

@@ -1,10 +1,9 @@
 ;;; texinfo.el --- major mode for editing Texinfo files  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1985, 1988-1993, 1996-1997, 2000-2021 Free Software
+;; Copyright (C) 1985, 1988-1993, 1996-1997, 2000-2022 Free Software
 ;; Foundation, Inc.
 
 ;; Author: Robert J. Chassell
-;; Date:   [See date below for texinfo-version]
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: maint, tex, docs
 
@@ -69,202 +68,12 @@
 
 ;;; Autoloads:
 
-(autoload 'makeinfo-region
-  "makeinfo"
-  "Make Info file from region of current Texinfo file, and switch to it.
-
-This command does not offer the `next-error' feature since it would
-apply to a temporary file, not the original; use the `makeinfo-buffer'
-command to gain use of `next-error'."
-  t nil)
-
-(autoload 'makeinfo-buffer
-  "makeinfo"
-  "Make Info file from current buffer.
-
-Use the \\[next-error] command to move to the next error
-\(if there are errors)."
-  t nil)
-
 (autoload 'kill-compilation
   "compile"
   "Kill the process made by the \\[compile] command."
   t nil)
 
-(autoload 'makeinfo-recenter-compilation-buffer
-  "makeinfo"
-  "Redisplay `*compilation*' buffer so most recent output can be seen.
-The last line of the buffer is displayed on
-line LINE of the window, or centered if LINE is nil."
-  t nil)
-
-(autoload 'texinfo-update-node
-  "texnfo-upd"
-  "Without any prefix argument, update the node in which point is located.
-Non-nil argument (prefix, if interactive) means update the nodes in the
-marked region.
-
-The functions for creating or updating nodes and menus, and their
-keybindings, are:
-
-    `texinfo-update-node' (&optional region-p)    \\[texinfo-update-node]
-    `texinfo-every-node-update' ()                \\[texinfo-every-node-update]
-    `texinfo-sequential-node-update' (&optional region-p)
-
-    `texinfo-make-menu' (&optional region-p)      \\[texinfo-make-menu]
-    `texinfo-all-menus-update' ()                 \\[texinfo-all-menus-update]
-    `texinfo-master-menu' ()
-
-    `texinfo-indent-menu-description' (column &optional region-p)
-
-The `texinfo-column-for-description' variable specifies the column to
-which menu descriptions are indented. Its default value is 32."
-  t nil)
-
-(autoload 'texinfo-every-node-update
-  "texnfo-upd"
-  "Update every node in a Texinfo file."
-  t nil)
-
-(autoload 'texinfo-sequential-node-update
-  "texnfo-upd"
-  "Update one node (or many) in a Texinfo file with sequential pointers.
-
-This function causes the `Next' or `Previous' pointer to point to the
-immediately preceding or following node, even if it is at a higher or
-lower hierarchical level in the document.  Continually pressing `n' or
-`p' takes you straight through the file.
-
-Without any prefix argument, update the node in which point is located.
-Non-nil argument (prefix, if interactive) means update the nodes in the
-marked region.
-
-This command makes it awkward to navigate among sections and
-subsections; it should be used only for those documents that are meant
-to be read like a novel rather than a reference, and for which the
-Info `g*' command is inadequate."
-  t nil)
-
-(autoload 'texinfo-make-menu
-  "texnfo-upd"
-  "Without any prefix argument, make or update a menu.
-Make the menu for the section enclosing the node found following point.
-
-Non-nil argument (prefix, if interactive) means make or update menus
-for nodes within or part of the marked region.
-
-Whenever a menu exists, and is being updated, the descriptions that
-are associated with node names in the pre-existing menu are
-incorporated into the new menu.  Otherwise, the nodes' section titles
-are inserted as descriptions."
-  t nil)
-
-(autoload 'texinfo-all-menus-update
-  "texnfo-upd"
-  "Update every regular menu in a Texinfo file.
-Remove pre-existing master menu, if there is one.
-
-If called with a non-nil argument, this function first updates all the
-nodes in the buffer before updating the menus."
-  t nil)
-
-(autoload 'texinfo-master-menu
-  "texnfo-upd"
-  "Make a master menu for a whole Texinfo file.
-Non-nil argument (prefix, if interactive) means first update all
-existing nodes and menus.  Remove pre-existing master menu, if there is one.
-
-This function creates a master menu that follows the top node.  The
-master menu includes every entry from all the other menus.  It
-replaces any existing ordinary menu that follows the top node.
-
-If called with a non-nil argument, this function first updates all the
-menus in the buffer (incorporating descriptions from pre-existing
-menus) before it constructs the master menu.
-
-The function removes the detailed part of an already existing master
-menu.  This action depends on the pre-existing master menu using the
-standard `texinfo-master-menu-header'.
-
-The master menu has the following format, which is adapted from the
-recommendation in the Texinfo Manual:
-
-   * The first part contains the major nodes in the Texinfo file: the
-     nodes for the chapters, chapter-like sections, and the major
-     appendices.  This includes the indices, so long as they are in
-     chapter-like sections, such as unnumbered sections.
-
-   * The second and subsequent parts contain a listing of the other,
-     lower level menus, in order.  This way, an inquirer can go
-     directly to a particular node if he or she is searching for
-     specific information.
-
-Each of the menus in the detailed node listing is introduced by the
-title of the section containing the menu."
-  t nil)
-
-(autoload 'texinfo-indent-menu-description
-  "texnfo-upd"
-  "Indent every description in menu following point to COLUMN.
-Non-nil argument (prefix, if interactive) means indent every
-description in every menu in the region.  Does not indent second and
-subsequent lines of a multi-line description."
-  t nil)
-
-(autoload 'texinfo-insert-node-lines
-  "texnfo-upd"
-  "Insert missing `@node' lines in region of Texinfo file.
-Non-nil argument (prefix, if interactive) means also to insert the
-section titles as node names; and also to insert the section titles as
-node names in pre-existing @node lines that lack names."
-  t nil)
-
-(autoload 'texinfo-start-menu-description
-  "texnfo-upd"
-  "In this menu entry, insert the node's section title as a description.
-Position point at beginning of description ready for editing.
-Do not insert a title if the line contains an existing description.
-
-You will need to edit the inserted text since a useful description
-complements the node name rather than repeats it as a title does."
-  t nil)
-
-(autoload 'texinfo-multiple-files-update
-  "texnfo-upd"
-  "Update first node pointers in each file included in OUTER-FILE;
-create or update main menu in the outer file that refers to such nodes.
-This does not create or update menus or pointers within the included files.
-
-With optional MAKE-MASTER-MENU argument (prefix arg, if interactive),
-insert a master menu in OUTER-FILE.  This does not create or update
-menus or pointers within the included files.
-
-With optional UPDATE-EVERYTHING argument (numeric prefix arg, if
-interactive), update all the menus and all the `Next', `Previous', and
-`Up' pointers of all the files included in OUTER-FILE before inserting
-a master menu in OUTER-FILE.
-
-The command also updates the `Top' level node pointers of OUTER-FILE.
-
-Notes:
-
-  * this command does NOT save any files--you must save the
-    outer file and any modified, included files.
-
-  * except for the `Top' node, this command does NOT handle any
-    pre-existing nodes in the outer file; hence, indices must be
-    enclosed in an included file.
-
-Requirements:
-
-  * each of the included files must contain exactly one highest
-    hierarchical level node,
-  * this highest node must be the first node in the included file,
-  * each highest hierarchical level node must be of the same type.
-
-Thus, normally, each included file contains one, and only one,
-chapter."
-  t nil)
+(require 'texinfo-loaddefs)
 
 
 ;;; Code:
@@ -540,7 +349,7 @@ and also to be turned into Info files with \\[makeinfo-buffer] or
 the `makeinfo' program.  These files must be written in a very restricted and
 modified version of TeX input format.
 
-  Editing commands are like text-mode except that the syntax table is
+  Editing commands are like `text-mode' except that the syntax table is
 set up so expression commands skip Texinfo bracket groups.  To see
 what the Info version of a region of the Texinfo file will look like,
 use \\[makeinfo-region], which runs `makeinfo' on the current region.
@@ -568,15 +377,15 @@ updating menus and node pointers.  These functions
 
 Here are the functions:
 
-    texinfo-update-node                \\[texinfo-update-node]
-    texinfo-every-node-update          \\[texinfo-every-node-update]
-    texinfo-sequential-node-update
+    `texinfo-update-node'                \\[texinfo-update-node]
+    `texinfo-every-node-update'          \\[texinfo-every-node-update]
+    `texinfo-sequential-node-update'
 
-    texinfo-make-menu                  \\[texinfo-make-menu]
-    texinfo-all-menus-update           \\[texinfo-all-menus-update]
-    texinfo-master-menu
+    `texinfo-make-menu'                  \\[texinfo-make-menu]
+    `texinfo-all-menus-update'           \\[texinfo-all-menus-update]
+    `texinfo-master-menu'
 
-    texinfo-indent-menu-description (column &optional region-p)
+    `texinfo-indent-menu-description' (column &optional region-p)
 
 The `texinfo-column-for-description' variable specifies the column to
 which menu descriptions are indented.
@@ -601,13 +410,13 @@ value of `texinfo-mode-hook'."
 		      "\\)\\>"))
   (setq-local require-final-newline mode-require-final-newline)
   (setq-local indent-tabs-mode nil)
-  (setq-local paragraph-separate
-	      (concat "@[a-zA-Z]*[ \n]\\|"
-		      paragraph-separate))
   (setq-local paragraph-start (concat "@[a-zA-Z]*[ \n]\\|"
 				      paragraph-start))
+  (setq-local fill-paragraph-function 'texinfo--fill-paragraph)
   (setq-local sentence-end-base "\\(@\\(end\\)?dots{}\\|[.?!]\\)[]\"'”)}]*")
   (setq-local fill-column 70)
+  (setq-local beginning-of-defun-function #'texinfo--beginning-of-defun)
+  (setq-local end-of-defun-function #'texinfo--end-of-defun)
   (setq-local comment-start "@c ")
   (setq-local comment-start-skip "@c +\\|@comment +")
   (setq-local words-include-escapes t)
@@ -647,6 +456,58 @@ value of `texinfo-mode-hook'."
 		    prevent-filling
 		  (concat auto-fill-inhibit-regexp "\\|" prevent-filling)))))
 
+(defvar texinfo-fillable-commands '("@noindent")
+  "A list of commands that can be filled.")
+
+(defun texinfo--fill-paragraph (justify)
+  "Function to fill a paragraph in `texinfo-mode'."
+  (let ((command-re "\\(@[a-zA-Z]+\\)[ \t\n]"))
+    (catch 'no-fill
+      (save-restriction
+        ;; First check whether we're on a command line that can be
+        ;; filled by itself.
+        (or
+         (save-excursion
+           (beginning-of-line)
+           (when (looking-at command-re)
+             (let ((command (match-string 1)))
+               (if (member command texinfo-fillable-commands)
+                   (progn
+                     (narrow-to-region (point) (progn (forward-line 1) (point)))
+                     t)
+                 (throw 'no-fill nil)))))
+         ;; We're not on such a line, so fill the region.
+         (save-excursion
+           (let ((regexp (concat command-re "\\|^[ \t]*$\\|\f")))
+             (narrow-to-region
+              (if (re-search-backward regexp nil t)
+                  (progn
+                    (forward-line 1)
+                    (point))
+                (point-min))
+              (if (re-search-forward regexp nil t)
+                  (match-beginning 0)
+                (point-max)))
+             (goto-char (point-min)))))
+        ;; We've now narrowed to the region we want to fill.
+        (let ((fill-paragraph-function nil)
+              (adaptive-fill-mode nil))
+          (fill-paragraph justify))))
+    t))
+
+(defun texinfo--beginning-of-defun (&optional arg)
+  "Go to the previous @node line."
+  (while (and (> arg 0)
+              (re-search-backward "^@node " nil t))
+    (setq arg (1- arg))))
+
+(defun texinfo--end-of-defun ()
+  "Go to the start of the next @node line."
+  (when (looking-at-p "@node")
+    (forward-line))
+  (if (re-search-forward "^@node " nil t)
+      (goto-char (match-beginning 0))
+    (goto-char (point-max))))
 
 
 ;;; Insert string commands
@@ -996,7 +857,8 @@ temporary file before the region itself.  The buffer's header is all lines
 between the strings defined by `tex-start-of-header' and `tex-end-of-header'
 inclusive.  The header must start in the first 100 lines.
 
-The value of `texinfo-tex-trailer' is appended to the temporary file after the region."
+The value of `texinfo-tex-trailer' is appended to the temporary
+file after the region."
   (interactive "r")
   (require 'tex-mode)
   (let ((tex-command texinfo-tex-command)

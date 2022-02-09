@@ -1,6 +1,6 @@
 ;;; help-at-pt.el --- local help through the keyboard  -*- lexical-binding: t -*-
 
-;; Copyright (C) 2003-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2003-2022 Free Software Foundation, Inc.
 
 ;; Author: Luc Teirlinck <teirllm@auburn.edu>
 ;; Keywords: help
@@ -229,11 +229,11 @@ this option, or use \"In certain situations\" and specify no text
 properties, to enable buffer local values."
 			 never))
   :initialize 'custom-initialize-default
-  :set #'(lambda (variable value)
-	   (set-default variable value)
-	   (if (eq value 'never)
-	       (help-at-pt-cancel-timer)
-	     (help-at-pt-set-timer)))
+  :set (lambda (variable value)
+         (set-default variable value)
+         (if (eq value 'never)
+             (help-at-pt-cancel-timer)
+           (help-at-pt-set-timer)))
   :set-after '(help-at-pt-timer-delay)
   :require 'help-at-pt)
 

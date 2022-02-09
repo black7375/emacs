@@ -1,6 +1,6 @@
 ;;; wid-edit.el --- Functions for creating and using widgets -*- lexical-binding:t -*-
 ;;
-;; Copyright (C) 1996-1997, 1999-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1996-1997, 1999-2022 Free Software Foundation, Inc.
 ;;
 ;; Author: Per Abrahamsen <abraham@dina.kvl.dk>
 ;; Maintainer: emacs-devel@gnu.org
@@ -190,7 +190,7 @@ the contents of strings."
   (buffer-enable-undo))
 
 (defcustom widget-menu-max-size 40
-  "Largest number of items allowed in a popup-menu.
+  "Largest number of items allowed in a popup menu.
 Larger menus are read through the minibuffer."
   :group 'widgets
   :type 'integer)
@@ -202,9 +202,8 @@ For a larger number of items, the minibuffer is used."
   :type 'integer)
 
 (defcustom widget-menu-minibuffer-flag nil
-  "Control how to ask for a choice from the keyboard.
-Non-nil means use the minibuffer;
-nil means read a single character."
+  "Non-nil means use the minibuffer; to ask for a choice from the keyboard.
+If nil, read a single character."
   :group 'widgets
   :type 'boolean)
 
@@ -438,8 +437,9 @@ the :notify function can't know the new value.")
 	(follow-link (widget-get widget :follow-link))
 	(help-echo (widget-get widget :help-echo)))
     (widget-put widget :button-overlay overlay)
-    (if (functionp help-echo)
+    (when (functionp help-echo)
       (setq help-echo 'widget-mouse-help))
+    (overlay-put overlay 'before-string #(" " 0 1 (invisible t)))
     (overlay-put overlay 'button widget)
     (overlay-put overlay 'keymap (widget-get widget :keymap))
     (overlay-put overlay 'evaporate t)
@@ -2969,7 +2969,8 @@ Save CHILD into the :last-deleted list, so it can be inserted later."
   "A widget which groups other widgets inside."
   :convert-widget 'widget-types-convert-widget
   :copy 'widget-types-copy
-  :format ":\n%v"
+  :format (concat (propertize ":" 'display "")
+                  "\n%v")
   :value-create 'widget-group-value-create
   :value-get 'widget-editable-list-value-get
   :default-get 'widget-group-default-get
@@ -3326,7 +3327,7 @@ It reads a file name from an editable text field."
 ;;;	 (file (file-name-nondirectory value))
 ;;;	 (menu-tag (widget-apply widget :menu-tag-get))
 ;;;	 (must-match (widget-get widget :must-match))
-;;;	 (answer (read-file-name (concat menu-tag " (default " value "): ")
+;;;	 (answer (read-file-name (format-prompt menu-tag value)
 ;;;				 dir nil must-match file)))
 ;;;    (widget-value-set widget (abbreviate-file-name answer))
 ;;;    (widget-setup)
@@ -3459,7 +3460,7 @@ It reads a directory name from an editable text field."
     map))
 
 (define-widget 'key-sequence 'restricted-sexp
-  "A key sequence."
+  "A key sequence.  This is obsolete; use the `key' type instead."
   :prompt-value 'widget-field-prompt-value
   :prompt-internal 'widget-symbol-prompt-internal
 ; :prompt-match 'fboundp   ;; What was this good for?  KFS
@@ -3523,6 +3524,27 @@ It reads a directory name from an editable text field."
 	  widget-key-sequence-default-value
 	(read-kbd-macro value))
     value))
+
+
+(defvar widget-key-prompt-value-history nil
+  "History of input to `widget-key-prompt-value'.")
+
+(define-widget 'key 'editable-field
+  "A key sequence."
+  :prompt-value 'widget-field-prompt-value
+  :match 'key-valid-p
+  :format "%{%t%}: %v"
+  :validate 'widget-key-validate
+  :keymap widget-key-sequence-map
+  :help-echo "C-q: insert KEY, EVENT, or CODE; RET: enter value"
+  :tag "Key")
+
+(defun widget-key-validate (widget)
+  (unless (and (stringp (widget-value widget))
+               (key-valid-p (widget-value widget)))
+    (widget-put widget :error (format "Invalid key: %S"
+                                      (widget-value widget)))
+    widget))
 
 
 (define-widget 'sexp 'editable-field
@@ -3644,6 +3666,13 @@ match-alternatives: %S"
   :value 0
   :type-error "This field should contain an integer"
   :match-alternatives '(integerp))
+
+(define-widget 'natnum 'restricted-sexp
+  "A nonnegative integer."
+  :tag "Integer (positive or zero)"
+  :value 0
+  :type-error "This field should contain a nonnegative integer"
+  :match-alternatives '(natnump))
 
 (define-widget 'number 'restricted-sexp
   "A number (floating point or integer)."
@@ -4011,7 +4040,10 @@ is inline."
 
 (defun widget-boolean-prompt-value (_widget prompt _value _unbound)
   ;; Toggle a boolean.
-  (y-or-n-p prompt))
+  ;; Say what "y" means.  A la
+  ;; "Set customized value for bar to true: (y or n)"
+  (y-or-n-p (concat (replace-regexp-in-string ": ?\\'" "" prompt)
+                    " true: ")))
 
 ;;; The `color' Widget.
 

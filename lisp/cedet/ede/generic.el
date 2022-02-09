@@ -1,6 +1,6 @@
 ;;; ede/generic.el --- Base Support for generic build systems  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2010-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2010-2022 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -137,7 +137,7 @@ subclasses of this base target will override the default value.")
 			       ede-project-with-config-program
 			       ede-project-with-config-c
 			       ede-project-with-config-java)
-  ((config-class :initform ede-generic-config)
+  ((config-class :initform 'ede-generic-config)
    (config-file-basename :initform "EDEConfig.el")
    (buildfile :initform ""
 	      :type string

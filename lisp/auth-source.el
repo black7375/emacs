@@ -1,6 +1,6 @@
 ;;; auth-source.el --- authentication sources for Gnus and Emacs -*- lexical-binding: t -*-
 
-;; Copyright (C) 2008-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2022 Free Software Foundation, Inc.
 
 ;; Author: Ted Zlatanov <tzz@lifelogs.com>
 ;; Keywords: news
@@ -45,6 +45,9 @@
 (require 'cl-lib)
 (require 'eieio)
 
+(declare-function gnutls-symmetric-decrypt "gnutls.c")
+(declare-function gnutls-ciphers "gnutls.c")
+
 (autoload 'secrets-create-item "secrets")
 (autoload 'secrets-delete-item "secrets")
 (autoload 'secrets-get-alias "secrets")
@@ -79,9 +82,8 @@
 
 ;;;###autoload
 (defcustom auth-source-cache-expiry 7200
-  "How many seconds passwords are cached, or nil to disable
-expiring.  Overrides `password-cache-expiry' through a
-let-binding."
+  "How many seconds passwords are cached, or nil to disable expiring.
+Overrides `password-cache-expiry' through a let-binding."
   :version "24.1"
   :type '(choice (const :tag "Never" nil)
                  (const :tag "All Day" 86400)
@@ -121,12 +123,12 @@ let-binding."
          :initform nil
          :documentation "Internal backend data.")
    (create-function :initarg :create-function
-                    :initform ignore
+                    :initform #'ignore
                     :type function
                     :custom function
                     :documentation "The create function.")
    (search-function :initarg :search-function
-                    :initform ignore
+                    :initform #'ignore
                     :type function
                     :custom function
                     :documentation "The search function.")))
@@ -177,7 +179,7 @@ let-binding."
 ;; TODO: or maybe leave as (setq auth-source-netrc-use-gpg-tokens 'never)
 
 (defcustom auth-source-netrc-use-gpg-tokens 'never
-  "Set this to tell auth-source when to create GPG password
+  "Set this to tell `auth-source' when to create GPG password
 tokens in netrc files.  It's either an alist or `never'.
 Note that if EPA/EPG is not available, this should NOT be used."
   :version "23.2" ;; No Gnus
@@ -254,7 +256,7 @@ can get pretty complex."
                         (choice :tag "Authentication backend choice"
                                 (string :tag "Authentication Source (file)")
                                 (list
-                                 :tag "Secret Service API/KWallet/GNOME Keyring"
+                                 :tag "Secret Service API/KWallet/GNOME Keyring/KeyPassXC"
                                  (const :format "" :value :secrets)
                                  (choice :tag "Collection to use"
                                          (string :tag "Collection name")
@@ -353,7 +355,7 @@ backend starts with the first element on the list and stops as
 soon as a function returns non-nil.")
 
 (defun auth-source-backend-parse (entry)
-  "Create an auth-source-backend from an ENTRY in `auth-sources'."
+  "Create an `auth-source-backend' from an ENTRY in `auth-sources'."
 
   (let ((backend
          (run-hook-with-args-until-success 'auth-source-backend-parser-functions
@@ -504,7 +506,7 @@ soon as a function returns non-nil.")
 (add-hook 'auth-source-backend-parser-functions #'auth-source-backends-parser-secrets)
 
 (defun auth-source-backend-parse-parameters (entry backend)
-  "Fill in the extra auth-source-backend parameters of ENTRY.
+  "Fill in the extra `auth-source-backend' parameters of ENTRY.
 Using the plist ENTRY, get the :host, :port, and :user search
 parameters."
   (let ((entry (if (stringp entry)
@@ -823,7 +825,7 @@ Returns t or nil for forgotten or not found."
   (password-cache-remove (auth-source-format-cache-entry spec)))
 
 (defun auth-source-forget+ (&rest spec)
-  "Forget any cached data matching SPEC.  Returns forgotten count.
+  "Forget any cached data matching SPEC.  Return forgotten count.
 
 This is not a full `auth-source-search' spec but works similarly.
 For instance, \(:host \"myhost\" \"yourhost\") would find all the
@@ -851,14 +853,16 @@ while \(:host t) would find all host entries."
               (cl-return 'no)))
           'no))))
 
-(defun auth-source-pick-first-password (&rest spec)
-  "Pick the first secret found from applying SPEC to `auth-source-search'."
-  (let* ((result (nth 0 (apply #'auth-source-search (plist-put spec :max 1))))
-         (secret (plist-get result :secret)))
-
+(defun auth-info-password (auth-info)
+  "Return the :secret password from the AUTH-INFO."
+  (let ((secret (plist-get auth-info :secret)))
     (if (functionp secret)
         (funcall secret)
       secret)))
+
+(defun auth-source-pick-first-password (&rest spec)
+  "Pick the first secret found by applying 'auth-source-search' to SPEC."
+  (auth-info-password (car (apply #'auth-source-search (plist-put spec :max 1)))))
 
 (defun auth-source-format-prompt (prompt alist)
   "Format PROMPT using %x (for any character x) specifiers in ALIST.
@@ -1198,7 +1202,7 @@ FILE is the file from which we obtained this token."
     (mapcar #'1- string)))
 
 (defun auth-source--pad (string length)
-  "Pad string S to a modulo of LENGTH."
+  "Pad STRING to a modulo of LENGTH."
   (let ((pad (- length (mod (length string) length))))
     (concat string (make-string pad pad))))
 
@@ -1228,7 +1232,7 @@ FILE is the file from which we obtained this token."
                                     &key backend require create
                                     type max host user port
                                     &allow-other-keys)
-  "Given a property list SPEC, return search matches from the :backend.
+  "Given a property list SPEC, return search matches from the `:backend'.
 See `auth-source-search' for details on SPEC."
   ;; just in case, check that the type is correct (null or same as the backend)
   (cl-assert (or (null type) (eq type (oref backend type)))
@@ -1270,7 +1274,7 @@ See `auth-source-search' for details on SPEC."
 ;; (auth-source-search :host "nonesuch" :type 'netrc :max 1 :create t :create-extra-keys '((A "default A") (B)))
 
 (cl-defun auth-source-netrc-create (&rest spec
-                                    &key backend host port create
+                                    &key backend host port create user
                                     &allow-other-keys)
   (let* ((base-required '(host user port secret))
          ;; we know (because of an assertion in auth-source-search) that the
@@ -1278,10 +1282,13 @@ See `auth-source-search' for details on SPEC."
          (create-extra (if (eq t create) nil create))
          (current-data (car (auth-source-search :max 1
                                                 :host host
+                                                :user user
                                                 :port port)))
          (required (append base-required create-extra))
          (file (oref backend source))
          (add "")
+         ;; Whether to set save-function.
+         save-function
          ;; `valist' is an alist
          valist
          ;; `artificial' will be returned if no creation is needed
@@ -1411,6 +1418,8 @@ See `auth-source-search' for details on SPEC."
         ;; When r is not an empty string...
         (when (and (stringp data)
                    (< 0 (length data)))
+          (when (eq r 'secret)
+            (setq save-function t))
           ;; this function is not strictly necessary but I think it
           ;; makes the code clearer -tzz
           (let ((printer (lambda ()
@@ -1431,12 +1440,13 @@ See `auth-source-search' for details on SPEC."
                                      data)))))
             (setq add (concat add (funcall printer)))))))
 
-    (plist-put
-     artificial
-     :save-function
-     (let ((file file)
-           (add add))
-       (lambda () (auth-source-netrc-saver file add))))
+    (when save-function
+      (plist-put
+       artificial
+       :save-function
+       (let ((file file)
+             (add add))
+         (lambda () (auth-source-netrc-saver file add)))))
 
     (list artificial)))
 
@@ -1572,8 +1582,7 @@ collection that's a Google Chrome entry for the git.gnus.org site
 authentication tokens:
 
  (let ((auth-sources \\='(\"secrets:Login\")))
-    (auth-source-search :max 1 :signon_realm \"https://git.gnus.org/Git\"))
-"
+    (auth-source-search :max 1 :signon_realm \"https://git.gnus.org/Git\"))"
 
   ;; TODO
   ;; (secrets-delete-item coll elt)
@@ -1665,6 +1674,8 @@ authentication tokens:
                                                 :port port)))
          (required (append base-required create-extra))
          (collection (oref backend source))
+         ;; Whether to set save-function.
+         save-function
          ;; `args' are the arguments for `secrets-create-item'.
          args
          ;; `valist' is an alist
@@ -1779,21 +1790,23 @@ authentication tokens:
 
         ;; When r is not an empty string...
         (when (and (stringp data)
-                   (< 0 (length data))
-                   (not (member r '(secret label))))
-          ;; append the key (the symbol name of r)
-          ;; and the value in r
-          (setq args (append args (list (auth-source--symbol-keyword r) data))))))
+                   (< 0 (length data)))
+          (if (eq r 'secret)
+              (setq save-function t)
+            (if (not (eq r 'label))
+                ;; append the key (the symbol name of r)
+                ;; and the value in r
+                (setq args (append args (list (auth-source--symbol-keyword r) data))))))))
 
-    (plist-put
-     artificial
-     :save-function
-     (let* ((collection collection)
-            (item (plist-get artificial :label))
-            (secret (plist-get artificial :secret))
-            (secret (if (functionp secret) (funcall secret) secret)))
-       (lambda ()
-	 (auth-source-secrets-saver collection item secret args))))
+    (when save-function
+      (plist-put
+       artificial
+       :save-function
+       (let ((collection collection)
+             (item (plist-get artificial :label))
+             (secret (auth-info-password artificial)))
+         (lambda ()
+	   (auth-source-secrets-saver collection item secret args)))))
 
     (list artificial)))
 
@@ -1874,8 +1887,7 @@ And this one looks for the first item in the internet keychain
 entries for git.gnus.org:
 
  (let ((auth-sources \\='(macos-keychain-internet\")))
-    (auth-source-search :max 1 :host \"git.gnus.org\"))
-"
+    (auth-source-search :max 1 :host \"git.gnus.org\"))"
   ;; TODO
   (cl-assert (not create) nil
           "The macOS Keychain auth-source backend doesn't support creation yet")
@@ -1940,7 +1952,7 @@ entries for git.gnus.org:
 
 
 (defun auth-source--decode-octal-string (string)
-  "Convert octal string to utf-8 string.  E.g: 'a\134b' to 'a\b'"
+  "Convert octal STRING to utf-8 string.  E.g: 'a\134b' to 'a\b'."
   (let ((list (string-to-list string))
         (size (length string)))
     (decode-coding-string
@@ -2266,7 +2278,7 @@ entries for git.gnus.org:
                                     &key backend require
                                     type max host user port
                                     &allow-other-keys)
-  "Given a property list SPEC, return search matches from the :backend.
+  "Given a property list SPEC, return search matches from the `:backend'.
 See `auth-source-search' for details on SPEC."
   ;; just in case, check that the type is correct (null or same as the backend)
   (cl-assert (or (null type) (eq type (oref backend type)))
@@ -2399,9 +2411,7 @@ MODE can be \"login\" or \"password\"."
                         :require '(:user :secret)
                         :create nil))))
          (user (plist-get auth-info :user))
-         (password (plist-get auth-info :secret)))
-    (when (functionp password)
-      (setq password (funcall password)))
+         (password (auth-info-password auth-info)))
     (list user password auth-info)))
 
 ;;; Tiny mode for editing .netrc/.authinfo modes (that basically just

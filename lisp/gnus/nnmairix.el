@@ -1,6 +1,6 @@
 ;;; nnmairix.el --- Mairix back end for Gnus, the Emacs newsreader  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2007-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2007-2022 Free Software Foundation, Inc.
 
 ;; Author: David Engster <deng@randomsample.de>
 ;; Keywords: mail searching
@@ -597,7 +597,7 @@ Other back ends might or might not work.")
       (dolist (cur actions)
 	(let ((type (nth 1 cur))
 	      (cmdmarks (nth 2 cur))
-	      (range (gnus-uncompress-range (nth 0 cur)))
+	      (range (range-uncompress (nth 0 cur)))
 	      mid ogroup temp) ;; number method
 	  (when (and corr
 		     (not (zerop (cadr corr))))
@@ -1629,7 +1629,7 @@ SERVER."
   (while (string-match "[<>]" mid)
     (setq mid (replace-match "" t t mid)))
   ;; mairix somehow does not like '$' in message-id
-  (when (string-match "\\$" mid)
+  (when (string-search "$" mid)
     (setq mid (concat mid "=")))
   (while (string-match "\\$" mid)
     (setq mid (replace-match "=," t t mid)))

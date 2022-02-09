@@ -1,6 +1,6 @@
-;;; simple-test.el --- Tests for simple.el           -*- lexical-binding: t; -*-
+;;; simple-tests.el --- Tests for simple.el           -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2015-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2022 Free Software Foundation, Inc.
 
 ;; Author: Artur Malabarba <bruce.connor.am@gmail.com>
 
@@ -959,6 +959,17 @@ See Bug#21722."
       (with-shell-command-dont-erase-buffer str output-buffer-is-current
         (should (= (point) (alist-get shell-command-dont-erase-buffer expected-point)))))))
 
+(ert-deftest test-undo-region ()
+  (with-temp-buffer
+    (insert "This is a test\n")
+    (goto-char (point-min))
+    (setq buffer-undo-list nil)
+    (downcase-word 1)
+    (should (= (length (delq nil (undo-make-selective-list 1 9))) 2))
+    (should (= (length (delq nil (undo-make-selective-list 4 9))) 1))
+    ;; FIXME this is the off-by-one error case.
+    ;;(should (= (length (delq nil (undo-make-selective-list 5 9))) 0))
+    (should (= (length (delq nil (undo-make-selective-list 6 9))) 0))))
 
 (provide 'simple-test)
-;;; simple-test.el ends here
+;;; simple-tests.el ends here

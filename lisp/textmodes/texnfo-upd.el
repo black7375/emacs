@@ -1,6 +1,6 @@
 ;;; texnfo-upd.el --- utilities for updating nodes and menus in Texinfo files  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1989-1992, 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1989-1992, 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: Robert J. Chassell
 ;; Maintainer: emacs-devel@gnu.org
@@ -275,6 +275,7 @@ The keys are strings specifying the general hierarchical level in the
 document; the values are regular expressions.")
 
 
+;;;###autoload
 (defun texinfo-make-menu (&optional beginning end)
   "Without any prefix argument, make or update a menu.
 Make the menu for the section enclosing the node found following point.
@@ -351,6 +352,7 @@ at the level specified by LEVEL.  Point is left at the end of menu."
       (texinfo-delete-old-menu beginning first))
     (texinfo-insert-menu new-menu-list node-name)))
 
+;;;###autoload
 (defun texinfo-all-menus-update (&optional update-all-nodes-p)
   "Update every regular menu in a Texinfo file.
 Update pre-existing master menu, if there is one.
@@ -733,6 +735,7 @@ is the menu entry name, and the cdr of P is the node name."
 
 ;;; Starting menu descriptions by inserting titles
 
+;;;###autoload
 (defun texinfo-start-menu-description ()
   "In this menu entry, insert the node's section title as a description.
 Position point at beginning of description ready for editing.
@@ -817,6 +820,7 @@ complements the node name rather than repeats it as a title does."
 ;; Since the make-menu functions indent descriptions, these functions
 ;; are useful primarily for indenting a single menu specially.
 
+;;;###autoload
 (defun texinfo-indent-menu-description (column &optional region-p)
   "Indent every description in menu following point to COLUMN.
 Non-nil argument (prefix, if interactive) means indent every
@@ -872,6 +876,7 @@ second and subsequent lines of a multi-line description."
 
 ;;; Making the master menu
 
+;;;###autoload
 (defun texinfo-master-menu (update-all-nodes-menus-p)
   "Make a master menu for a whole Texinfo file.
 Remove pre-existing master menu, if there is one.
@@ -889,10 +894,10 @@ be updated first using `texinfo-make-menu' or
 `texinfo-all-menus-update', which see.  Alternatively, invoke
 this function with a prefix argument, see below.
 
-Non-nil, non-numeric argument (C-u prefix, if interactive) means
+Non-nil, non-numeric argument (\\[universal-argument] prefix, if interactive) means
 first update all existing menus in the buffer (incorporating
 descriptions from pre-existing menus) before it constructs the
-master menu.  If the argument is numeric (e.g., \"C-u 2\"),
+master menu.  If the argument is numeric (e.g., \"\\[universal-argument] 2\"),
 update all existing nodes as well, by calling
 `texinfo-update-node' on the entire file.  Warning: do NOT
 invoke with a numeric argument if your Texinfo file uses @node
@@ -1266,6 +1271,7 @@ end of that region; it limits the search."
 
 ;;; Updating a node
 
+;;;###autoload
 (defun texinfo-update-node (&optional beginning end)
   "Without any prefix argument, update the node in which point is located.
 Interactively, a prefix argument means to operate on the region.
@@ -1313,6 +1319,7 @@ which menu descriptions are indented. Its default value is 32."
 	  (goto-char (point-max))
 	  (message "Done...nodes updated in region.  You may save the buffer."))))))
 
+;;;###autoload
 (defun texinfo-every-node-update ()
   "Update every node in a Texinfo file.
 
@@ -1501,7 +1508,7 @@ will be at some level higher in the Texinfo file.  The fourth argument
 	       'normal
 	     'no-pointer))
 	  (t
-	   (error "texinfo-find-pointer: lack proper arguments")))))
+           (error "texinfo-find-pointer: Lack proper arguments")))))
 
 (defun texinfo-pointer-name (kind)
   "Return the node name preceding the section command.
@@ -1553,6 +1560,7 @@ towards which the pointer is directed, one of `next', `previous', or `up'."
 ;; (The subsection to which `Next' points will most likely be the first
 ;; item on the section's menu.)
 
+;;;###autoload
 (defun texinfo-sequential-node-update (&optional region-p)
   "Update one node (or many) in a Texinfo file with sequential pointers.
 
@@ -1668,7 +1676,7 @@ or `Up' pointer."
 	       'normal
 	     'no-pointer))
 	  (t
-	   (error "texinfo-sequential-find-pointer: lack proper arguments")))))
+           (error "texinfo-sequential-find-pointer: Lack proper arguments")))))
 
 
 ;;; Inserting `@node' lines
@@ -1676,6 +1684,7 @@ or `Up' pointer."
 ;; before the `@chapter', `@section', and such like lines of a region
 ;; in a Texinfo file.
 
+;;;###autoload
 (defun texinfo-insert-node-lines (beginning end &optional title-p)
   "Insert missing `@node' lines in region of Texinfo file.
 Non-nil argument (prefix, if interactive) means also to insert the
@@ -1989,6 +1998,7 @@ be the files included within it.  A main menu must already exist."
 
 ;;; The multiple-file update function
 
+;;;###autoload
 (defun texinfo-multiple-files-update
   (outer-file &optional make-master-menu update-everything)
   "Update first node pointers in each file included in OUTER-FILE;
@@ -2112,8 +2122,10 @@ chapter."
 
   (message "Multiple files updated."))
 
-
-;; Place `provide' at end of file.
 (provide 'texnfo-upd)
+
+;; Local Variables:
+;; generated-autoload-file: "texinfo-loaddefs.el"
+;; End:
 
 ;;; texnfo-upd.el ends here

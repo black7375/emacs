@@ -1,6 +1,6 @@
 /* Definitions and headers for GTK widgets.
 
-Copyright (C) 2003-2021 Free Software Foundation, Inc.
+Copyright (C) 2003-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -200,13 +200,25 @@ extern bool xg_prepare_tooltip (struct frame *f,
 				Lisp_Object string,
 				int *width,
 				int *height);
+#ifndef HAVE_PGTK
 extern void xg_show_tooltip (struct frame *f, int root_x, int root_y);
+#else
+extern void xg_show_tooltip (struct frame *f, Lisp_Object string);
+#endif
 extern bool xg_hide_tooltip (struct frame *f);
 
 #ifdef USE_CAIRO
 extern void xg_page_setup_dialog (void);
 extern Lisp_Object xg_get_page_setup (void);
 extern void xg_print_frames_dialog (Lisp_Object);
+#endif
+
+#if defined HAVE_GTK3 && defined HAVE_XINPUT2
+extern bool xg_is_menu_window (Display *dpy, Window);
+#endif
+
+#ifndef HAVE_PGTK
+extern bool xg_filter_key (struct frame *frame, XEvent *xkey);
 #endif
 
 /* Mark all callback data that are Lisp_object:s during GC.  */

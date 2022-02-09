@@ -1,6 +1,6 @@
 ;;; xterm.el --- define function key sequences and standard colors for xterm  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1995, 2001-2020 Free Software Foundation, Inc.
+;; Copyright (C) 1995, 2001-2020, 2022 Free Software Foundation, Inc.
 
 ;; Author: FSF
 ;; Keywords: terminals
@@ -51,6 +51,9 @@
 ;; pgtkterm.c.
 (defvar pgtk-input-file)
 
+(declare-function pgtk-use-im-context "pgtkim.c")
+(defvar pgtk-use-im-context-on-new-connection)
+
 (defun pgtk-handle-nxopen (_switch &optional temp)
   (setq unread-command-events (append unread-command-events
                                       (if temp '(pgtk-open-temp-file)
@@ -64,16 +67,6 @@
   (setq x-invocation-args (cdr x-invocation-args)))
 
 ;;;; File handling.
-
-(defcustom pgtk-pop-up-frames 'fresh
-  "Non-nil means open files upon request from the Workspace in a new frame.
-If t, always do so.  Any other non-nil value means open a new frame
-unless the current buffer is a scratch buffer."
-  :type '(choice (const :tag "Never" nil)
-                 (const :tag "Always" t)
-                 (other :tag "Except for scratch buffer" fresh))
-  :version "23.1"
-  :group 'pgtk)
 
 (declare-function pgtk-hide-emacs "pgtkfns.c" (on))
 
@@ -205,28 +198,6 @@ the last file dropped is selected."
 ;; Needed for font listing functions under both backend and normal
 (setq scalable-fonts-allowed t)
 
-;; Set to use font panel instead
-(declare-function pgtk-popup-font-panel "pgtkfns.c" (&optional frame))
-(defalias 'x-select-font 'pgtk-popup-font-panel "Pop up the font panel.
-This function has been overloaded in Nextstep.")
-(defalias 'mouse-set-font 'pgtk-popup-font-panel "Pop up the font panel.
-This function has been overloaded in Nextstep.")
-
-;; pgtkterm.c
-(defvar pgtk-input-font)
-(defvar pgtk-input-fontsize)
-
-(defun pgtk-respond-to-change-font ()
-  "Respond to changeFont: event, expecting `pgtk-input-font' and\n\
-`pgtk-input-fontsize' of new font."
-  (interactive)
-  (modify-frame-parameters (selected-frame)
-                           (list (cons 'fontsize pgtk-input-fontsize)))
-  (modify-frame-parameters (selected-frame)
-                           (list (cons 'font pgtk-input-font)))
-  (set-frame-font pgtk-input-font))
-
-
 ;; Default fontset.  This is mainly here to show how a fontset
 ;; can be set up manually.  Ordinarily, fontsets are auto-created whenever
 ;; a font is chosen by
@@ -235,9 +206,7 @@ This function has been overloaded in Nextstep.")
   ;; "-pgtk-*-*-*-*-*-10-*-*-*-*-*-fontset-standard,latin:Courier,han:Kai"
   (mapconcat 'identity
              '("-*-Monospace-*-*-*-*-10-*-*-*-*-*-fontset-standard"
-               "latin:-*-Courier-*-*-*-*-10-*-*-*-*-*-iso10646-1"
-               "han:-*-Kai-*-*-*-*-10-*-*-*-*-*-iso10646-1"
-               "cyrillic:-*-Trebuchet$MS-*-*-*-*-10-*-*-*-*-*-iso10646-1")
+               "latin:-*-Courier-*-*-*-*-10-*-*-*-*-*-iso10646-1")
              ",")
   "String of fontset spec of the standard fontset.
 This defines a fontset consisting of the Courier and other fonts.
@@ -259,43 +228,6 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
   (interactive)
   (insert (gui-get-selection 'SECONDARY)))
 
-
-;;;; Color support.
-
-;; Functions for color panel + drag
-(defun pgtk-face-at-pos (pos)
-  (let* ((frame (car pos))
-         (frame-pos (cons (cadr pos) (cddr pos)))
-         (window (window-at (car frame-pos) (cdr frame-pos) frame))
-         (window-pos (coordinates-in-window-p frame-pos window))
-         (buffer (window-buffer window))
-         (edges (window-edges window)))
-    (cond
-     ((not window-pos)
-      nil)
-     ((eq window-pos 'mode-line)
-      'mode-line)
-     ((eq window-pos 'vertical-line)
-      'default)
-     ((consp window-pos)
-      (with-current-buffer buffer
-        (let ((p (car (compute-motion (window-start window)
-                                      (cons (nth 0 edges) (nth 1 edges))
-                                      (window-end window)
-                                      frame-pos
-                                      (- (window-width window) 1)
-                                      nil
-                                      window))))
-          (cond
-           ((eq p (window-point window))
-            'cursor)
-           ((and mark-active (< (region-beginning) p) (< p (region-end)))
-            'region)
-           (t
-	    (let ((faces (get-char-property p 'face window)))
-	      (if (consp faces) (car faces) faces)))))))
-     (t
-      nil))))
 
 (defun pgtk-suspend-error ()
   ;; Don't allow suspending if any of the frames are PGTK frames.
@@ -358,6 +290,7 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
 
 ;; Any display name is OK.
 (add-to-list 'display-format-alist '(".*" . pgtk))
+
 (cl-defmethod handle-args-function (args &context (window-system pgtk))
   (x-handle-args args))
 
@@ -365,10 +298,10 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
   (x-create-frame-with-faces params))
 
 (declare-function pgtk-own-selection-internal "pgtkselect.c" (selection value &optional frame))
-(declare-function pgtk-disown-selection-internal "pgtkselect.c" (selection &optional time_object terminal))
+(declare-function pgtk-disown-selection-internal "pgtkselect.c" (selection &optional terminal))
 (declare-function pgtk-selection-owner-p "pgtkselect.c" (&optional selection terminal))
 (declare-function pgtk-selection-exists-p "pgtkselect.c" (&optional selection terminal))
-(declare-function pgtk-get-selection-internal "pgtkselect.c" (selection-symbol target-type &optional time_stamp terminal))
+(declare-function pgtk-get-selection-internal "pgtkselect.c" (selection-symbol target-type &optional terminal))
 
 (cl-defmethod gui-backend-set-selection (selection value
                                          &context (window-system pgtk))
@@ -390,7 +323,10 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
 
 (defvar pgtk-preedit-overlay nil)
 
-(defun pgtk-preedit-text (e)
+(defun pgtk-preedit-text (event)
+  "An internal function to display preedit text from input method.
+
+EVENT is a `preedit-text-event'."
   (interactive "e")
   (when pgtk-preedit-overlay
     (delete-overlay pgtk-preedit-overlay))
@@ -399,7 +335,7 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
   (let ((ovstr "")
         (idx 0)
         atts ov str color face-name)
-    (dolist (part (nth 1 e))
+    (dolist (part (nth 1 event))
       (setq str (car part))
       (setq face-name (intern (format "pgtk-im-%d" idx)))
       (eval
@@ -420,6 +356,7 @@ See the documentation of `create-fontset-from-fontset-spec' for the format.")
     (overlay-put ov 'before-string ovstr)
     (setq pgtk-preedit-overlay ov)))
 
+(define-key special-event-map [preedit-text] 'pgtk-preedit-text)
 
 (add-hook 'after-init-hook
           (function
@@ -561,6 +498,20 @@ This uses `icon-map-list' to map icon file names to stock icon names."
 	     (and value (cdr value))))
 	 x-gtk-stock-cache))))
 
+(declare-function accelerate-menu "pgtkmenu.c" (&optional frame) t)
+
+(defun pgtk-menu-bar-open (&optional frame)
+  "Open the menu bar if it is shown.
+`popup-menu' is used if it is off."
+  (interactive "i")
+  (cond
+   ((and (not (zerop (or (frame-parameter nil 'menu-bar-lines) 0)))
+	 (fboundp 'accelerate-menu))
+    (accelerate-menu frame))
+   (t
+    (popup-menu (mouse-menu-bar-map) last-nonmenu-event))))
+
+(defvaralias 'x-gtk-use-system-tooltips 'use-system-tooltips)
 
 (provide 'pgtk-win)
 (provide 'term/pgtk-win)

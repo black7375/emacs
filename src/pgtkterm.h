@@ -1,5 +1,5 @@
 /* Definitions and headers for communication with pure Gtk+3.
-   Copyright (C) 1989, 1993, 2005, 2008-2020 Free Software Foundation,
+   Copyright (C) 1989, 1993, 2005, 2008-2022 Free Software Foundation,
    Inc.
 
 This file is part of GNU Emacs.
@@ -17,6 +17,8 @@ GNU General Public License for more details.
 You should have received a copy of the GNU General Public License
 along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
+#ifndef _PGTKTERM_H_
+#define _PGTKTERM_H_
 
 #include "dispextern.h"
 #include "frame.h"
@@ -36,20 +38,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #endif
 #ifdef CAIRO_HAS_SVG_SURFACE
 #include <cairo-svg.h>
-#endif
-
-// #define PGTK_DEBUG 1
-
-#ifdef PGTK_DEBUG
-extern void
-pgtk_log (const char *file, int lineno, const char *fmt, ...)
-ATTRIBUTE_FORMAT_PRINTF (3, 4);
-#define PGTK_TRACE(fmt, ...) pgtk_log(__FILE__, __LINE__, fmt, ## __VA_ARGS__)
-     extern void pgtk_backtrace (const char *file, int lineno);
-#define PGTK_BACKTRACE() pgtk_backtrace(__FILE__, __LINE__)
-#else
-#define PGTK_TRACE(fmt, ...) ((void) 0)
-#define PGTK_BACKTRACE() ((void) 0)
 #endif
 
 /* could use list to store these, but rest of emacs has a big infrastructure
@@ -252,6 +240,8 @@ struct pgtk_display_info
     double acc_x, acc_y;
     double x_per_char, y_per_line;
   } scroll;
+
+  int connection;
 };
 
 /* This is a chain of structures for all the PGTK displays currently in use.  */
@@ -410,6 +400,13 @@ struct pgtk_output
      frame, or IMPLICIT if we received an EnterNotify.
      FocusOut and LeaveNotify clears EXPLICIT/IMPLICIT. */
   int focus_state;
+
+  /* Keep track of scale factor.  If monitor's scale factor is changed, or
+     monitor is switched and scale factor is changed, then recreate cairo_t
+     and cairo_surface_t.  I need GTK's such signal, but there isn't, so
+     I watch it periodically with atimer. */
+  double watched_scale_factor;
+  struct atimer *scale_factor_atimer;
 };
 
 /* this dummy decl needed to support TTYs */
@@ -434,26 +431,26 @@ enum
 #define FRAME_X_OUTPUT(f)         ((f)->output_data.pgtk)
 #define FRAME_OUTPUT_DATA(f)      FRAME_X_OUTPUT (f)
 
-#define FRAME_DISPLAY_INFO(f)     (FRAME_X_OUTPUT(f)->display_info)
-#define FRAME_FOREGROUND_COLOR(f) (FRAME_X_OUTPUT(f)->foreground_color)
-#define FRAME_BACKGROUND_COLOR(f) (FRAME_X_OUTPUT(f)->background_color)
-#define FRAME_CURSOR_COLOR(f)     (FRAME_X_OUTPUT(f)->cursor_color)
-#define FRAME_POINTER_TYPE(f)     (FRAME_X_OUTPUT(f)->current_pointer)
-#define FRAME_FONT(f)             (FRAME_X_OUTPUT(f)->font)
-#define FRAME_GTK_OUTER_WIDGET(f) (FRAME_X_OUTPUT(f)->widget)
-#define FRAME_GTK_WIDGET(f)       (FRAME_X_OUTPUT(f)->edit_widget)
-#define FRAME_WIDGET(f)           (FRAME_GTK_OUTER_WIDGET(f) ?		\
-                                   FRAME_GTK_OUTER_WIDGET(f) :		\
-                                   FRAME_GTK_WIDGET(f))
+#define FRAME_DISPLAY_INFO(f)     (FRAME_X_OUTPUT (f)->display_info)
+#define FRAME_FOREGROUND_COLOR(f) (FRAME_X_OUTPUT (f)->foreground_color)
+#define FRAME_BACKGROUND_COLOR(f) (FRAME_X_OUTPUT (f)->background_color)
+#define FRAME_CURSOR_COLOR(f)     (FRAME_X_OUTPUT (f)->cursor_color)
+#define FRAME_POINTER_TYPE(f)     (FRAME_X_OUTPUT (f)->current_pointer)
+#define FRAME_FONT(f)             (FRAME_X_OUTPUT (f)->font)
+#define FRAME_GTK_OUTER_WIDGET(f) (FRAME_X_OUTPUT (f)->widget)
+#define FRAME_GTK_WIDGET(f)       (FRAME_X_OUTPUT (f)->edit_widget)
+#define FRAME_WIDGET(f)           (FRAME_GTK_OUTER_WIDGET (f) ?		\
+                                   FRAME_GTK_OUTER_WIDGET (f) :		\
+                                   FRAME_GTK_WIDGET (f))
 
 /* aliases */
-#define FRAME_PGTK_VIEW(f)         FRAME_GTK_WIDGET(f)
-#define FRAME_X_WINDOW(f)          FRAME_GTK_OUTER_WIDGET(f)
-#define FRAME_NATIVE_WINDOW(f)     GTK_WINDOW(FRAME_X_WINDOW(f))
+#define FRAME_PGTK_VIEW(f)         FRAME_GTK_WIDGET (f)
+#define FRAME_X_WINDOW(f)          FRAME_GTK_OUTER_WIDGET (f)
+#define FRAME_NATIVE_WINDOW(f)     GTK_WINDOW (FRAME_X_WINDOW (f))
 
-#define FRAME_X_DISPLAY(f)        (FRAME_DISPLAY_INFO(f)->gdpy)
+#define FRAME_X_DISPLAY(f)        (FRAME_DISPLAY_INFO (f)->gdpy)
 
-#define DEFAULT_GDK_DISPLAY() gdk_display_get_default()
+#define DEFAULT_GDK_DISPLAY() gdk_display_get_default ()
 
 /* Turning a lisp vector value into a pointer to a struct scroll_bar.  */
 #define XSCROLL_BAR(vec) ((struct scroll_bar *) XVECTOR (vec))
@@ -495,7 +492,7 @@ enum
    (FRAME_SCROLL_BAR_LINES (f) * FRAME_LINE_HEIGHT (f)	\
     - PGTK_SCROLL_BAR_HEIGHT (f)) : 0)
 
-#define FRAME_MENUBAR_HEIGHT(f) (FRAME_X_OUTPUT(f)->menubar_height)
+#define FRAME_MENUBAR_HEIGHT(f) (FRAME_X_OUTPUT (f)->menubar_height)
 
 /* Calculate system coordinates of the left and top of the parent
    window or, if there is no parent window, the screen. */
@@ -521,9 +518,9 @@ enum
 #define FRAME_TOOLBAR_WIDTH(f) \
   (FRAME_TOOLBAR_LEFT_WIDTH (f) + FRAME_TOOLBAR_RIGHT_WIDTH (f))
 
-#define FRAME_FONTSET(f) (FRAME_X_OUTPUT(f)->fontset)
+#define FRAME_FONTSET(f) (FRAME_X_OUTPUT (f)->fontset)
 
-#define FRAME_BASELINE_OFFSET(f) (FRAME_X_OUTPUT(f)->baseline_offset)
+#define FRAME_BASELINE_OFFSET(f) (FRAME_X_OUTPUT (f)->baseline_offset)
 #define BLACK_PIX_DEFAULT(f) 0x000000
 #define WHITE_PIX_DEFAULT(f) 0xFFFFFF
 
@@ -533,6 +530,10 @@ enum
   (! (FRAME_HAS_VERTICAL_SCROLL_BARS_ON_LEFT (f)) ? 0	\
    : FRAME_SCROLL_BAR_COLS (f))
 
+#define FRAME_CR_SURFACE_DESIRED_WIDTH(f)		\
+  ((f)->output_data.pgtk->cr_surface_desired_width)
+#define FRAME_CR_SURFACE_DESIRED_HEIGHT(f) \
+  ((f)->output_data.pgtk->cr_surface_desired_height)
 
 /* Display init/shutdown functions implemented in pgtkterm.c */
 extern struct pgtk_display_info *pgtk_term_init (Lisp_Object display_name,
@@ -585,20 +586,14 @@ extern void x_set_no_accept_focus (struct frame *f, Lisp_Object new_value,
 				   Lisp_Object old_value);
 extern void x_set_z_group (struct frame *f, Lisp_Object new_value,
 			   Lisp_Object old_value);
-extern int pgtk_select (int nfds, fd_set * readfds, fd_set * writefds,
-			fd_set * exceptfds, struct timespec *timeout,
-			sigset_t * sigmask);
 
 /* Cairo related functions implemented in pgtkterm.c */
-extern void pgtk_cr_update_surface_desired_size (struct frame *, int, int);
+extern void pgtk_cr_update_surface_desired_size (struct frame *, int, int, bool);
 extern cairo_t *pgtk_begin_cr_clip (struct frame *f);
 extern void pgtk_end_cr_clip (struct frame *f);
-extern void pgtk_set_cr_source_with_gc_foreground (struct frame *f,
-						   Emacs_GC * gc);
-extern void pgtk_set_cr_source_with_gc_background (struct frame *f,
-						   Emacs_GC * gc);
-extern void pgtk_set_cr_source_with_color (struct frame *f,
-					   unsigned long color);
+extern void pgtk_set_cr_source_with_gc_foreground (struct frame *, Emacs_GC *, bool);
+extern void pgtk_set_cr_source_with_gc_background (struct frame *, Emacs_GC *, bool);
+extern void pgtk_set_cr_source_with_color (struct frame *, unsigned long, bool);
 extern void pgtk_cr_draw_frame (cairo_t * cr, struct frame *f);
 extern void pgtk_cr_destroy_frame_context (struct frame *f);
 extern Lisp_Object pgtk_cr_export_frames (Lisp_Object frames, cairo_surface_type_t surface_type);
@@ -663,4 +658,8 @@ extern bool xg_set_icon_from_xpm_data (struct frame *f, const char **data);
 
 extern bool pgtk_text_icon (struct frame *f, const char *icon_name);
 
+extern double pgtk_frame_scale_factor (struct frame *);
+extern int pgtk_emacs_to_gtk_modifiers (struct pgtk_display_info *, int);
+
 #endif /* HAVE_PGTK */
+#endif /* _PGTKTERM_H_ */

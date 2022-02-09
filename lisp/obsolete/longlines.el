@@ -1,6 +1,6 @@
 ;;; longlines.el --- automatically wrap long lines   -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2000-2001, 2004-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2000-2001, 2004-2022 Free Software Foundation, Inc.
 
 ;; Authors:    Kai Grossjohann <Kai.Grossjohann@CS.Uni-Dortmund.DE>
 ;;             Alex Schroeder <alex@gnu.org>
@@ -393,11 +393,11 @@ compatibility with `format-alist', and is ignored."
   "Return a copy of STRING with each soft newline replaced by a space.
 Hard newlines are left intact."
   (let* ((str (copy-sequence string))
-         (pos (string-match "\n" str)))
+         (pos (string-search "\n" str)))
     (while pos
       (if (null (get-text-property pos 'hard str))
           (aset str pos ? ))
-      (setq pos (string-match "\n" str (1+ pos))))
+      (setq pos (string-search "\n" str (1+ pos))))
     str))
 
 ;;; Auto wrap

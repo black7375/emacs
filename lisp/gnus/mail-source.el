@@ -1,6 +1,6 @@
 ;;; mail-source.el --- functions for fetching mail  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1999-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1999-2022 Free Software Foundation, Inc.
 
 ;; Author: Lars Magne Ingebrigtsen <larsi@gnus.org>
 ;; Keywords: news, mail
@@ -31,6 +31,7 @@
 (autoload 'pop3-movemail "pop3")
 (autoload 'pop3-get-message-count "pop3")
 (require 'mm-util)
+(require 'gnus-range)
 (require 'message) ;; for `message-directory'
 
 (defvar display-time-mail-function)
@@ -224,12 +225,9 @@ Leave mails for this many days" :value 14)))))
 					   (const :format "" :value :plugged)
 					   (boolean :tag "Plugged"))))))))
 
-(defcustom mail-source-ignore-errors nil
-  "Ignore errors when querying mail sources.
-If nil, the user will be prompted when an error occurs.  If non-nil,
-the error will be ignored."
-  :version "22.1"
-  :type 'boolean)
+(make-obsolete-variable 'mail-source-ignore-errors
+                        "configure `gnus-verbose' instead"
+                        "29.1")
 
 (defcustom mail-source-primary-source nil
   "Primary source for incoming mail.
@@ -457,7 +455,7 @@ the `mail-source-keyword-map' variable."
                                                   search))))
                     :user)))
              user-auth)
-            ((and
+            ((and               ; cf. 'auth-source-pick-first-password'
               (eq keyword :password)
               (setq pass-auth
                     (plist-get
@@ -554,18 +552,16 @@ Return the number of files that were found."
 		 (condition-case err
 		     (funcall function source callback)
 		   (error
-		    (if (and (not mail-source-ignore-errors)
-			     (not
-			      (yes-or-no-p
-			       (format "Mail source %s error (%s).  Continue? "
+                    (gnus-error
+                     5
+                     (format "Mail source %s error (%s)"
 				       (if (memq ':password source)
 					   (let ((s (copy-sequence source)))
 					     (setcar (cdr (memq ':password s))
 						     "********")
 					     s)
 					 source)
-				       (cadr err)))))
-		      (error "Cannot get new mail"))
+				       (cadr err)))
 		    0)))))))))
 
 (declare-function gnus-message "gnus-util" (level &rest args))
@@ -1052,8 +1048,6 @@ This only works when `display-time' is enabled."
 (autoload 'imap-list-to-message-set "imap")
 (autoload 'imap-range-to-message-set "imap")
 (autoload 'nnheader-ms-strip-cr "nnheader")
-
-(autoload 'gnus-compress-sequence "gnus-range")
 
 (defvar mail-source-imap-file-coding-system 'binary
   "Coding system for the crashbox made by `mail-source-fetch-imap'.")

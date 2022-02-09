@@ -1,9 +1,8 @@
 ;;; comp-cstr.el --- native compiler constraint library -*- lexical-binding: t -*-
 
+;; Copyright (C) 2020-2022 Free Software Foundation, Inc.
+
 ;; Author: Andrea Corallo <akrl@sdf.com>
-
-;; Copyright (C) 2020-2021 Free Software Foundation, Inc.
-
 ;; Keywords: lisp
 ;; Package: emacs
 
@@ -71,7 +70,7 @@
                                        (irange &aux
                                                (range (list irange))
                                                (typeset ())))
-                         (:copier comp-cstr-shallow-copy))
+                         (:copier nil))
   "Internal representation of a type/value constraint."
   (typeset '(t) :type list
            :documentation "List of possible types the mvar can assume.
@@ -134,8 +133,16 @@ Integer values are handled in the `range' slot.")
                     :range (copy-tree (range cstr))
                     :neg (neg cstr))))
 
+(defsubst comp-cstr-shallow-copy (dst src)
+  "Copy the content of SRC into DST."
+  (with-comp-cstr-accessors
+    (setf (range dst) (range src)
+          (valset dst) (valset src)
+          (typeset dst) (typeset src)
+          (neg dst) (neg src))))
+
 (defsubst comp-cstr-empty-p (cstr)
-  "Return t if CSTR is equivalent to the `nil' type specifier or nil otherwise."
+  "Return t if CSTR is equivalent to the nil type specifier or nil otherwise."
   (with-comp-cstr-accessors
     (and (null (typeset cstr))
          (null (valset cstr))
@@ -153,7 +160,7 @@ Integer values are handled in the `range' slot.")
 (defun comp-cstrs-homogeneous (cstrs)
   "Check if constraints CSTRS are all homogeneously negated or non-negated.
 Return `pos' if they are all positive, `neg' if they are all
-negated or nil othewise."
+negated or nil otherwise."
   (cl-loop
    for cstr in cstrs
    unless (comp-cstr-neg cstr)
@@ -176,6 +183,10 @@ Return them as multiple value."
      collect cstr into positives
    finally return (cl-values positives negatives)))
 
+;; So we can load comp-cstr.el and comp.el in non native compiled
+;; builds.
+(defvar comp-ctxt nil)
+
 (defvar comp-cstr-one (comp-value-to-cstr 1)
   "Represent the integer immediate one.")
 
@@ -187,13 +198,18 @@ Return them as multiple value."
 
 (defun comp-normalize-valset (valset)
   "Sort and remove duplicates from VALSET then return it."
-  (cl-remove-duplicates
-   (cl-sort valset (lambda (x y)
-                     ;; We might want to use `sxhash-eql' for speed but
-                     ;; this is safer to keep tests stable.
-                     (< (sxhash-equal x)
-			(sxhash-equal y))))
-   :test #'eq))
+  (cl-sort (cl-remove-duplicates valset :test #'eq)
+           (lambda (x y)
+             (cond
+              ((and (symbolp x) (symbolp y))
+               (string< x y))
+              ((and (symbolp x) (not (symbolp y)))
+               t)
+              ((and (not (symbolp x)) (symbolp y))
+               nil)
+              (t
+               (< (sxhash-equal x)
+                  (sxhash-equal y)))))))
 
 (defun comp-union-valsets (&rest valsets)
   "Union values present into VALSETS."
@@ -430,10 +446,7 @@ Return them as multiple value."
                                                        ext-range)
                             ext-range)
               (neg dst) nil)
-      (setf (typeset dst) (typeset old-dst)
-            (valset dst) (valset old-dst)
-            (range dst) (range old-dst)
-            (neg dst) (neg old-dst)))))
+      (comp-cstr-shallow-copy dst old-dst))))
 
 (defmacro comp-cstr-set-range-for-arithm (dst src1 src2 &rest range-body)
   ;; Prevent some code duplication for `comp-cstr-add-2'
@@ -573,10 +586,8 @@ DST is returned."
                                                     (when (range pos)
                                                       '(integer)))))
                                  (typeset neg)))
-              (setf (typeset dst) (typeset pos)
-                    (valset dst) (valset pos)
-                    (range dst) (range pos)
-                    (neg dst) nil)
+              (comp-cstr-shallow-copy dst pos)
+              (setf (neg dst) nil)
               (cl-return-from comp-cstr-union-1-no-mem dst))
 
             ;; Verify disjoint condition between positive types and
@@ -623,15 +634,9 @@ DST is returned."
                         (comp-range-negation (range neg))
                         (range pos))))))
 
-            (if (comp-cstr-empty-p neg)
-                (setf (typeset dst) (typeset pos)
-                      (valset dst) (valset pos)
-                      (range dst) (range pos)
-                      (neg dst) nil)
-              (setf (typeset dst) (typeset neg)
-                    (valset dst) (valset neg)
-                    (range dst) (range neg)
-                    (neg dst) (neg neg)))))
+            (comp-cstr-shallow-copy dst (if (comp-cstr-empty-p neg)
+                                            pos
+                                          neg))))
 
         ;; (not null) => t
         (when (and (neg dst)
@@ -655,10 +660,7 @@ DST is returned."
                      (mapcar #'comp-cstr-copy srcs)
                      (apply #'comp-cstr-union-1-no-mem range srcs)
                      mem-h))))
-      (setf (typeset dst) (typeset res)
-            (valset dst) (valset res)
-            (range dst) (range res)
-            (neg dst) (neg res))
+      (comp-cstr-shallow-copy dst res)
       res)))
 
 (cl-defun comp-cstr-intersection-homogeneous (dst &rest srcs)
@@ -745,10 +747,8 @@ Non memoized version of `comp-cstr-intersection-no-mem'."
             ;; In case pos is not relevant return directly the content
             ;; of neg.
             (when (equal (typeset pos) '(t))
-              (setf (typeset dst) (typeset neg)
-                    (valset dst) (valset neg)
-                    (range dst) (range neg)
-                    (neg dst) t)
+              (comp-cstr-shallow-copy dst neg)
+              (setf (neg dst) t)
 
               ;; (not t) => nil
               (when (and (null (valset dst))
@@ -787,13 +787,13 @@ Non memoized version of `comp-cstr-intersection-no-mem'."
 
             (setf (range pos)
                   (comp-range-intersection (range pos)
-                                           (comp-range-negation (range neg))))
+                                           (comp-range-negation (range neg)))
+                  (valset pos)
+                  (cl-set-difference (valset pos) (valset neg)))
 
             ;; Return a non negated form.
-            (setf (typeset dst) (typeset pos)
-                  (valset dst) (valset pos)
-                  (range dst) (range pos)
-                  (neg dst) nil)))
+            (comp-cstr-shallow-copy dst pos)
+            (setf (neg dst) nil)))
         dst))))
 
 
@@ -873,7 +873,7 @@ Non memoized version of `comp-cstr-intersection-no-mem'."
   "Constraint OP1 being = OP2 setting the result into DST."
   (with-comp-cstr-accessors
     (cl-flet ((relax-cstr (cstr)
-                (setf cstr (comp-cstr-shallow-copy cstr))
+                (setf cstr (copy-sequence cstr))
                 ;; If can be any float extend it to all integers.
                 (when (memq 'float (typeset cstr))
                   (setf (range cstr) '((- . +))))
@@ -998,10 +998,7 @@ DST is returned."
                      (mapcar #'comp-cstr-copy srcs)
                      (apply #'comp-cstr-intersection-no-mem srcs)
                      mem-h))))
-      (setf (typeset dst) (typeset res)
-            (valset dst) (valset res)
-            (range dst) (range res)
-            (neg dst) (neg res))
+      (comp-cstr-shallow-copy dst res)
       res)))
 
 (defun comp-cstr-intersection-no-hashcons (dst &rest srcs)
@@ -1057,10 +1054,9 @@ DST is returned."
             (valset dst) ()
             (range dst) nil
             (neg dst) nil))
-     (t (setf (typeset dst) (typeset src)
-              (valset dst) (valset src)
-              (range dst) (range src)
-              (neg dst) (not (neg src)))))
+     (t
+      (comp-cstr-shallow-copy dst src)
+      (setf (neg dst) (not (neg src)))))
     dst))
 
 (defun comp-cstr-value-negation (dst src)

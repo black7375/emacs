@@ -1,6 +1,6 @@
 ;;; ede/config.el --- Configuration Handler baseclass  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2014-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2014-2022 Free Software Foundation, Inc.
 
 ;; Author: Eric M. Ludlam <zappo@gnu.org>
 
@@ -96,7 +96,7 @@ and also want to save some extra level of configuration.")
 This filename excludes the directory name and is used to
 initialize the :file slot of the persistent baseclass.")
    (config-class
-    :initform ede-extra-config
+    :initform 'ede-extra-config
     :allocation :class
     :type class
     :documentation

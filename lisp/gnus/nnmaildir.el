@@ -87,7 +87,7 @@ See `nnmaildir-flag-mark-mapping'."
 
 (defun nnmaildir--ensure-suffix (filename)
   "Ensure that FILENAME contains the suffix \":2,\"."
-  (if (string-match-p ":2," filename)
+  (if (string-search ":2," filename)
       filename
     (concat filename ":2,")))
 
@@ -194,7 +194,15 @@ This variable is set by `nnmaildir-request-article'.")
 	 (article-file (concat curdir prefix suffix))
 	 (new-name (concat curdir prefix new-suffix)))
     (unless (file-exists-p article-file)
-      (error "Couldn't find article file %s" article-file))
+      (let ((possible (file-expand-wildcards (concat curdir prefix "*"))))
+	(cond ((length= possible 1)
+	       (unless (string-match-p "\\`\\(.+\\):2,.*?\\'" (car possible))
+		 (error "Couldn't find updated article file %s" article-file))
+	       (setq article-file (car possible)))
+	      ((length> possible 1)
+	       (error "Couldn't determine exact article file %s" article-file))
+	      ((null possible)
+	       (error "Couldn't find article file %s" article-file)))))
     (rename-file article-file new-name 'replace)
     (setf (nnmaildir--art-suffix article) new-suffix)))
 
@@ -637,13 +645,11 @@ This variable is set by `nnmaildir-request-article'.")
 	  (funcall func (cdr entry)))))))
 
 (defun nnmaildir--system-name ()
-  (replace-regexp-in-string
+  (string-replace
    ":" "\\072"
-   (replace-regexp-in-string
+   (string-replace
     "/" "\\057"
-    (replace-regexp-in-string "\\\\" "\\134" (system-name) nil 'literal)
-    nil 'literal)
-   nil 'literal))
+    (string-replace "\\" "\\134" (system-name)))))
 
 (defun nnmaildir-request-type (_group &optional _article)
   'mail)
@@ -937,9 +943,9 @@ This variable is set by `nnmaildir-request-article'.")
 		  (setq pgname (nnmaildir--pgname nnmaildir--cur-server gname)
 
 			ro (nnmaildir--param pgname 'read-only))
-		  (insert (replace-regexp-in-string
+		  (insert (string-replace
 			   " " "\\ "
-			   (nnmaildir--grp-name group) nil t)
+			   (nnmaildir--grp-name group))
 			  " ")
                   (princ (nnmaildir--group-maxnum nnmaildir--cur-server group)
 			 nntp-server-buffer)
@@ -968,7 +974,7 @@ This variable is set by `nnmaildir-request-article'.")
 	  (princ (nnmaildir--group-maxnum nnmaildir--cur-server group)
 		 nntp-server-buffer)
 	  (insert " "
-		  (replace-regexp-in-string " " "\\ " gname nil t)
+		  (string-replace " " "\\ " gname)
 		  "\n")))))
   'group)
 
@@ -1000,10 +1006,10 @@ This variable is set by `nnmaildir-request-article'.")
 	    existing (nnmaildir--grp-nlist group)
 	    existing (mapcar #'car existing)
 	    existing (nreverse existing)
-	    existing (gnus-compress-sequence existing 'always-list)
+	    existing (range-compress-list existing)
 	    missing (list (cons 1 (nnmaildir--group-maxnum
 				   nnmaildir--cur-server group)))
-	    missing (gnus-range-difference missing existing)
+	    missing (range-difference missing existing)
 	    dir (nnmaildir--srv-dir nnmaildir--cur-server)
 	    dir (nnmaildir--srvgrp-dir dir gname)
 	    dir (nnmaildir--nndir dir)
@@ -1070,10 +1076,10 @@ This variable is set by `nnmaildir-request-article'.")
 		 (let ((article (nnmaildir--flist-art flist prefix)))
 		   (when article
 		     (push (nnmaildir--art-num article) article-list))))))
-	    (setq ranges (gnus-add-to-range ranges (sort article-list #'<)))))
+	    (setq ranges (range-add-list ranges (sort article-list #'<)))))
 	(if (eq mark 'read) (setq read ranges)
 	  (if ranges (setq marks (cons (cons mark ranges) marks)))))
-      (setf (gnus-info-read info) (gnus-range-add read missing))
+      (setf (gnus-info-read info) (range-concat read missing))
       (gnus-info-set-marks info marks 'extend)
       (setf (nnmaildir--grp-mmth group) new-mmth)
       info)))
@@ -1098,7 +1104,7 @@ This variable is set by `nnmaildir-request-article'.")
 	(insert " ")
 	(princ (nnmaildir--group-maxnum nnmaildir--cur-server group)
 	       nntp-server-buffer)
-	(insert " " (replace-regexp-in-string " " "\\ " gname nil t) "\n")
+	(insert " " (string-replace " " "\\ " gname) "\n")
 	t))))
 
 (defun nnmaildir-request-create-group (gname &optional server _args)
@@ -1262,7 +1268,7 @@ This variable is set by `nnmaildir-request-article'.")
 	      (insert "\t" (nnmaildir--nov-get-beg nov) "\t"
 		      (nnmaildir--art-msgid article) "\t"
 		      (nnmaildir--nov-get-mid nov) "\tXref: nnmaildir "
-		      (replace-regexp-in-string " " "\\ " gname nil t) ":")
+		      (string-replace " " "\\ " gname) ":")
 	      (princ num nntp-server-buffer)
 	      (insert "\t" (nnmaildir--nov-get-end nov) "\n"))))
     (catch 'return
@@ -1542,11 +1548,11 @@ This variable is set by `nnmaildir-request-article'.")
       (unless group
 	(setf (nnmaildir--srv-error nnmaildir--cur-server)
 	      (if gname (concat "No such group: " gname) "No current group"))
-	(throw 'return (gnus-uncompress-range ranges)))
+	(throw 'return (range-uncompress ranges)))
       (setq gname (nnmaildir--grp-name group)
 	    pgname (nnmaildir--pgname nnmaildir--cur-server gname))
       (if (nnmaildir--param pgname 'read-only)
-	  (throw 'return (gnus-uncompress-range ranges)))
+	  (throw 'return (range-uncompress ranges)))
       (setq time (nnmaildir--param pgname 'expire-age))
       (unless time
 	(setq time (or (and nnmail-expiry-wait-function
@@ -1558,7 +1564,7 @@ This variable is set by `nnmaildir-request-article'.")
 	      (setq time (round (* time 86400))))))
       (when no-force
 	(unless (integerp time) ;; handle 'never
-	  (throw 'return (gnus-uncompress-range ranges)))
+	  (throw 'return (range-uncompress ranges)))
 	(setq boundary (time-since time)))
       (setq dir (nnmaildir--srv-dir nnmaildir--cur-server)
 	    dir (nnmaildir--srvgrp-dir dir gname)
@@ -1680,7 +1686,7 @@ This variable is set by `nnmaildir-request-article'.")
 	(setf (nnmaildir--srv-error nnmaildir--cur-server)
 	      (concat "No such group: " gname))
 	(dolist (action actions)
-	  (setq ranges (gnus-range-add ranges (car action))))
+	  (setq ranges (range-concat ranges (car action))))
 	(throw 'return ranges))
       (setq nlist (nnmaildir--grp-nlist group)
 	    marksdir (nnmaildir--srv-dir nnmaildir--cur-server)

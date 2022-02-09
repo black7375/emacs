@@ -1,9 +1,9 @@
-;; erc-goodies.el --- Collection of ERC modules  -*- lexical-binding: t; -*-
+;;; erc-goodies.el --- Collection of ERC modules  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: Jorgen Schaefer <forcer@forcix.cx>
-;; Maintainer: Amin Bandali <bandali@gnu.org>
+;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
 
 ;; Most code is taken verbatim from erc.el, see there for the original
 ;; authors.
@@ -137,7 +137,7 @@ Put this function on `erc-insert-post-hook' and/or `erc-send-post-hook'."
     (goto-char (point-max))))
 
 (defun erc-move-to-prompt-setup ()
-  "Initialize the move-to-prompt module for XEmacs."
+  "Initialize the move-to-prompt module."
   (add-hook 'pre-command-hook #'erc-move-to-prompt nil t))
 
 ;;; Keep place in unvisited channels

@@ -1,6 +1,6 @@
 ;;; fast-lock.el --- automagic text properties caching for fast Font Lock mode  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 1994-1998, 2001-2021 Free Software Foundation, Inc.
+;; Copyright (C) 1994-1998, 2001-2022 Free Software Foundation, Inc.
 
 ;; Author: Simon Marshall <simon@gnu.org>
 ;; Maintainer: emacs-devel@gnu.org
@@ -283,10 +283,7 @@ If a number, only buffers greater than this size have processing messages."
 		 (other :tag "always" t)
 		 (integer :tag "size")))
 
-(defvar fast-lock-save-faces
-  (when (featurep 'xemacs)
-    ;; XEmacs uses extents for everything, so we have to pick the right ones.
-    font-lock-face-list)
+(defvar fast-lock-save-faces nil
   "Faces that will be saved in a Font Lock cache file.
 If nil, means information for all faces will be saved.")
 
@@ -707,35 +704,7 @@ See `fast-lock-get-face-properties'."
 	  (while regions
 	    (add-text-properties (nth 0 regions) (nth 1 regions) plist)
 	    (setq regions (nthcdr 2 regions))))))))
-
-;; Functions for XEmacs:
 
-(unless (boundp 'font-lock-syntactic-keywords)
-  (defvar font-lock-syntactic-keywords nil))
-
-(unless (boundp 'font-lock-inhibit-thing-lock)
-  (defvar font-lock-inhibit-thing-lock nil))
-
-(unless (fboundp 'font-lock-compile-keywords)
-  (defalias 'font-lock-compile-keywords #'identity))
-
-(unless (fboundp 'font-lock-eval-keywords)
-  (defun font-lock-eval-keywords (keywords)
-    (if (symbolp keywords)
-	(font-lock-eval-keywords (if (fboundp keywords)
-				     (funcall keywords)
-				   (eval keywords t)))
-      keywords)))
-
-(unless (fboundp 'font-lock-value-in-major-mode)
-  (defun font-lock-value-in-major-mode (alist)
-    (if (consp alist)
-	(cdr (or (assq major-mode alist) (assq t alist)))
-      alist)))
-
-(unless (fboundp 'current-message)
-  (defun current-message ()
-    ""))
 
 ;; Install ourselves:
 
@@ -751,8 +720,6 @@ See `fast-lock-get-face-properties'."
 ;;;###dont-autoload
 (unless (assq 'fast-lock-mode minor-mode-alist)
   (setq minor-mode-alist (append minor-mode-alist '((fast-lock-mode nil)))))
-
-;; Provide ourselves:
 
 (provide 'fast-lock)
 

@@ -1,5 +1,5 @@
 /* Pure GTK3 menu and toolbar module.
-   Copyright (C) 2019-2020 Free Software Foundation, Inc.
+   Copyright (C) 2019-2022 Free Software Foundation, Inc.
 
 This file is part of GNU Emacs.
 
@@ -37,6 +37,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "keyboard.h"
 #include "menu.h"
 #include "pdumper.h"
+#include "xgselect.h"
 
 #include "gtkutil.h"
 #include <gtk/gtk.h>
@@ -65,24 +66,6 @@ pgtk_menu_set_in_use (bool in_use)
     else if (!in_use && FRAME_Z_GROUP_ABOVE_SUSPENDED (f))
       x_set_z_group (f, Qabove, Qabove_suspended);
   }
-}
-
-/* Wait for an X event to arrive or for a timer to expire.  */
-
-static void
-pgtk_menu_wait_for_event (void *data)
-{
-  struct timespec next_time = timer_check (), *ntp;
-
-  if (!timespec_valid_p (next_time))
-    ntp = 0;
-  else
-    ntp = &next_time;
-
-  /* Gtk3 have arrows on menus when they don't fit.  When the
-     pointer is over an arrow, a timeout scrolls it a bit.  Use
-     xg_select so that timeout gets triggered.  */
-  pgtk_select (0, NULL, NULL, NULL, ntp, NULL);
 }
 
 DEFUN ("x-menu-bar-open-internal", Fx_menu_bar_open_internal, Sx_menu_bar_open_internal, 0, 1, "i",
@@ -124,17 +107,13 @@ DEFUN ("x-menu-bar-open-internal", Fx_menu_bar_open_internal, Sx_menu_bar_open_i
    Used for popup menus and dialogs. */
 
 static void
-popup_widget_loop (bool do_timers, GtkWidget * widget)
+popup_widget_loop (bool do_timers, GtkWidget *widget)
 {
   ++popup_activated_flag;
 
   /* Process events in the Gtk event loop until done.  */
   while (popup_activated_flag)
-    {
-      if (do_timers)
-	pgtk_menu_wait_for_event (0);
-      gtk_main_iteration ();
-    }
+    gtk_main_iteration ();
 }
 
 void
@@ -151,7 +130,7 @@ pgtk_activate_menubar (struct frame *f)
    used and has been unposted.  */
 
 static void
-popup_deactivate_callback (GtkWidget * widget, gpointer client_data)
+popup_deactivate_callback (GtkWidget *widget, gpointer client_data)
 {
   popup_activated_flag = 0;
 }
@@ -160,17 +139,17 @@ popup_deactivate_callback (GtkWidget * widget, gpointer client_data)
    for that widget.
    F is the frame if known, or NULL if not known.  */
 static void
-show_help_event (struct frame *f, GtkWidget * widget, Lisp_Object help)
+show_help_event (struct frame *f, GtkWidget *widget, Lisp_Object help)
 {
-  Lisp_Object frame;
+  /* Don't show help echo on PGTK, as tooltips are always transient
+     for the main widget, so on Wayland the menu will display above
+     and obscure the tooltip.  FIXME: this is some low hanging fruit
+     for fixing.  After you fix Fx_show_tip in pgtkterm.c so that it
+     can display tooltips above menus, copy the definition of this
+     function from xmenu.c.
 
-  if (f)
-    {
-      XSETFRAME (frame, f);
-      kbd_buffer_store_help_event (frame, help);
-    }
-  else
-    show_help_echo (help, Qnil, Qnil, Qnil);
+     As a workaround, GTK is used to display menu tooltips, outside
+     the Emacs help echo machinery.  */
 }
 
 /* Callback called when menu items are highlighted/unhighlighted
@@ -180,7 +159,7 @@ show_help_event (struct frame *f, GtkWidget * widget, Lisp_Object help)
    unhighlighting.  */
 
 static void
-menu_highlight_callback (GtkWidget * widget, gpointer call_data)
+menu_highlight_callback (GtkWidget *widget, gpointer call_data)
 {
   xg_menu_item_cb_data *cb_data;
   Lisp_Object help;
@@ -212,7 +191,7 @@ static bool xg_crazy_callback_abort;
    Figure out what the user chose
    and put the appropriate events into the keyboard buffer.  */
 static void
-menubar_selection_callback (GtkWidget * widget, gpointer client_data)
+menubar_selection_callback (GtkWidget *widget, gpointer client_data)
 {
   xg_menu_item_cb_data *cb_data = client_data;
 
@@ -279,10 +258,6 @@ set_frame_menubar (struct frame *f, bool deep_p)
 
   if (!menubar_widget)
     deep_p = true;
-
-  /* Since button_event handler in pgtk emacs doesn't handle mouse
-   * events in menubars, the menu needs to be built now.  */
-  deep_p = true;
 
   if (deep_p)
     {
@@ -540,7 +515,7 @@ initialize_frame_menubar (struct frame *f)
 static Lisp_Object *volatile menu_item_selection;
 
 static void
-popup_selection_callback (GtkWidget * widget, gpointer client_data)
+popup_selection_callback (GtkWidget *widget, gpointer client_data)
 {
   xg_menu_item_cb_data *cb_data = client_data;
 
@@ -885,7 +860,7 @@ pgtk_menu_show (struct frame *f, int x, int y, int menuflags,
 }
 
 static void
-dialog_selection_callback (GtkWidget * widget, gpointer client_data)
+dialog_selection_callback (GtkWidget *widget, gpointer client_data)
 {
   /* Treat the pointer as an integer.  There's no problem
      as long as pointers have enough bits to hold small integers.  */
@@ -899,7 +874,7 @@ dialog_selection_callback (GtkWidget * widget, gpointer client_data)
    dialog pops down.
    menu_item_selection will be set to the selection.  */
 static void
-create_and_show_dialog (struct frame *f, widget_value * first_wv)
+create_and_show_dialog (struct frame *f, widget_value *first_wv)
 {
   GtkWidget *menu;
 

@@ -1,6 +1,6 @@
 ;;; linum.el --- display line numbers in the left margin -*- lexical-binding: t -*-
 
-;; Copyright (C) 2008-2021 Free Software Foundation, Inc.
+;; Copyright (C) 2008-2022 Free Software Foundation, Inc.
 
 ;; Author: Markus Triska <markus.triska@gmx.at>
 ;; Maintainer: emacs-devel@gnu.org
@@ -28,6 +28,9 @@
 ;;
 ;; Toggle display of line numbers with M-x linum-mode.  To enable
 ;; line numbering in all buffers, use M-x global-linum-mode.
+;;
+;; Consider using native line numbers instead:
+;;   M-x display-line-numbers-mode
 
 ;;; Code:
 
@@ -219,7 +222,7 @@ Linum mode is a buffer-local minor mode."
   ;; update overlays on deletions, and after newlines are inserted
   (when (or (= beg end)
             (= end (point-max))
-            (string-match-p "\n" (buffer-substring-no-properties beg end)))
+            (string-search "\n" (buffer-substring-no-properties beg end)))
     (linum-update-current)))
 
 (defun linum-after-scroll (win _start)
