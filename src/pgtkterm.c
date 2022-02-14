@@ -1197,7 +1197,9 @@ pgtk_compute_glyph_string_overhangs (struct glyph_string *s)
 static void
 x_clear_glyph_string_rect (struct glyph_string *s, int x, int y, int w, int h)
 {
-  pgtk_fill_rectangle (s->f, s->xgcv.background, x, y, w, h, true);
+  pgtk_fill_rectangle (s->f, s->xgcv.background, x, y, w, h,
+		       (s->first_glyph->type != STRETCH_GLYPH
+			|| s->hl != DRAW_CURSOR));
 }
 
 
@@ -5536,6 +5538,7 @@ configure_event (GtkWidget *widget,
 		 gpointer *user_data)
 {
   struct frame *f = pgtk_any_window_to_frame (event->configure.window);
+
   if (f && widget == FRAME_GTK_OUTER_WIDGET (f))
     {
       if (any_help_event_p)
@@ -5547,6 +5550,15 @@ configure_event (GtkWidget *widget,
 	    frame = Qnil;
 	  help_echo_string = Qnil;
 	  gen_help_event (Qnil, frame, Qnil, Qnil, 0);
+	}
+
+      if (f->win_gravity == NorthWestGravity)
+	gtk_window_get_position (GTK_WINDOW (widget),
+				 &f->left_pos, &f->top_pos);
+      else
+	{
+	  f->top_pos = event->configure.y;
+	  f->left_pos = event->configure.x;
 	}
     }
   return FALSE;
@@ -7103,7 +7115,7 @@ pgtk_cr_export_frames (Lisp_Object frames, cairo_surface_type_t surface_type)
   int width, height;
   void (*surface_set_size_func) (cairo_surface_t *, double, double) = NULL;
   Lisp_Object acc = Qnil;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
 
   specbind (Qredisplay_dont_pause, Qt);
   redisplay_preserve_echo_area (31);
