@@ -846,6 +846,9 @@ pgtk_set_scroll_bar_foreground (struct frame *f, Lisp_Object new_value,
   GtkCssProvider *css_provider =
     FRAME_X_OUTPUT (f)->scrollbar_foreground_css_provider;
 
+  if (FRAME_TOOLTIP_P (f))
+    return;
+
   if (NILP (new_value))
     {
       gtk_css_provider_load_from_data (css_provider, "", -1, NULL);
@@ -1241,7 +1244,7 @@ This function is an internal primitive--use `make-frame' instead.  */ )
   bool minibuffer_only = false;
   bool undecorated = false, override_redirect = false;
   long window_prompting = 0;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object display;
   struct pgtk_display_info *dpyinfo = NULL;
   Lisp_Object parent, parent_frame;
@@ -1586,6 +1589,14 @@ This function is an internal primitive--use `make-frame' instead.  */ )
   xg_create_frame_widgets (f);
   pgtk_set_event_handler (f);
 
+  if (FRAME_GTK_OUTER_WIDGET (f))
+    gtk_widget_realize (FRAME_GTK_OUTER_WIDGET (f));
+
+  /* Many callers (including the Lisp functions that call
+     FRAME_SCALE_FACTOR) expect the widget to be realized.  */
+  if (FRAME_GTK_WIDGET (f))
+    gtk_widget_realize (FRAME_GTK_WIDGET (f));
+
 #define INSTALL_CURSOR(FIELD, NAME) \
   FRAME_X_OUTPUT (f)->FIELD = gdk_cursor_new_for_display (FRAME_X_DISPLAY (f), GDK_ ## NAME)
 
@@ -1706,13 +1717,21 @@ This function is an internal primitive--use `make-frame' instead.  */ )
      cannot control visibility, so don't try.  */
   if (!FRAME_X_OUTPUT (f)->explicit_parent)
     {
+      /* When called from `x-create-frame-with-faces' visibility is
+	 always explicitly nil.  */
       Lisp_Object visibility
-	=
-	gui_display_get_arg (dpyinfo, parms, Qvisibility, 0, 0,
-			     RES_TYPE_SYMBOL);
+	= gui_display_get_arg (dpyinfo, parms, Qvisibility, 0, 0,
+                               RES_TYPE_SYMBOL);
+      Lisp_Object height
+	= gui_display_get_arg (dpyinfo, parms, Qheight, 0, 0, RES_TYPE_NUMBER);
+      Lisp_Object width
+	= gui_display_get_arg (dpyinfo, parms, Qwidth, 0, 0, RES_TYPE_NUMBER);
 
       if (EQ (visibility, Qicon))
-	pgtk_iconify_frame (f);
+	{
+	  f->was_invisible = true;
+	  pgtk_iconify_frame (f);
+	}
       else
 	{
 	  if (EQ (visibility, Qunbound))
@@ -1720,7 +1739,16 @@ This function is an internal primitive--use `make-frame' instead.  */ )
 
 	  if (!NILP (visibility))
 	    pgtk_make_frame_visible (f);
+	  else
+	    f->was_invisible = true;
 	}
+
+      /* Leave f->was_invisible true only if height or width were
+	 specified too.  This takes effect only when we are not called
+	 from `x-create-frame-with-faces' (see above comment).  */
+      f->was_invisible
+	= (f->was_invisible
+	   && (!EQ (height, Qunbound) || !EQ (width, Qunbound)));
 
       store_frame_param (f, Qvisibility, visibility);
     }
@@ -2711,7 +2739,7 @@ x_create_tip_frame (struct pgtk_display_info *dpyinfo, Lisp_Object parms, struct
   struct frame *f;
   Lisp_Object frame;
   Lisp_Object name;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   bool face_change_before = face_change;
 
   if (!dpyinfo->terminal->name)
@@ -3079,10 +3107,9 @@ x_hide_tip (bool delete)
     return Qnil;
   else
     {
-      ptrdiff_t count;
       Lisp_Object was_open = Qnil;
 
-      count = SPECPDL_INDEX ();
+      specpdl_ref count = SPECPDL_INDEX ();
       specbind (Qinhibit_redisplay, Qt);
       specbind (Qinhibit_quit, Qt);
 
@@ -3174,8 +3201,7 @@ Text larger than the specified size is clipped.  */)
   struct text_pos pos;
   int width, height;
   int old_windows_or_buffers_changed = windows_or_buffers_changed;
-  ptrdiff_t count = SPECPDL_INDEX ();
-  ptrdiff_t count_1;
+  specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object window, size, tip_buf;
   AUTO_STRING (tip, " *tip*");
 
@@ -3370,7 +3396,7 @@ Text larger than the specified size is clipped.  */)
 
   /* Insert STRING into root window's buffer and fit the frame to the
      buffer.  */
-  count_1 = SPECPDL_INDEX ();
+  specpdl_ref count_1 = SPECPDL_INDEX ();
   old_buffer = current_buffer;
   set_buffer_internal_1 (XBUFFER (w->contents));
   bset_truncate_lines (current_buffer, Qnil);
@@ -3687,7 +3713,6 @@ visible.  */)
   (Lisp_Object frames)
 {
   Lisp_Object rest, tmp;
-  int count;
 
   if (!CONSP (frames))
     frames = list1 (frames);
@@ -3706,7 +3731,7 @@ visible.  */)
   frames = Fnreverse (tmp);
 
   /* Make sure the current matrices are up-to-date.  */
-  count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   specbind (Qredisplay_dont_pause, Qt);
   redisplay_preserve_echo_area (32);
   unbind_to (count, Qnil);
@@ -3744,7 +3769,7 @@ value of DIR as in previous invocations; this is standard MS Windows behavior.  
   char *fn;
   Lisp_Object file = Qnil;
   Lisp_Object decoded_file;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   char *cdef_file;
 
   check_window_system (f);
@@ -3812,7 +3837,7 @@ nil, it defaults to the selected frame. */)
   Lisp_Object font;
   Lisp_Object font_param;
   char *default_name = NULL;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
 
   if (popup_activated ())
     error ("Trying to use a menu from within a menu-entry");
