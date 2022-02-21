@@ -406,7 +406,7 @@ haiku_new_focus_frame (struct frame *frame)
 
       x_display_list->focused_frame = frame;
 
-      if (frame && frame->auto_raise)
+      if (frame && frame->auto_raise && !popup_activated_p)
 	haiku_frame_raise_lower (frame, 1);
     }
   unblock_input ();
@@ -2702,7 +2702,8 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 		ASCII_KEYSTROKE_EVENT;
 
 	    inev.timestamp = b->time / 1000;
-	    inev.modifiers = haiku_modifiers_to_emacs (b->modifiers);
+	    inev.modifiers = (haiku_modifiers_to_emacs (b->modifiers)
+			      | extra_keyboard_modifiers);
 	    XSETFRAME (inev.frame_or_window, f);
 	    break;
 	  }
@@ -2725,6 +2726,23 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 		inev.kind = b->activated_p ? FOCUS_IN_EVENT : FOCUS_OUT_EVENT;
 		XSETFRAME (inev.frame_or_window, f);
 	      }
+
+	    break;
+	  }
+	case MENU_BAR_LEFT:
+	  {
+	    struct haiku_menu_bar_left_event *b = buf;
+	    struct frame *f = haiku_window_to_frame (b->window);
+
+	    if (!f)
+	      continue;
+
+	    if (b->y > 0 && b->y <= FRAME_PIXEL_HEIGHT (f)
+		&& b->x > 0 && b->x <= FRAME_PIXEL_WIDTH (f))
+	      break;
+
+	    if (f->auto_lower && !popup_activated_p)
+	      haiku_frame_raise_lower (f, 0);
 
 	    break;
 	  }
@@ -2775,8 +2793,17 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 		    need_flush = 1;
 		  }
 
-		if (f->auto_lower)
-		  haiku_frame_raise_lower (f, 0);
+		if (f->auto_lower && !popup_activated_p)
+		  {
+		    /* If we're leaving towards the menu bar, don't
+		       auto-lower here, and wait for a exit
+		       notification from the menu bar instead.  */
+		    if (b->x > FRAME_PIXEL_WIDTH (f)
+			|| b->y >= FRAME_MENU_BAR_HEIGHT (f)
+			|| b->x < 0
+			|| b->y < 0)
+		      haiku_frame_raise_lower (f, 0);
+		  }
 
 		haiku_new_focus_frame (x_display_list->focused_frame);
 
@@ -3589,7 +3616,7 @@ haiku_term_init (void)
   Lisp_Object color_file, color_map;
 
   block_input ();
-  Fset_input_interrupt_mode (Qnil);
+  Fset_input_interrupt_mode (Qt);
 
   baud_rate = 19200;
 

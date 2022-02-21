@@ -954,6 +954,13 @@ prompted for the shell command to use interactively."
 		    (setq retval (replace-match x t t retval 2)))
 		  retval))
 	    (lambda (x) (concat cmd-prefix command dired-mark-separator x)))))
+    ;; If a file name starts with "-", add a "./" to avoid the command
+    ;; interpreting it as a command line switch.
+    (setq file-list (mapcar (lambda (file)
+                              (if (string-match "\\`-" file)
+                                  (concat "./" file)
+                                file))
+                            file-list))
     (concat
      (cond
       (on-each
@@ -3245,7 +3252,6 @@ with the command \\[tags-loop-continue]."
    delimited)
   (fileloop-continue))
 
-(declare-function xref--show-xrefs "xref")
 (declare-function xref-query-replace-in-results "xref")
 (declare-function project--files-in-directory "project")
 
@@ -3289,7 +3295,7 @@ REGEXP should use constructs supported by your local `grep' command."
                 (user-error "No matches for: %s" regexp))
               (message "Searching...done")
               xrefs))))
-    (xref--show-xrefs fetcher nil)))
+    (xref-show-xrefs fetcher nil)))
 
 ;;;###autoload
 (defun dired-do-find-regexp-and-replace (from to)
