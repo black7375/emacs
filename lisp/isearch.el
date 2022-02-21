@@ -430,13 +430,13 @@ and doesn't remove full-buffer highlighting after a search."
 
 (defface lazy-highlight
   '((((class color) (min-colors 88) (background light))
-     (:background "paleturquoise"))
+     (:background "paleturquoise" :distant-foreground "black"))
     (((class color) (min-colors 88) (background dark))
-     (:background "paleturquoise4"))
+     (:background "paleturquoise4" :distant-foreground "white"))
     (((class color) (min-colors 16))
-     (:background "turquoise3"))
+     (:background "turquoise3" :distant-foreground "white"))
     (((class color) (min-colors 8))
-     (:background "turquoise3"))
+     (:background "turquoise3" :distant-foreground "white"))
     (t (:underline t)))
   "Face for lazy highlighting of matches other than the current one."
   :group 'lazy-highlight
@@ -488,9 +488,9 @@ and doesn't remove full-buffer highlighting after a search."
   "You have typed %THIS-KEY%, the help character.  Type a Help option:
 \(Type \\<isearch-help-map>\\[help-quit] to exit the Help command.)
 
-\\[isearch-describe-bindings]           Display all Isearch key bindings.
-\\[isearch-describe-key] KEYS      Display full documentation of Isearch key sequence.
-\\[isearch-describe-mode]           Display documentation of Isearch mode.
+  \\[isearch-describe-bindings]	Display all Isearch key bindings.
+  \\[isearch-describe-key]	Display full documentation of Isearch key sequence.
+  \\[isearch-describe-mode]	Display documentation of Isearch mode.
 
 You can't type here other help keys available in the global help map,
 but outside of this help window when you type them in Isearch mode,
@@ -668,6 +668,7 @@ This is like `describe-bindings', but displays only Isearch keys."
     ;; The key translations defined in the C-x 8 prefix should add
     ;; characters to the search string.  See iso-transl.el.
     (define-key map "\C-x8\r" 'isearch-char-by-name)
+    (define-key map "\C-x8e\r" 'isearch-emoji-by-name)
     map)
   "Keymap for `isearch-mode'.")
 
@@ -758,6 +759,8 @@ This is like `describe-bindings', but displays only Isearch keys."
      :help "Search for literal char"]
     ["Search for char by name" isearch-char-by-name
      :help "Search for character by name"]
+    ["Search for Emoji by name" isearch-emoji-by-name
+     :help "Search for Emoji by its Unicode name"]
     "---"
     ["Toggle input method" isearch-toggle-input-method
      :help "Toggle input method for search"]
@@ -2063,7 +2066,7 @@ The command then executes BODY and updates the isearch prompt."
                        #',function))
                (setq isearch-regexp nil)))
          ,@body
-         (setq isearch-success t isearch-adjusted t)
+         (setq isearch-success t isearch-adjusted 'toggle)
          (isearch-update))
        (define-key isearch-mode-map ,key #',command-name)
        ,@(when (and function (symbolp function))
@@ -2478,8 +2481,8 @@ The arguments passed to `highlight-regexp' are the regexp from
 the last search and the face from `hi-lock-read-face-name'."
   (interactive)
   (isearch--highlight-regexp-or-lines
-   #'(lambda (regexp face lighter)
-       (highlight-regexp regexp face nil lighter))))
+   (lambda (regexp face lighter)
+     (highlight-regexp regexp face nil lighter))))
 
 (defun isearch-highlight-lines-matching-regexp ()
   "Exit Isearch mode and call `highlight-lines-matching-regexp'.
@@ -2487,8 +2490,8 @@ The arguments passed to `highlight-lines-matching-regexp' are the
 regexp from the last search and the face from `hi-lock-read-face-name'."
   (interactive)
   (isearch--highlight-regexp-or-lines
-   #'(lambda (regexp face _lighter)
-       (highlight-lines-matching-regexp regexp face))))
+   (lambda (regexp face _lighter)
+     (highlight-lines-matching-regexp regexp face))))
 
 
 (defun isearch-delete-char ()
@@ -2504,6 +2507,11 @@ If no input items have been entered yet, just beep."
   (if (null (cdr isearch-cmds))
       (ding)
     (isearch-pop-state))
+  ;; When going back to the hidden match, reopen it.
+  (when (and (eq search-invisible 'open) isearch-hide-immediately
+             isearch-other-end)
+    (isearch-range-invisible (min (point) isearch-other-end)
+                             (max (point) isearch-other-end)))
   (isearch-update))
 
 (defun isearch-del-char (&optional arg)
@@ -2742,6 +2750,24 @@ With argument, add COUNT copies of the character."
 					   (mapconcat 'isearch-text-char-description
 						      string ""))))))))
 
+(defun isearch-emoji-by-name (&optional count)
+  "Read an Emoji name and add it to the search string COUNT times.
+COUNT (interactively, the prefix argument) defaults to 1.
+The command accepts Unicode names like \"smiling face\" or
+\"heart with arrow\", and completion is available."
+  (interactive "p")
+  (with-isearch-suspended
+   (let ((emoji (with-temp-buffer
+                  (emoji-search)
+                  (if (and (integerp count) (> count 1))
+                      (apply 'concat (make-list count (buffer-string)))
+                    (buffer-string)))))
+     (when emoji
+       (setq isearch-new-string (concat isearch-string emoji)
+             isearch-new-message (concat isearch-message
+					   (mapconcat 'isearch-text-char-description
+						      emoji "")))))))
+
 (defun isearch-search-and-update ()
   "Do the search and update the display."
   (when (or isearch-success
@@ -2908,6 +2934,7 @@ to the barrier."
 (put 'scroll-other-window-down 'isearch-scroll t)
 (put 'beginning-of-buffer-other-window 'isearch-scroll t)
 (put 'end-of-buffer-other-window 'isearch-scroll t)
+(put 'recenter-other-window 'isearch-scroll t)
 
 ;; Commands which change the window layout
 (put 'delete-other-windows 'isearch-scroll t)
@@ -2921,6 +2948,9 @@ to the barrier."
 ;; The next two commands don't exit Isearch in isearch-mouse-leave-buffer
 (put 'mouse-drag-mode-line 'isearch-scroll t)
 (put 'mouse-drag-vertical-line 'isearch-scroll t)
+
+;; For context menu with isearch submenu
+(put 'context-menu-open 'isearch-scroll t)
 
 ;; Aliases for split-window-*
 (put 'split-window-vertically 'isearch-scroll t)
@@ -3412,7 +3442,7 @@ the word mode."
   ;; If currently failing, display no ellipsis.
   (or isearch-success (setq ellipsis nil))
   (let ((m (concat (if isearch-success "" "failing ")
-		   (if isearch-adjusted "pending " "")
+		   (if (eq isearch-adjusted t) "pending " "")
 		   (if (and isearch-wrapped
 			    (not isearch-wrap-function)
 			    (if isearch-forward
@@ -3516,10 +3546,10 @@ Can be changed via `isearch-search-fun-function' for special needs."
           ;; (Bug#35802).
           (regexp
            (cond (isearch-regexp-function
-                  (let ((lax (and (not bound)
+                  (let ((lax (and (not bound) ; not lazy-highlight
                                   (isearch--lax-regexp-function-p))))
                     (when lax
-                      (setq isearch-adjusted t))
+                      (setq isearch-adjusted 'lax))
                     (if (functionp isearch-regexp-function)
                         (funcall isearch-regexp-function string lax)
                       (word-search-regexp string lax))))
@@ -3787,8 +3817,9 @@ Isearch, at least partially, as determined by `isearch-range-invisible'.
 If `search-invisible' is t, which allows Isearch matches inside
 invisible text, this function will always return non-nil, regardless
 of what `isearch-range-invisible' says."
-  (or (eq search-invisible t)
-      (not (isearch-range-invisible beg end))))
+  (and (not (text-property-not-all beg end 'inhibit-isearch nil))
+       (or (eq search-invisible t)
+           (not (isearch-range-invisible beg end)))))
 
 
 ;; General utilities

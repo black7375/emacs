@@ -3,7 +3,7 @@
 ;; Copyright (C) 1997-2022 Free Software Foundation, Inc.
 
 ;; Author: Alexander L. Belikoff (alexander@belikoff.net)
-;; Maintainer: Amin Bandali <bandali@gnu.org>
+;; Maintainer: Amin Bandali <bandali@gnu.org>, F. Jason Park <jp@neverwas.me>
 ;; Contributors: Sergey Berezin (sergey.berezin@cs.cmu.edu),
 ;;               Mario Lang (mlang@delysid.org),
 ;;               Alex Schroeder (alex@gnu.org)
@@ -12,7 +12,7 @@
 ;;               David Edmondson (dme@dme.org)
 ;;               Michael Olson (mwolson@gnu.org)
 ;;               Kelvin White (kwhite@gnu.org)
-;; Version: 5.4
+;; Version: 5.4.1
 ;; Package-Requires: ((emacs "27.1"))
 ;; Keywords: IRC, chat, client, Internet
 ;; URL: https://www.gnu.org/software/emacs/erc.html
@@ -69,7 +69,7 @@
 (require 'iso8601)
 (eval-when-compile (require 'subr-x))
 
-(defconst erc-version "5.4"
+(defconst erc-version "5.4.1"
   "This version of ERC.")
 
 (defvar erc-official-location
@@ -83,7 +83,8 @@
  'customize-package-emacs-version-alist
  '(ERC ("5.2" . "22.1")
        ("5.3" . "23.1")
-       ("5.4" . "28.1")))
+       ("5.4" . "28.1")
+       ("5.4.1" . "29.1")))
 
 (defgroup erc nil
   "Emacs Internet Relay Chat client."
@@ -871,8 +872,8 @@ See `erc-server-flood-margin' for other flood-related parameters.")
 ;; Script parameters
 
 (defcustom erc-startup-file-list
-  (list (concat user-emacs-directory ".ercrc.el")
-        (concat user-emacs-directory ".ercrc")
+  (list (locate-user-emacs-file ".ercrc.el")
+        (locate-user-emacs-file ".ercrc")
         "~/.ercrc.el" "~/.ercrc" ".ercrc.el" ".ercrc")
   "List of files to try for a startup script.
 The first existent and readable one will get executed.
@@ -1291,7 +1292,7 @@ Example:
                #\\='erc-replace-insert))
     ((remove-hook \\='erc-insert-modify-hook
                   #\\='erc-replace-insert)))"
-  (declare (doc-string 3))
+  (declare (doc-string 3) (indent defun))
   (let* ((sn (symbol-name name))
          (mode (intern (format "erc-%s-mode" (downcase sn))))
          (group (intern (format "erc-%s" (downcase sn))))
@@ -1478,6 +1479,7 @@ Defaults to the server buffer."
 
 (define-derived-mode erc-mode fundamental-mode "ERC"
   "Major mode for Emacs IRC."
+  :interactive nil
   (setq local-abbrev-table erc-mode-abbrev-table)
   (setq-local next-line-add-newlines nil)
   (setq line-move-ignore-invisible t)
@@ -2060,19 +2062,12 @@ Returns the buffer for the given server or channel."
     ;; password stuff
     (setq erc-session-password
           (or passwd
-              (let ((secret
-                     (plist-get
-                      (nth 0
-                           (auth-source-search :host server
-                                               :max 1
-                                               :user nick
-                                               ;; secrets.el wouldn’t accept a number
-                                               :port (if (numberp port) (number-to-string port) port)
-                                               :require '(:secret)))
-                      :secret)))
-                (if (functionp secret)
-                    (funcall secret)
-                  secret))))
+              (auth-source-pick-first-password
+               :host server
+               :user nick
+               ;; secrets.el wouldn’t accept a number
+               :port (if (numberp port) (number-to-string port) port)
+               :require '(:secret))))
     ;; client certificate (only useful if connecting over TLS)
     (setq erc-session-client-certificate client-certificate)
     ;; debug output buffer
@@ -2403,7 +2398,8 @@ If ARG is non-nil, show the *erc-protocol* buffer."
                      (concat "This buffer displays all IRC protocol "
                              "traffic exchanged with servers."))
                     (erc-make-notice "Kill it to disable logging.")
-                    (erc-make-notice "Press `t' to toggle."))))
+                    (erc-make-notice (substitute-command-keys
+                                      "Press \\`t' to toggle.")))))
           (insert (string-join msg "\r\n")))
         (use-local-map (make-sparse-keymap))
         (local-set-key (kbd "t") 'erc-toggle-debug-irc-protocol))
@@ -2816,20 +2812,17 @@ present."
   (let ((prop-val (erc-get-parsed-vector position)))
     (and prop-val (member (erc-response.command prop-val) list))))
 
-(defvar-local erc-send-input-line-function 'erc-send-input-line)
+(defvar-local erc-send-input-line-function 'erc-send-input-line
+  "Function for sending lines lacking a leading user command.
+When a line typed into a buffer contains an explicit command, like /msg,
+a corresponding handler (here, erc-cmd-MSG) is called.  But lines typed
+into a channel or query buffer already have an implicit target and
+command (PRIVMSG).  This function is called on such occasions and also
+for special purposes (see erc-dcc.el).")
 
 (defun erc-send-input-line (target line &optional force)
-  "Send LINE to TARGET.
-
-See also `erc-server-send'."
-  (setq line (format "PRIVMSG %s :%s"
-                     target
-                     ;; If the line is empty, we still want to
-                     ;; send it - i.e. an empty pasted line.
-                     (if (string= line "\n")
-                         " \n"
-                       line)))
-  (erc-server-send line force target))
+  "Send LINE to TARGET."
+  (erc-message "PRIVMSG" (concat target " " line) force))
 
 (defun erc-get-arglist (fun)
   "Return the argument list of a function without the parens."
@@ -2967,7 +2960,7 @@ Commands for which no erc-cmd-xxx exists, are tunneled through
 this function.  LINE is sent to the server verbatim, and
 therefore has to contain the command itself as well."
   (erc-log (format "cmd: DEFAULT: %s" line))
-  (erc-server-send (substring line 1))
+  (erc-server-send (string-trim-right (substring line 1) "[\r\n]"))
   t)
 
 (defvar erc--read-time-period-history nil)
@@ -3187,16 +3180,12 @@ For a list of user commands (/join /part, ...):
 (put 'erc-cmd-HELP 'process-not-needed t)
 
 (defun erc-server-join-channel (server channel &optional secret)
-  (let* ((secret (or secret
-		     (plist-get (nth 0 (auth-source-search
-					:max 1
-					:host server
-					:port "irc"
-					:user channel))
-				:secret)))
-	 (password (if (functionp secret)
-		       (funcall secret)
-		     secret)))
+  (let ((password
+         (or secret
+             (auth-source-pick-first-password
+	      :host server
+	      :port "irc"
+	      :user channel))))
     (erc-log (format "cmd: JOIN: %s" channel))
     (erc-server-send (concat "JOIN " channel
 			     (if password
@@ -3608,11 +3597,13 @@ other people should be displayed."
 
 (defun erc-cmd-QUERY (&optional user)
   "Open a query with USER.
-The type of query window/frame/etc will depend on the value of
-`erc-query-display'.
-
-If USER is omitted, close the current query buffer if one exists
-- except this is broken now ;-)"
+How the query is displayed (in a new window, frame, etc.) depends
+on the value of `erc-query-display'."
+  ;; FIXME: The doc string used to say at the end:
+  ;; "If USER is omitted, close the current query buffer if one exists
+  ;; - except this is broken now ;-)"
+  ;; Does it make sense to have that functionality?  What's wrong with
+  ;; `kill-buffer'?  If it makes sense, re-add it.  -- SK @ 2021-11-11
   (interactive
    (list (read-string "Start a query with: ")))
   (let ((session-buffer (erc-server-buffer))
@@ -3754,13 +3745,17 @@ the message given by REASON."
       (setq buffer (current-buffer)))
     (with-current-buffer buffer
       (setq erc-server-quitting nil)
-      (setq erc-server-reconnecting t)
+      (with-suppressed-warnings ((obsolete erc-server-reconnecting))
+        (setq erc-server-reconnecting t))
+      (setq erc--server-reconnecting t)
       (setq erc-server-reconnect-count 0)
       (setq process (get-buffer-process (erc-server-buffer)))
       (if process
           (delete-process process)
         (erc-server-reconnect))
-      (setq erc-server-reconnecting nil)))
+      (with-suppressed-warnings ((obsolete erc-server-reconnecting))
+        (setq erc-server-reconnecting nil))
+      (setq erc--server-reconnecting nil)))
   t)
 (put 'erc-cmd-RECONNECT 'process-not-needed t)
 

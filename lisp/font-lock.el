@@ -1906,8 +1906,9 @@ preserve `hi-lock-mode' highlighting patterns."
 Sets various variables using `font-lock-defaults' and
 `font-lock-maximum-decoration'."
   ;; Set fontification defaults if not previously set for correct major mode.
-  (unless (and font-lock-set-defaults
-	       (eq font-lock-major-mode major-mode))
+  (when (or (not font-lock-set-defaults)
+	    (not font-lock-major-mode)
+            (not (derived-mode-p font-lock-major-mode)))
     (setq font-lock-major-mode major-mode)
     (setq font-lock-set-defaults t)
     (let* ((defaults font-lock-defaults)
@@ -2075,7 +2076,7 @@ as the constructs of Haddock, Javadoc and similar systems."
     (((class color) (min-colors 16) (background dark))  :foreground "PaleGreen")
     (((class color) (min-colors 8)) :foreground "green")
     (t :weight bold :underline t))
-  "Font Lock mode face used to highlight type and classes."
+  "Font Lock mode face used to highlight type and class names."
   :group 'font-lock-faces)
 
 (defface font-lock-constant-face

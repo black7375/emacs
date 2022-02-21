@@ -302,11 +302,15 @@ sound_perror (const char *msg)
   int saved_errno = errno;
 
   turn_on_atimers (1);
-#ifdef USABLE_SIGIO
+#if defined (USABLE_SIGIO) || defined (USABLE_SIGPOLL)
   {
     sigset_t unblocked;
     sigemptyset (&unblocked);
+#ifdef USABLE_SIGIO
     sigaddset (&unblocked, SIGIO);
+#else
+    sigaddset (&unblocked, SIGPOLL);
+#endif
     pthread_sigmask (SIG_UNBLOCK, &unblocked, 0);
   }
 #endif
@@ -701,7 +705,7 @@ static void
 vox_configure (struct sound_device *sd)
 {
   int val;
-#ifdef USABLE_SIGIO
+#if defined (USABLE_SIGIO) || defined (USABLE_SIGPOLL)
   sigset_t oldset, blocked;
 #endif
 
@@ -711,9 +715,13 @@ vox_configure (struct sound_device *sd)
      interrupted by a signal.  Block the ones we know to cause
      troubles.  */
   turn_on_atimers (0);
-#ifdef USABLE_SIGIO
+#if defined (USABLE_SIGIO) || defined (USABLE_SIGPOLL)
   sigemptyset (&blocked);
+#ifdef USABLE_SIGIO
   sigaddset (&blocked, SIGIO);
+#else
+  sigaddset (&blocked, SIGPOLL);
+#endif
   pthread_sigmask (SIG_BLOCK, &blocked, &oldset);
 #endif
 
@@ -747,7 +755,7 @@ vox_configure (struct sound_device *sd)
     }
 
   turn_on_atimers (1);
-#ifdef USABLE_SIGIO
+#if defined (USABLE_SIGIO) || defined (USABLE_SIGPOLL)
   pthread_sigmask (SIG_SETMASK, &oldset, 0);
 #endif
 }
@@ -763,10 +771,14 @@ vox_close (struct sound_device *sd)
       /* On GNU/Linux, it seems that the device driver doesn't like to
 	 be interrupted by a signal.  Block the ones we know to cause
 	 troubles.  */
-#ifdef USABLE_SIGIO
+#if defined (USABLE_SIGIO) || defined (USABLE_SIGPOLL)
       sigset_t blocked, oldset;
       sigemptyset (&blocked);
+#ifdef USABLE_SIGIO
       sigaddset (&blocked, SIGIO);
+#else
+      sigaddset (&blocked, SIGPOLL);
+#endif
       pthread_sigmask (SIG_BLOCK, &blocked, &oldset);
 #endif
       turn_on_atimers (0);
@@ -775,7 +787,7 @@ vox_close (struct sound_device *sd)
       ioctl (sd->fd, SNDCTL_DSP_SYNC, NULL);
 
       turn_on_atimers (1);
-#ifdef USABLE_SIGIO
+#if defined (USABLE_SIGIO) || defined (USABLE_SIGPOLL)
       pthread_sigmask (SIG_SETMASK, &oldset, 0);
 #endif
 

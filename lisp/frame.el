@@ -798,8 +798,9 @@ also select the new frame."
          (windows (unless no-windows
                     (window-state-get (frame-root-window frame))))
          (default-frame-alist
-           (seq-remove (lambda (elem) (eq (car elem) 'name))
-                       (frame-parameters frame)))
+          (seq-remove (lambda (elem)
+                        (memq (car elem) frame-internal-parameters))
+                      (frame-parameters frame)))
          (new-frame (make-frame)))
     (when windows
       (window-state-put windows (frame-root-window new-frame) 'safe))
@@ -808,12 +809,16 @@ also select the new frame."
     new-frame))
 
 (defvar before-make-frame-hook nil
-  "Functions to run before `make-frame' creates a new frame.")
+  "Functions to run before `make-frame' creates a new frame.
+Note that these functions are usually not run for the initial
+frame, unless you add them to the hook in your early-init file.")
 
 (defvar after-make-frame-functions nil
   "Functions to run after `make-frame' created a new frame.
 The functions are run with one argument, the newly created
-frame.")
+frame.
+Note that these functions are usually not run for the initial
+frame, unless you add them to the hook in your early-init file.")
 
 (defvar after-setting-font-hook nil
   "Functions to run after a frame's font has been changed.")
@@ -1585,6 +1590,11 @@ acquires focus to be automatically raised.
 Note that this minor mode controls Emacs's own auto-raise
 feature.  Window managers that switch focus on mouse movement
 often have their own auto-raise feature."
+  ;; This isn't really a global minor mode; rather, it's local to the
+  ;; selected frame, but declaring it as global prevents a misleading
+  ;; "Auto-Raise mode enabled in current buffer" message from being
+  ;; displayed when it is turned on.
+  :global t
   :variable (frame-parameter nil 'auto-raise)
   (if (frame-parameter nil 'auto-raise)
       (raise-frame)))
@@ -1634,6 +1644,8 @@ live frame and defaults to the selected one."
 (declare-function w32-frame-geometry "w32fns.c" (&optional frame))
 (declare-function mac-frame-geometry "macfns.c" (&optional frame))
 (declare-function ns-frame-geometry "nsfns.m" (&optional frame))
+(declare-function pgtk-frame-geometry "pgtkfns.c" (&optional frame))
+(declare-function haiku-frame-geometry "haikufns.c" (&optional frame))
 
 (defun frame-geometry (&optional frame)
   "Return geometric attributes of FRAME.
@@ -1685,6 +1697,10 @@ and width values are in pixels.
       (mac-frame-geometry frame))
      ((eq frame-type 'ns)
       (ns-frame-geometry frame))
+     ((eq frame-type 'pgtk)
+      (pgtk-frame-geometry frame))
+     ((eq frame-type 'haiku)
+      (haiku-frame-geometry frame))
      (t
       (list
        '(outer-position 0 . 0)
@@ -1810,6 +1826,8 @@ of frames like calls to map a frame or change its visibility."
 (declare-function w32-frame-edges "w32fns.c" (&optional frame type))
 (declare-function mac-frame-edges "macfns.c" (&optional frame type))
 (declare-function ns-frame-edges "nsfns.m" (&optional frame type))
+(declare-function pgtk-frame-edges "pgtkfns.c" (&optional frame type))
+(declare-function haiku-frame-edges "haikufns.c" (&optional frame type))
 
 (defun frame-edges (&optional frame type)
   "Return coordinates of FRAME's edges.
@@ -1835,6 +1853,10 @@ FRAME."
       (mac-frame-edges frame type))
      ((eq frame-type 'ns)
       (ns-frame-edges frame type))
+     ((eq frame-type 'pgtk)
+      (pgtk-frame-edges frame type))
+     ((eq frame-type 'haiku)
+      (haiku-frame-edges frame type))
      (t
       (list 0 0 (frame-width frame) (frame-height frame))))))
 
@@ -1842,6 +1864,8 @@ FRAME."
 (declare-function w32-mouse-absolute-pixel-position "w32fns.c")
 (declare-function x-mouse-absolute-pixel-position "xfns.c")
 (declare-function ns-mouse-absolute-pixel-position "nsfns.m")
+(declare-function pgtk-mouse-absolute-pixel-position "pgtkfns.c")
+(declare-function haiku-mouse-absolute-pixel-position "haikufns.c")
 
 (defun mouse-absolute-pixel-position ()
   "Return absolute position of mouse cursor in pixels.
@@ -1858,13 +1882,19 @@ position (0, 0) of the selected frame's terminal."
       (mac-mouse-absolute-pixel-position))
      ((eq frame-type 'ns)
       (ns-mouse-absolute-pixel-position))
+     ((eq frame-type 'pgtk)
+      (pgtk-mouse-absolute-pixel-position))
+     ((eq frame-type 'haiku)
+      (haiku-mouse-absolute-pixel-position))
      (t
       (cons 0 0)))))
 
+(declare-function pgtk-set-mouse-absolute-pixel-position "pgtkfns.c" (x y))
 (declare-function ns-set-mouse-absolute-pixel-position "nsfns.m" (x y))
 (declare-function mac-set-mouse-absolute-pixel-position "macfns.c" (x y))
 (declare-function w32-set-mouse-absolute-pixel-position "w32fns.c" (x y))
 (declare-function x-set-mouse-absolute-pixel-position "xfns.c" (x y))
+(declare-function haiku-set-mouse-absolute-pixel-position "haikufns.c" (x y))
 
 (defun set-mouse-absolute-pixel-position (x y)
   "Move mouse pointer to absolute pixel position (X, Y).
@@ -1872,6 +1902,8 @@ The coordinates X and Y are interpreted in pixels relative to a
 position (0, 0) of the selected frame's terminal."
   (let ((frame-type (framep-on-display)))
     (cond
+     ((eq frame-type 'pgtk)
+      (pgtk-set-mouse-absolute-pixel-position x y))
      ((eq frame-type 'ns)
       (ns-set-mouse-absolute-pixel-position x y))
      ((eq frame-type 'x)
@@ -1879,7 +1911,9 @@ position (0, 0) of the selected frame's terminal."
      ((eq frame-type 'w32)
       (w32-set-mouse-absolute-pixel-position x y))
      ((eq frame-type 'mac)
-      (mac-set-mouse-absolute-pixel-position x y)))))
+      (mac-set-mouse-absolute-pixel-position x y))
+     ((eq frame-type 'haiku)
+      (haiku-set-mouse-absolute-pixel-position x y)))))
 
 (defun frame-monitor-attributes (&optional frame)
   "Return the attributes of the physical monitor dominating FRAME.
@@ -1973,6 +2007,8 @@ workarea attribute."
 (declare-function w32-frame-list-z-order "w32fns.c" (&optional display))
 (declare-function mac-frame-list-z-order "macfns.c" (&optional display))
 (declare-function ns-frame-list-z-order "nsfns.m" (&optional display))
+(declare-function pgtk-frame-list-z-order "pgtkfns.c" (&optional display))
+(declare-function haiku-frame-list-z-order "haikufns.c" (&optional display))
 
 (defun frame-list-z-order (&optional display)
   "Return list of Emacs' frames, in Z (stacking) order.
@@ -1994,12 +2030,18 @@ Return nil if DISPLAY contains no Emacs frame."
      ((eq frame-type 'mac)
       (mac-frame-list-z-order display))
      ((eq frame-type 'ns)
-      (ns-frame-list-z-order display)))))
+      (ns-frame-list-z-order display))
+     ((eq frame-type 'pgtk)
+      (pgtk-frame-list-z-order display))
+     ((eq frame-type 'haiku)
+      (haiku-frame-list-z-order display)))))
 
 (declare-function x-frame-restack "xfns.c" (frame1 frame2 &optional above))
 (declare-function w32-frame-restack "w32fns.c" (frame1 frame2 &optional above))
 (declare-function mac-frame-restack "macfns.c" (frame1 frame2 &optional above))
 (declare-function ns-frame-restack "nsfns.m" (frame1 frame2 &optional above))
+(declare-function pgtk-frame-restack "pgtkfns.c" (frame1 frame2 &optional above))
+(declare-function haiku-frame-restack "haikufns.c" (frame1 frame2 &optional above))
 
 (defun frame-restack (frame1 frame2 &optional above)
   "Restack FRAME1 below FRAME2.
@@ -2031,7 +2073,11 @@ Some window managers may refuse to restack windows."
          ((eq frame-type 'mac)
           (mac-frame-restack frame1 frame2 above))
          ((eq frame-type 'ns)
-          (ns-frame-restack frame1 frame2 above))))
+          (ns-frame-restack frame1 frame2 above))
+         ((eq frame-type 'haiku)
+          (haiku-frame-restack frame1 frame2 above))
+         ((eq frame-type 'pgtk)
+          (pgtk-frame-restack frame1 frame2 above))))
     (error "Cannot restack frames")))
 
 (defun frame-size-changed-p (&optional frame)
@@ -2078,8 +2124,8 @@ frame's display)."
      ((eq frame-type 'w32)
       (with-no-warnings
        (> w32-num-mouse-buttons 0)))
-     ((memq frame-type '(x mac ns))
-      t)    ;; We assume X, Mac, and NeXTstep *always* have a pointing device
+     ((memq frame-type '(x mac ns haiku pgtk))
+      t)    ;; We assume X, Mac, NeXTstep, GTK, and Haiku *always* have a pointing device
      (t
       (or (and (featurep 'xt-mouse)
 	       xterm-mouse-mode)
@@ -2104,7 +2150,7 @@ frames and several different fonts at once.  This is true for displays
 that use a window system such as X, and false for text-only terminals.
 DISPLAY can be a display name, a frame, or nil (meaning the selected
 frame's display)."
-  (not (null (memq (framep-on-display display) '(x w32 mac ns)))))
+  (not (null (memq (framep-on-display display) '(x w32 mac ns pgtk haiku)))))
 
 (defun display-images-p (&optional display)
   "Return non-nil if DISPLAY can display images.
@@ -2132,7 +2178,7 @@ frame's display)."
       ;; a Windows DOS Box.
       (with-no-warnings
        (not (null dos-windows-version))))
-     ((memq frame-type '(x w32 mac ns))
+     ((memq frame-type '(x w32 mac ns pgtk))
       t)
      (t
       nil))))
@@ -2142,7 +2188,7 @@ frame's display)."
 This means that, for example, DISPLAY can differentiate between
 the keybinding RET and [return]."
   (let ((frame-type (framep-on-display display)))
-    (or (memq frame-type '(x w32 mac ns pc))
+    (or (memq frame-type '(x w32 mac ns pc pgtk))
         ;; MS-DOS and MS-Windows terminals have built-in support for
         ;; function (symbol) keys
         (memq system-type '(ms-dos windows-nt)))))
@@ -2155,7 +2201,7 @@ DISPLAY should be either a frame or a display name (a string).
 If DISPLAY is omitted or nil, it defaults to the selected frame's display."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 mac ns))
+     ((memq frame-type '(x w32 mac ns haiku pgtk))
       (x-display-screens display))
      (t
       1))))
@@ -2175,7 +2221,7 @@ with DISPLAY.  To get information for each physical monitor, use
 `display-monitor-attributes-list'."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 mac ns))
+     ((memq frame-type '(x w32 mac ns haiku pgtk))
       (x-display-pixel-height display))
      (t
       (frame-height (if (framep display) display (selected-frame)))))))
@@ -2195,7 +2241,7 @@ with DISPLAY.  To get information for each physical monitor, use
 `display-monitor-attributes-list'."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 mac ns))
+     ((memq frame-type '(x w32 mac ns haiku pgtk))
       (x-display-pixel-width display))
      (t
       (frame-width (if (framep display) display (selected-frame)))))))
@@ -2233,7 +2279,7 @@ For graphical terminals, note that on \"multi-monitor\" setups this
 refers to the height in millimeters for all physical monitors
 associated with DISPLAY.  To get information for each physical
 monitor, use `display-monitor-attributes-list'."
-  (and (memq (framep-on-display display) '(x w32 mac ns))
+  (and (memq (framep-on-display display) '(x w32 mac ns haiku pgtk))
        (or (cddr (assoc (or display (frame-parameter nil 'display))
 			display-mm-dimensions-alist))
 	   (cddr (assoc t display-mm-dimensions-alist))
@@ -2254,7 +2300,7 @@ For graphical terminals, note that on \"multi-monitor\" setups this
 refers to the width in millimeters for all physical monitors
 associated with DISPLAY.  To get information for each physical
 monitor, use `display-monitor-attributes-list'."
-  (and (memq (framep-on-display display) '(x w32 mac ns))
+  (and (memq (framep-on-display display) '(x w32 mac ns haiku pgtk))
        (or (cadr (assoc (or display (frame-parameter nil 'display))
 			display-mm-dimensions-alist))
 	   (cadr (assoc t display-mm-dimensions-alist))
@@ -2272,7 +2318,7 @@ DISPLAY can be a display name or a frame.
 If DISPLAY is omitted or nil, it defaults to the selected frame's display."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 mac ns))
+     ((memq frame-type '(x w32 mac ns haiku pgtk))
       (x-display-backing-store display))
      (t
       'not-useful))))
@@ -2285,7 +2331,7 @@ DISPLAY can be a display name or a frame.
 If DISPLAY is omitted or nil, it defaults to the selected frame's display."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 mac ns))
+     ((memq frame-type '(x w32 mac ns haiku pgtk))
       (x-display-save-under display))
      (t
       'not-useful))))
@@ -2298,7 +2344,7 @@ DISPLAY can be a display name or a frame.
 If DISPLAY is omitted or nil, it defaults to the selected frame's display."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 mac ns))
+     ((memq frame-type '(x w32 mac ns haiku pgtk))
       (x-display-planes display))
      ((eq frame-type 'pc)
       4)
@@ -2313,7 +2359,7 @@ DISPLAY can be a display name or a frame.
 If DISPLAY is omitted or nil, it defaults to the selected frame's display."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 mac ns))
+     ((memq frame-type '(x w32 mac ns haiku pgtk))
       (x-display-color-cells display))
      ((eq frame-type 'pc)
       16)
@@ -2330,7 +2376,7 @@ DISPLAY can be a display name or a frame.
 If DISPLAY is omitted or nil, it defaults to the selected frame's display."
   (let ((frame-type (framep-on-display display)))
     (cond
-     ((memq frame-type '(x w32 mac ns))
+     ((memq frame-type '(x w32 mac ns haiku pgtk))
       (x-display-visual-class display))
      ((and (memq frame-type '(pc t))
 	   (tty-display-color-p display))
@@ -2345,6 +2391,8 @@ If DISPLAY is omitted or nil, it defaults to the selected frame's display."
 (declare-function mac-display-monitor-attributes-list "macfns.c"
 		  (&optional terminal))
 (declare-function ns-display-monitor-attributes-list "nsfns.m"
+		  (&optional terminal))
+(declare-function pgtk-display-monitor-attributes-list "pgtkfns.c"
 		  (&optional terminal))
 
 (defun display-monitor-attributes-list (&optional display)
@@ -2363,6 +2411,7 @@ of attribute keys and values as follows:
  mm-size  -- Width and height in millimeters in the form of
  	     (WIDTH HEIGHT)
  frames   -- List of frames dominated by the physical monitor
+ scale-factor (*) -- Scale factor (float)
  name (*) -- Name of the physical monitor as a string
  source (*) -- Source of multi-monitor information as a string
 
@@ -2396,6 +2445,8 @@ monitors."
       (mac-display-monitor-attributes-list display))
      ((eq frame-type 'ns)
       (ns-display-monitor-attributes-list display))
+     ((eq frame-type 'pgtk)
+      (pgtk-display-monitor-attributes-list display))
      (t
       (let ((geometry (list 0 0 (display-pixel-width display)
 			    (display-pixel-height display))))
@@ -2506,6 +2557,77 @@ deleting them."
         (if iconify (iconify-frame this) (delete-frame this)))
       (setq this next))))
 
+(defvar undelete-frame--deleted-frames nil
+  "Internal variable used by `undelete-frame--save-deleted-frame'.")
+
+(defun undelete-frame--save-deleted-frame (frame)
+  "Save the configuration of frames deleted with `delete-frame'.
+Only the 16 most recently deleted frames are saved."
+  (when (and after-init-time (frame-live-p frame))
+    (setq undelete-frame--deleted-frames
+          (cons
+           (list
+            (display-graphic-p)
+            (seq-remove
+             (lambda (elem)
+               (or (memq (car elem) frame-internal-parameters)
+                   ;; When the daemon is started from a graphical
+                   ;; environment, TTY frames have a 'display' parameter set
+                   ;; to the value of $DISPLAY (see the note in
+                   ;; `server--on-display-p').  Do not store that parameter
+                   ;; in the frame data, otherwise `undelete-frame' attempts
+                   ;; to restore a graphical frame.
+                   (and (eq (car elem) 'display) (not (display-graphic-p)))))
+             (frame-parameters frame))
+            (window-state-get (frame-root-window frame)))
+           undelete-frame--deleted-frames))
+    (if (> (length undelete-frame--deleted-frames) 16)
+        (setq undelete-frame--deleted-frames
+              (butlast undelete-frame--deleted-frames)))))
+
+(define-minor-mode undelete-frame-mode
+  "Enable the `undelete-frame' command."
+  :group 'frames
+  :global t
+  (if undelete-frame-mode
+      (add-hook 'delete-frame-functions
+                #'undelete-frame--save-deleted-frame -75)
+    (remove-hook 'delete-frame-functions
+                 #'undelete-frame--save-deleted-frame)
+    (setq undelete-frame--deleted-frames nil)))
+
+(defun undelete-frame (&optional arg)
+  "Undelete a frame deleted with `delete-frame'.
+Without a prefix argument, undelete the most recently deleted
+frame.
+With a numerical prefix argument ARG between 1 and 16, where 1 is
+most recently deleted frame, undelete the ARGth deleted frame.
+When called from Lisp, returns the new frame."
+  (interactive "P")
+  (if (not undelete-frame-mode)
+      (user-error "Undelete-Frame mode is disabled")
+    (if (consp arg)
+        (user-error "Missing deleted frame number argument")
+      (let* ((number (pcase arg ('nil 1) ('- -1) (_ arg)))
+             (frame-data (nth (1- number) undelete-frame--deleted-frames))
+             (graphic (display-graphic-p)))
+        (if (not (<= 1 number 16))
+            (user-error "%d is not a valid deleted frame number argument"
+                        number)
+          (if (not frame-data)
+              (user-error "No deleted frame with number %d" number)
+            (if (not (eq graphic (nth 0 frame-data)))
+                (user-error
+                 "Cannot undelete a %s display frame on a %s display"
+                 (if graphic "non-graphic" "graphic")
+                 (if graphic "graphic" "non-graphic"))
+              (setq undelete-frame--deleted-frames
+                    (delq frame-data undelete-frame--deleted-frames))
+              (let* ((default-frame-alist (nth 1 frame-data))
+                     (frame (make-frame)))
+                (window-state-put (nth 2 frame-data) (frame-root-window frame) 'safe)
+                (select-frame-set-input-focus frame)
+                frame))))))))
 
 ;;; Window dividers.
 (defgroup window-divider nil
@@ -2850,6 +2972,7 @@ See also `toggle-frame-maximized'."
 (define-key ctl-x-5-map "o" #'other-frame)
 (define-key ctl-x-5-map "5" #'other-frame-prefix)
 (define-key ctl-x-5-map "c" #'clone-frame)
+(define-key ctl-x-5-map "u" #'undelete-frame)
 (define-key global-map [f11] #'toggle-frame-fullscreen)
 (define-key global-map [(meta f10)] #'toggle-frame-maximized)
 (define-key esc-map    [f10]        #'toggle-frame-maximized)

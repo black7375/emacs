@@ -41,13 +41,11 @@
 ;; XDG Base Directory Specification
 ;; https://standards.freedesktop.org/basedir-spec/basedir-spec-latest.html
 
-(defmacro xdg--dir-home (environ default-path)
-  (declare (debug (stringp stringp)))
-  (let ((env (make-symbol "env")))
-    `(let ((,env (getenv ,environ)))
-       (if (or (null ,env) (not (file-name-absolute-p ,env)))
-           (expand-file-name ,default-path)
-         ,env))))
+(defun xdg--dir-home (environ default-path)
+  (let ((env (getenv environ)))
+    (if (or (null env) (not (file-name-absolute-p env)))
+        (expand-file-name default-path)
+      env)))
 
 (defun xdg-config-home ()
   "Return the base directory for user specific configuration files.
@@ -84,6 +82,23 @@ According to the XDG Base Directory Specification version
     either not set or empty, a default equal to $HOME/.local/share
     should be used.\""
   (xdg--dir-home "XDG_DATA_HOME" "~/.local/share"))
+
+(defun xdg-state-home ()
+  "Return the base directory for user-specific state data.
+
+According to the XDG Base Directory Specification version
+0.8 (8th May 2021):
+
+  \"The $XDG_STATE_HOME contains state data that should persist
+  between (application) restarts, but that is not important or
+  portable enough to the user that it should be stored in
+  $XDG_DATA_HOME.  It may contain:
+
+  * actions history (logs, history, recently used files, …)
+
+  * current state of the application that can be reused on a
+    restart (view, layout, open files, undo history, …)\""
+  (xdg--dir-home "XDG_STATE_HOME" "~/.local/state"))
 
 (defun xdg-runtime-dir ()
   "Return the value of $XDG_RUNTIME_DIR.

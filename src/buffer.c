@@ -912,6 +912,10 @@ does not run the hooks `kill-buffer-hook',
       Fset (intern ("buffer-save-without-query"), Qnil);
       Fset (intern ("buffer-file-number"), Qnil);
       Fset (intern ("buffer-stale-function"), Qnil);
+      /* Cloned buffers need extra setup, to do things such as deep
+	 variable copies for list variables that might be mangled due
+	 to destructive operations in the indirect buffer. */
+      run_hook (Qclone_indirect_buffer_hook);
       set_buffer_internal_1 (old_b);
     }
 
@@ -1247,7 +1251,7 @@ buffer_local_value (Lisp_Object variable, Lisp_Object buffer)
       { /* Look in local_var_alist.  */
 	struct Lisp_Buffer_Local_Value *blv = SYMBOL_BLV (sym);
 	XSETSYMBOL (variable, sym); /* Update In case of aliasing.  */
-	result = Fassoc (variable, BVAR (buf, local_var_alist), Qnil);
+	result = assq_no_quit (variable, BVAR (buf, local_var_alist));
 	if (!NILP (result))
 	  {
 	    if (blv->fwd.fwdptr)
@@ -1552,7 +1556,7 @@ This does not change the name of the visited file (if any).  */)
 
   /* Catch redisplay's attention.  Unless we do this, the mode lines for
      any windows displaying current_buffer will stay unchanged.  */
-  update_mode_lines = 11;
+  bset_update_mode_line (current_buffer);
 
   XSETBUFFER (buf, current_buffer);
   Fsetcar (Frassq (buf, Vbuffer_alist), newname);
@@ -1561,6 +1565,9 @@ This does not change the name of the visited file (if any).  */)
     call0 (intern ("rename-auto-save-file"));
 
   run_buffer_list_update_hook (current_buffer);
+
+  call2 (intern ("uniquify--rename-buffer-advice"),
+         BVAR (current_buffer, name), unique);
 
   /* Refetch since that last call may have done GC.  */
   return BVAR (current_buffer, name);
@@ -2805,7 +2812,7 @@ current buffer is cleared.  */)
 }
 
 DEFUN ("kill-all-local-variables", Fkill_all_local_variables,
-       Skill_all_local_variables, 0, 0, 0,
+       Skill_all_local_variables, 0, 1, 0,
        doc: /* Switch to Fundamental mode by killing current buffer's local variables.
 Most local variable bindings are eliminated so that the default values
 become effective once more.  Also, the syntax table is set from
@@ -2816,18 +2823,20 @@ This function also forces redisplay of the mode line.
 Every function to select a new major mode starts by
 calling this function.
 
-As a special exception, local variables whose names have
-a non-nil `permanent-local' property are not eliminated by this function.
+As a special exception, local variables whose names have a non-nil
+`permanent-local' property are not eliminated by this function.  If
+the optional KILL-PERMANENT argument is non-nil, clear out these local
+variables, too.
 
 The first thing this function does is run
 the normal hook `change-major-mode-hook'.  */)
-  (void)
+  (Lisp_Object kill_permanent)
 {
   run_hook (Qchange_major_mode_hook);
 
   /* Actually eliminate all local bindings of this buffer.  */
 
-  reset_buffer_local_variables (current_buffer, 0);
+  reset_buffer_local_variables (current_buffer, !NILP (kill_permanent));
 
   /* Force mode-line redisplay.  Useful here because all major mode
      commands call this function.  */
@@ -5564,6 +5573,8 @@ syms_of_buffer (void)
   Fput (Qprotected_field, Qerror_message,
 	build_pure_c_string ("Attempt to modify a protected field"));
 
+  DEFSYM (Qclone_indirect_buffer_hook, "clone-indirect-buffer-hook");
+
   DEFVAR_PER_BUFFER ("tab-line-format",
 		     &BVAR (current_buffer, tab_line_format),
 		     Qnil,
@@ -6386,6 +6397,13 @@ If `delete-auto-save-files' is nil, any autosave deletion is inhibited.  */);
 	       doc: /* Non-nil means delete auto-save file when a buffer is saved.
 This is the default.  If nil, auto-save file deletion is inhibited.  */);
   delete_auto_save_files = 1;
+
+  DEFVAR_LISP ("clone-indirect-buffer-hook", Vclone_indirect_buffer_hook,
+	       doc: /* Normal hook to run in the new buffer at the end of `make-indirect-buffer'.
+
+Since `clone-indirect-buffer' calls `make-indirect-buffer', this hook
+will run for `clone-indirect-buffer' calls as well.  */);
+  Vclone_indirect_buffer_hook = Qnil;
 
   defsubr (&Sbuffer_live_p);
   defsubr (&Sbuffer_list);

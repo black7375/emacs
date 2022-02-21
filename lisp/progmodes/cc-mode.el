@@ -179,6 +179,15 @@
   (when c-buffer-is-cc-mode
     (save-restriction
       (widen)
+      (let ((lst (buffer-list)))
+	(catch 'found
+	  (dolist (b lst)
+	    (if (and (not (eq b (current-buffer)))
+		     (with-current-buffer b
+		       c-buffer-is-cc-mode))
+		(throw 'found nil)))
+	  (remove-hook 'post-command-hook 'c-post-command)
+	  (remove-hook 'post-gc-hook 'c-post-gc-hook)))
       (c-save-buffer-state ()
 	(c-clear-char-properties (point-min) (point-max) 'category)
 	(c-clear-char-properties (point-min) (point-max) 'syntax-table)
@@ -745,6 +754,8 @@ that requires a literal mode spec at compile time."
   ;; would do since font-lock uses a(n implicit) depth of 0) so we don't need
   ;; c-after-font-lock-init.
   (add-hook 'after-change-functions 'c-after-change nil t)
+  (add-hook 'post-command-hook 'c-post-command)
+
   (when (boundp 'font-lock-extend-after-change-region-function)
     (set (make-local-variable 'font-lock-extend-after-change-region-function)
          'c-extend-after-change-region))) ; Currently (2009-05) used by all
@@ -787,43 +798,44 @@ MODE is the symbol for the mode to initialize, like `c-mode'.  See
 `c-basic-common-init' for details.  It's only optional to be
 compatible with old code; callers should always specify it."
 
-  (unless mode
-    ;; Called from an old third party package.  The fallback is to
-    ;; initialize for C.
-    (c-init-language-vars-for 'c-mode))
+  (let (case-fold-search)
+    (unless mode
+      ;; Called from an old third party package.  The fallback is to
+      ;; initialize for C.
+      (c-init-language-vars-for 'c-mode))
 
-  (c-basic-common-init mode c-default-style)
-  (when mode
-    ;; Only initialize font locking if we aren't called from an old package.
-    (c-font-lock-init))
+    (c-basic-common-init mode c-default-style)
+    (when mode
+      ;; Only initialize font locking if we aren't called from an old package.
+      (c-font-lock-init))
 
-  ;; Starting a mode is a sort of "change".  So call the change functions...
-  (save-restriction
-    (widen)
-    (setq c-new-BEG (point-min))
-    (setq c-new-END (point-max))
-    (save-excursion
-      (let (before-change-functions after-change-functions)
-	(mapc (lambda (fn)
-		(funcall fn (point-min) (point-max)))
-	      c-get-state-before-change-functions)
-	(mapc (lambda (fn)
-		(funcall fn (point-min) (point-max)
-			 (- (point-max) (point-min))))
-	      c-before-font-lock-functions))))
+    ;; Starting a mode is a sort of "change".  So call the change functions...
+    (save-restriction
+      (widen)
+      (setq c-new-BEG (point-min))
+      (setq c-new-END (point-max))
+      (save-excursion
+	(let (before-change-functions after-change-functions)
+	  (mapc (lambda (fn)
+		  (funcall fn (point-min) (point-max)))
+		c-get-state-before-change-functions)
+	  (mapc (lambda (fn)
+		  (funcall fn (point-min) (point-max)
+			   (- (point-max) (point-min))))
+		c-before-font-lock-functions))))
 
-  (set (make-local-variable 'outline-regexp) "[^#\n\^M]")
-  (set (make-local-variable 'outline-level) 'c-outline-level)
-  (set (make-local-variable 'add-log-current-defun-function)
-       (lambda ()
-	 (or (c-cpp-define-name) (car (c-defun-name-and-limits nil)))))
-  (let ((rfn (assq mode c-require-final-newline)))
-    (when rfn
-      (if (boundp 'mode-require-final-newline)
-          (and (cdr rfn)
-               (set (make-local-variable 'require-final-newline)
-                    mode-require-final-newline))
-        (set (make-local-variable 'require-final-newline) (cdr rfn))))))
+    (set (make-local-variable 'outline-regexp) "[^#\n\^M]")
+    (set (make-local-variable 'outline-level) 'c-outline-level)
+    (set (make-local-variable 'add-log-current-defun-function)
+	 (lambda ()
+	   (or (c-cpp-define-name) (car (c-defun-name-and-limits nil)))))
+    (let ((rfn (assq mode c-require-final-newline)))
+      (when rfn
+	(if (boundp 'mode-require-final-newline)
+            (and (cdr rfn)
+		 (set (make-local-variable 'require-final-newline)
+                      mode-require-final-newline))
+          (set (make-local-variable 'require-final-newline) (cdr rfn)))))))
 
 (defun c-count-cfss (lv-alist)
   ;; LV-ALIST is an alist like `file-local-variables-alist'.  Count how many
@@ -1950,6 +1962,43 @@ Note that this is a strict tail, so won't match, e.g. \"0x....\".")
 	;; confused by already processed single quotes.
 	(narrow-to-region (point) (point-max))))))
 
+;; The next two variables record the bounds of an identifier currently being
+;; typed in.  These are used to prevent such a partial identifier being
+;; recorded as a found type by c-add-type.
+(defvar c-new-id-start nil)
+(make-variable-buffer-local 'c-new-id-start)
+(defvar c-new-id-end nil)
+(make-variable-buffer-local 'c-new-id-end)
+;; The next variable, when non-nil, records that the previous two variables
+;; define a type.
+(defvar c-new-id-is-type nil)
+(make-variable-buffer-local 'c-new-id-is-type)
+
+(defun c-update-new-id (end)
+  ;; Note the bounds of any identifier that END is in or just after, in
+  ;; `c-new-id-start' and `c-new-id-end'.  Otherwise set these variables to
+  ;; nil.
+  (save-excursion
+    (goto-char end)
+    (let ((id-beg (c-on-identifier)))
+      (setq c-new-id-start id-beg
+	    c-new-id-end (and id-beg
+			      (progn (c-end-of-current-token) (point)))))))
+
+
+(defun c-post-command ()
+  ;; If point was inside of a new identifier and no longer is, record that
+  ;; fact.
+  (when (and c-buffer-is-cc-mode
+	     c-new-id-start c-new-id-end
+	     (or (> (point) c-new-id-end)
+		 (< (point) c-new-id-start)))
+    (when c-new-id-is-type
+      (c-add-type-1 c-new-id-start c-new-id-end))
+    (setq c-new-id-start nil
+	  c-new-id-end nil
+	  c-new-id-is-type nil)))
+
 (defun c-before-change (beg end)
   ;; Function to be put on `before-change-functions'.  Primarily, this calls
   ;; the language dependent `c-get-state-before-change-functions'.  It is
@@ -1969,11 +2018,16 @@ Note that this is a strict tail, so won't match, e.g. \"0x....\".")
   (unless (c-called-from-text-property-change-p)
     (save-restriction
       (widen)
+      ;; Clear the list of found types if we make a change at the start of the
+      ;; buffer, to make it easier to get rid of misspelled types and
+      ;; variables that have gotten recognized as types in malformed code.
+      (when (eq beg (point-min))
+	(c-clear-found-types))
       (if c-just-done-before-change
-	  ;; We have two consecutive calls to `before-change-functions' without
-	  ;; an intervening `after-change-functions'.  An example of this is bug
-	  ;; #38691.  To protect CC Mode, assume that the entire buffer has
-	  ;; changed.
+	  ;; We have two consecutive calls to `before-change-functions'
+	  ;; without an intervening `after-change-functions'.  An example of
+	  ;; this is bug #38691.  To protect CC Mode, assume that the entire
+	  ;; buffer has changed.
 	  (setq beg (point-min)
 		end (point-max)
 		c-just-done-before-change 'whole-buffer)
@@ -2151,6 +2205,7 @@ Note that this is a strict tail, so won't match, e.g. \"0x....\".")
 						      c->-as-paren-syntax)
 		    (c-clear-char-property-with-value beg end 'syntax-table nil)))
 
+		(c-update-new-id end)
 		(c-trim-found-types beg end old-len) ; maybe we don't
 						     ; need all of these.
 		(c-invalidate-sws-region-after beg end old-len)
@@ -2549,17 +2604,24 @@ This function is called from `c-common-init', once per mode initialization."
 
 At the time of call, point is just after the newly inserted CHAR.
 
-When CHAR is \", t will be returned unless the \" is marked with
-a string fence syntax-table text property.  For other characters,
-the default value of `electric-pair-inhibit-predicate' is called
-and its value returned.
+When CHAR is \" and not within a comment, t will be returned if
+the quotes on the current line are already balanced (i.e. if the
+last \" is not marked with a string fence syntax-table text
+property).  For other cases, the default value of
+`electric-pair-inhibit-predicate' is called and its value
+returned.
 
 This function is the appropriate value of
 `electric-pair-inhibit-predicate' for CC Mode modes, which mark
 invalid strings with such a syntax table text property on the
 opening \" and the next unescaped end of line."
-  (if (eq char ?\")
-      (not (equal (get-text-property (1- (point)) 'c-fl-syn-tab) '(15)))
+  (if (and (eq char ?\")
+	   (not (memq (cadr (c-semi-pp-to-literal (1- (point)))) '(c c++))))
+      (let ((last-quote (save-match-data
+			  (save-excursion
+			    (goto-char (c-point 'eoll))
+			    (search-backward "\"")))))
+	(not (equal (c-get-char-property last-quote 'c-fl-syn-tab) '(15))))
     (funcall (default-value 'electric-pair-inhibit-predicate) char)))
 
 

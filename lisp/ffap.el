@@ -651,7 +651,7 @@ also is substituted for the first empty-string component, if there is one.
 Uses `path-separator' to separate the path into substrings."
   ;; We cannot use parse-colon-path (files.el), since it kills
   ;; "//" entries using file-name-as-directory.
-  ;; Similar: dired-split, TeX-split-string, and RHOGEE's psg-list-env
+  ;; Similar: TeX-split-string, and RHOGEE's psg-list-env
   ;; in ff-paths and bib-cite.  The EMPTY arg may help mimic kpathsea.
   (if (or empty (getenv env))		; should return something
       (let ((start 0) match dir ret)
@@ -1449,10 +1449,13 @@ which may actually result in an URL rather than a filename."
 	       (ffap-file-exists-string (substring name 0 (match-beginning 0)))))
 	 ;; If it contains a colon, get rid of it (and return if exists)
 	 ((and (string-match path-separator name)
-	       (setq name (ffap-string-at-point 'nocolon))
-	       (> (length name) 0)
-	       (ffap-file-exists-string name)))
-	 ;; File does not exist, try the alist:
+	       (let ((this-name (ffap-string-at-point 'nocolon)))
+                 ;; But don't interpret the first part if ":/bin" as
+                 ;; the empty string.
+	         (when (> (length this-name) 0)
+                   (setq name this-name)
+	           (ffap-file-exists-string name)))))
+         ;; File does not exist, try the alist:
 	 ((let ((alist ffap-alist) tem try case-fold-search)
 	    (while (and alist (not try))
 	      (setq tem (car alist) alist (cdr alist))

@@ -97,6 +97,7 @@
 (cc-bytecomp-defun c-font-lock-declarators)
 (cc-bytecomp-defun c-font-lock-objc-method)
 (cc-bytecomp-defun c-font-lock-invalid-string)
+(cc-bytecomp-defun c-font-lock-fontify-region)
 
 
 ;; Note that font-lock in XEmacs doesn't expand face names as
@@ -919,13 +920,6 @@ casts and declarations are fontified.  Used on level 2 and higher."
   ;; This function does hidden buffer changes.
 
   ;;(message "c-font-lock-complex-decl-prepare %s %s" (point) limit)
-
-  ;; Clear the list of found types if we start from the start of the
-  ;; buffer, to make it easier to get rid of misspelled types and
-  ;; variables that have gotten recognized as types in malformed code.
-  (when (bobp)
-    (c-clear-found-types))
-
   (c-skip-comments-and-strings limit)
   (when (< (point) limit)
 
@@ -2254,6 +2248,47 @@ higher."
     ;; The overriding is done by unbinding the variable so that the normal
     ;; defvar will install its default value later on.
     (makunbound def-var)))
+
+;; `c-re-redisplay-timer' is a timer which, when triggered, causes a
+;; redisplay.
+(defvar c-re-redisplay-timer nil)
+
+(defun c-force-redisplay (start end)
+  ;; Force redisplay immediately.  This assumes `font-lock-support-mode' is
+  ;; 'jit-lock-mode.  Set the variable `c-re-redisplay-timer' to nil.
+  (save-excursion (c-font-lock-fontify-region start end))
+  (jit-lock-force-redisplay (copy-marker start) (copy-marker end))
+  (setq c-re-redisplay-timer nil))
+
+(defun c-fontify-new-found-type (type)
+  ;; Cause the fontification of TYPE, a string, wherever it occurs in the
+  ;; buffer.  If TYPE is currently displayed in a window, cause redisplay to
+  ;; happen "instantaneously".  These actions are done only when jit-lock-mode
+  ;; is active.
+  (when (and font-lock-mode
+	     (boundp 'font-lock-support-mode)
+	     (eq font-lock-support-mode 'jit-lock-mode))
+    (c-save-buffer-state
+	((window-boundaries
+	  (mapcar (lambda (win)
+		    (cons (window-start win)
+			  (window-end win)))
+		  (get-buffer-window-list (current-buffer) 'no-mini t)))
+	 (target-re (concat "\\_<" type "\\_>")))
+      (save-excursion
+	(save-restriction
+	  (widen)
+	  (goto-char (point-min))
+	  (while (re-search-forward target-re nil t)
+	    (put-text-property (match-beginning 0) (match-end 0)
+			       'fontified nil)
+	    (dolist (win-boundary window-boundaries)
+	      (when (and (< (match-beginning 0) (cdr win-boundary))
+			 (> (match-end 0) (car win-boundary))
+			 (not c-re-redisplay-timer))
+		(setq c-re-redisplay-timer
+		      (run-with-timer 0 nil #'c-force-redisplay
+				      (match-beginning 0) (match-end 0)))))))))))
 
 
 ;;; C.

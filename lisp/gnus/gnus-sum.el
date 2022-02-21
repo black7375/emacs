@@ -1182,8 +1182,8 @@ mark:         The article's mark.
 uncached:     Non-nil if the article is uncached."
   :group 'gnus-summary-visual
   :type '(repeat (cons (sexp :tag "Form" nil)
-		       face)))
-(put 'gnus-summary-highlight 'risky-local-variable t)
+                       face))
+  :risky t)
 
 (defcustom gnus-alter-header-function nil
   "Function called to allow alteration of article header structures.
@@ -1907,485 +1907,483 @@ increase the score of each group you read."
 
 ;; Non-orthogonal keys
 
-(gnus-define-keys gnus-summary-mode-map
-  " " gnus-summary-next-page
-  [?\S-\ ] gnus-summary-prev-page
-  "\177" gnus-summary-prev-page
-  [delete] gnus-summary-prev-page
-  "\r" gnus-summary-scroll-up
-  "\M-\r" gnus-summary-scroll-down
-  "n" gnus-summary-next-unread-article
-  "p" gnus-summary-prev-unread-article
-  "N" gnus-summary-next-article
-  "P" gnus-summary-prev-article
-  "\M-\C-n" gnus-summary-next-same-subject
-  "\M-\C-p" gnus-summary-prev-same-subject
-  "\M-n" gnus-summary-next-unread-subject
-  "\M-p" gnus-summary-prev-unread-subject
-  "." gnus-summary-first-unread-article
-  "," gnus-summary-best-unread-article
-  "[" gnus-summary-prev-unseen-article
-  "]" gnus-summary-next-unseen-article
-  "\M-s\M-s" gnus-summary-search-article-forward
-  "\M-s\M-r" gnus-summary-search-article-backward
-  "\M-r" gnus-summary-search-article-backward
-  "\M-S" gnus-summary-repeat-search-article-forward
-  "\M-R" gnus-summary-repeat-search-article-backward
-  "<" gnus-summary-beginning-of-article
-  ">" gnus-summary-end-of-article
-  "j" gnus-summary-goto-article
-  "^" gnus-summary-refer-parent-article
-  "\M-^" gnus-summary-refer-article
-  "u" gnus-summary-tick-article-forward
-  "!" gnus-summary-tick-article-forward
-  "U" gnus-summary-tick-article-backward
-  "d" gnus-summary-mark-as-read-forward
-  "D" gnus-summary-mark-as-read-backward
-  "E" gnus-summary-mark-as-expirable
-  "\M-u" gnus-summary-clear-mark-forward
-  "\M-U" gnus-summary-clear-mark-backward
-  "k" gnus-summary-kill-same-subject-and-select
-  "\C-k" gnus-summary-kill-same-subject
-  "\M-\C-k" gnus-summary-kill-thread
-  "\M-\C-l" gnus-summary-lower-thread
-  "e" gnus-summary-edit-article
-  "#" gnus-summary-mark-as-processable
-  "\M-#" gnus-summary-unmark-as-processable
-  "\M-\C-t" gnus-summary-toggle-threads
-  "\M-\C-s" gnus-summary-show-thread
-  "\M-\C-h" gnus-summary-hide-thread
-  "\M-\C-f" gnus-summary-next-thread
-  "\M-\C-b" gnus-summary-prev-thread
-  [(meta down)] gnus-summary-next-thread
-  [(meta up)] gnus-summary-prev-thread
-  "\M-\C-u" gnus-summary-up-thread
-  "\M-\C-d" gnus-summary-down-thread
-  "&" gnus-summary-execute-command
-  "c" gnus-summary-catchup-and-exit
-  "\C-w" gnus-summary-mark-region-as-read
-  "\C-t" toggle-truncate-lines
-  "?" gnus-summary-mark-as-dormant
-  "\C-c\M-\C-s" gnus-summary-limit-include-expunged
-  "\C-c\C-s\C-n" gnus-summary-sort-by-number
-  "\C-c\C-s\C-m\C-n" gnus-summary-sort-by-most-recent-number
-  "\C-c\C-s\C-l" gnus-summary-sort-by-lines
-  "\C-c\C-s\C-c" gnus-summary-sort-by-chars
-  "\C-c\C-s\C-m\C-m" gnus-summary-sort-by-marks
-  "\C-c\C-s\C-a" gnus-summary-sort-by-author
-  "\C-c\C-s\C-t" gnus-summary-sort-by-recipient
-  "\C-c\C-s\C-s" gnus-summary-sort-by-subject
-  "\C-c\C-s\C-d" gnus-summary-sort-by-date
-  "\C-c\C-s\C-m\C-d" gnus-summary-sort-by-most-recent-date
-  "\C-c\C-s\C-i" gnus-summary-sort-by-score
-  "\C-c\C-s\C-o" gnus-summary-sort-by-original
-  "\C-c\C-s\C-r" gnus-summary-sort-by-random
-  "\C-c\C-s\C-u" gnus-summary-sort-by-newsgroups
-  "\C-c\C-s\C-x" gnus-summary-sort-by-extra
-  "=" gnus-summary-expand-window
-  "\C-x\C-s" gnus-summary-reselect-current-group
-  "\M-g" gnus-summary-rescan-group
-  "\C-c\C-r" gnus-summary-caesar-message
-  "f" gnus-summary-followup
-  "F" gnus-summary-followup-with-original
-  "C" gnus-summary-cancel-article
-  "r" gnus-summary-reply
-  "R" gnus-summary-reply-with-original
-  "\C-c\C-f" gnus-summary-mail-forward
-  "o" gnus-summary-save-article
-  "\C-o" gnus-summary-save-article-mail
-  "|" gnus-summary-pipe-output
-  "\M-k" gnus-summary-edit-local-kill
-  "\M-K" gnus-summary-edit-global-kill
+(define-keymap :keymap gnus-summary-mode-map
+  "SPC" #'gnus-summary-next-page
+  "S-SPC" #'gnus-summary-prev-page
+  "DEL" #'gnus-summary-prev-page
+  "<delete>" #'gnus-summary-prev-page
+  "RET" #'gnus-summary-scroll-up
+  "M-RET" #'gnus-summary-scroll-down
+  "n" #'gnus-summary-next-unread-article
+  "p" #'gnus-summary-prev-unread-article
+  "N" #'gnus-summary-next-article
+  "P" #'gnus-summary-prev-article
+  "C-M-n" #'gnus-summary-next-same-subject
+  "C-M-p" #'gnus-summary-prev-same-subject
+  "M-n" #'gnus-summary-next-unread-subject
+  "M-p" #'gnus-summary-prev-unread-subject
+  "." #'gnus-summary-first-unread-article
+  "," #'gnus-summary-best-unread-article
+  "[" #'gnus-summary-prev-unseen-article
+  "]" #'gnus-summary-next-unseen-article
+  "M-s M-s" #'gnus-summary-search-article-forward
+  "M-s M-r" #'gnus-summary-search-article-backward
+  "M-r" #'gnus-summary-search-article-backward
+  "M-S" #'gnus-summary-repeat-search-article-forward
+  "M-R" #'gnus-summary-repeat-search-article-backward
+  "<" #'gnus-summary-beginning-of-article
+  ">" #'gnus-summary-end-of-article
+  "j" #'gnus-summary-goto-article
+  "^" #'gnus-summary-refer-parent-article
+  "M-^" #'gnus-summary-refer-article
+  "u" #'gnus-summary-tick-article-forward
+  "!" #'gnus-summary-tick-article-forward
+  "U" #'gnus-summary-tick-article-backward
+  "d" #'gnus-summary-mark-as-read-forward
+  "D" #'gnus-summary-mark-as-read-backward
+  "E" #'gnus-summary-mark-as-expirable
+  "M-u" #'gnus-summary-clear-mark-forward
+  "M-U" #'gnus-summary-clear-mark-backward
+  "k" #'gnus-summary-kill-same-subject-and-select
+  "C-k" #'gnus-summary-kill-same-subject
+  "C-M-k" #'gnus-summary-kill-thread
+  "C-M-l" #'gnus-summary-lower-thread
+  "e" #'gnus-summary-edit-article
+  "#" #'gnus-summary-mark-as-processable
+  "M-#" #'gnus-summary-unmark-as-processable
+  "C-M-t" #'gnus-summary-toggle-threads
+  "C-M-s" #'gnus-summary-show-thread
+  "C-M-h" #'gnus-summary-hide-thread
+  "C-M-f" #'gnus-summary-next-thread
+  "C-M-b" #'gnus-summary-prev-thread
+  "M-<down>" #'gnus-summary-next-thread
+  "M-<up>" #'gnus-summary-prev-thread
+  "C-M-u" #'gnus-summary-up-thread
+  "C-M-d" #'gnus-summary-down-thread
+  "&" #'gnus-summary-execute-command
+  "c" #'gnus-summary-catchup-and-exit
+  "C-w" #'gnus-summary-mark-region-as-read
+  "C-t" #'toggle-truncate-lines
+  "?" #'gnus-summary-mark-as-dormant
+  "C-c C-M-s" #'gnus-summary-limit-include-expunged
+  "C-c C-s C-n" #'gnus-summary-sort-by-number
+  "C-c C-s C-m C-n" #'gnus-summary-sort-by-most-recent-number
+  "C-c C-s C-l" #'gnus-summary-sort-by-lines
+  "C-c C-s C-c" #'gnus-summary-sort-by-chars
+  "C-c C-s C-m C-m" #'gnus-summary-sort-by-marks
+  "C-c C-s C-a" #'gnus-summary-sort-by-author
+  "C-c C-s C-t" #'gnus-summary-sort-by-recipient
+  "C-c C-s C-s" #'gnus-summary-sort-by-subject
+  "C-c C-s C-d" #'gnus-summary-sort-by-date
+  "C-c C-s C-m C-d" #'gnus-summary-sort-by-most-recent-date
+  "C-c C-s C-i" #'gnus-summary-sort-by-score
+  "C-c C-s C-o" #'gnus-summary-sort-by-original
+  "C-c C-s C-r" #'gnus-summary-sort-by-random
+  "C-c C-s C-u" #'gnus-summary-sort-by-newsgroups
+  "C-c C-s C-x" #'gnus-summary-sort-by-extra
+  "=" #'gnus-summary-expand-window
+  "C-x C-s" #'gnus-summary-reselect-current-group
+  "M-g" #'gnus-summary-rescan-group
+  "C-c C-r" #'gnus-summary-caesar-message
+  "f" #'gnus-summary-followup
+  "F" #'gnus-summary-followup-with-original
+  "C" #'gnus-summary-cancel-article
+  "r" #'gnus-summary-reply
+  "R" #'gnus-summary-reply-with-original
+  "C-c C-f" #'gnus-summary-mail-forward
+  "o" #'gnus-summary-save-article
+  "C-o" #'gnus-summary-save-article-mail
+  "|" #'gnus-summary-pipe-output
+  "M-k" #'gnus-summary-edit-local-kill
+  "M-K" #'gnus-summary-edit-global-kill
   ;; "V" gnus-version
-  "\C-c\C-d" gnus-summary-describe-group
-  "\C-c\C-p" gnus-summary-make-group-from-search
-  "q" gnus-summary-exit
-  "Q" gnus-summary-exit-no-update
-  "\C-c\C-i" gnus-info-find-node
-  [mouse-2] gnus-mouse-pick-article
-  [follow-link] mouse-face
-  "m" gnus-summary-mail-other-window
-  "a" gnus-summary-post-news
-  "x" gnus-summary-limit-to-unread
-  "s" gnus-summary-isearch-article
-  "\t" gnus-summary-button-forward
-  [backtab] gnus-summary-button-backward
-  "w" gnus-summary-browse-url
-  "t" gnus-summary-toggle-header
-  "g" gnus-summary-show-article
-  "l" gnus-summary-goto-last-article
-  "\C-c\C-v\C-v" gnus-uu-decode-uu-view
-  "\C-d" gnus-summary-enter-digest-group
-  "\M-\C-d" gnus-summary-read-document
-  "\M-\C-e" gnus-summary-edit-parameters
-  "\M-\C-a" gnus-summary-customize-parameters
-  "\C-c\C-b" gnus-bug
-  "*" gnus-cache-enter-article
-  "\M-*" gnus-cache-remove-article
-  "\M-&" gnus-summary-universal-argument
-  "\C-l" gnus-recenter
-  "I" gnus-summary-increase-score
-  "L" gnus-summary-lower-score
-  "\M-i" gnus-symbolic-argument
-  "h" gnus-summary-select-article-buffer
+  "C-c C-d" #'gnus-summary-describe-group
+  "C-c C-p" #'gnus-summary-make-group-from-search
+  "q" #'gnus-summary-exit
+  "Q" #'gnus-summary-exit-no-update
+  "C-c C-i" #'gnus-info-find-node
+  "<mouse-2>" #'gnus-mouse-pick-article
+  "<follow-link>" 'mouse-face
+  "m" #'gnus-summary-mail-other-window
+  "a" #'gnus-summary-post-news
+  "x" #'gnus-summary-limit-to-unread
+  "s" #'gnus-summary-isearch-article
+  "TAB" #'gnus-summary-button-forward
+  "<backtab>" #'gnus-summary-button-backward
+  "w" #'gnus-summary-browse-url
+  "t" #'gnus-summary-toggle-header
+  "g" #'gnus-summary-show-article
+  "l" #'gnus-summary-goto-last-article
+  "C-c C-v C-v" #'gnus-uu-decode-uu-view
+  "C-d" #'gnus-summary-enter-digest-group
+  "C-M-d" #'gnus-summary-read-document
+  "C-M-e" #'gnus-summary-edit-parameters
+  "C-M-a" #'gnus-summary-customize-parameters
+  "C-c C-b" #'gnus-bug
+  "*" #'gnus-cache-enter-article
+  "M-*" #'gnus-cache-remove-article
+  "M-&" #'gnus-summary-universal-argument
+  "C-l" #'gnus-recenter
+  "I" #'gnus-summary-increase-score
+  "L" #'gnus-summary-lower-score
+  "M-i" #'gnus-symbolic-argument
+  "h" #'gnus-summary-select-article-buffer
 
-  "b" gnus-article-view-part
-  "\M-t" gnus-summary-toggle-display-buttonized
+  "b" #'gnus-article-view-part
+  "M-t" #'gnus-summary-toggle-display-buttonized
 
-  "V" gnus-summary-score-map
-  "X" gnus-uu-extract-map
-  "S" gnus-summary-send-map)
+  "S" #'gnus-summary-send-map
 
-;; Sort of orthogonal keymap
-(gnus-define-keys (gnus-summary-mark-map "M" gnus-summary-mode-map)
-  "t" gnus-summary-tick-article-forward
-  "!" gnus-summary-tick-article-forward
-  "d" gnus-summary-mark-as-read-forward
-  "r" gnus-summary-mark-as-read-forward
-  "c" gnus-summary-clear-mark-forward
-  " " gnus-summary-clear-mark-forward
-  "e" gnus-summary-mark-as-expirable
-  "x" gnus-summary-mark-as-expirable
-  "?" gnus-summary-mark-as-dormant
-  "b" gnus-summary-set-bookmark
-  "B" gnus-summary-remove-bookmark
-  "#" gnus-summary-mark-as-processable
-  "\M-#" gnus-summary-unmark-as-processable
-  "S" gnus-summary-limit-include-expunged
-  "C" gnus-summary-catchup
-  "H" gnus-summary-catchup-to-here
-  "h" gnus-summary-catchup-from-here
-  "\C-c" gnus-summary-catchup-all
-  "k" gnus-summary-kill-same-subject-and-select
-  "K" gnus-summary-kill-same-subject
-  "P" gnus-uu-mark-map)
+  ;; Sort of orthogonal keymaps.
+  "M" (define-keymap :prefix 'gnus-summary-mark-map
+        "t" #'gnus-summary-tick-article-forward
+        "!" #'gnus-summary-tick-article-forward
+        "d" #'gnus-summary-mark-as-read-forward
+        "r" #'gnus-summary-mark-as-read-forward
+        "c" #'gnus-summary-clear-mark-forward
+        "SPC" #'gnus-summary-clear-mark-forward
+        "e" #'gnus-summary-mark-as-expirable
+        "x" #'gnus-summary-mark-as-expirable
+        "?" #'gnus-summary-mark-as-dormant
+        "b" #'gnus-summary-set-bookmark
+        "B" #'gnus-summary-remove-bookmark
+        "#" #'gnus-summary-mark-as-processable
+        "M-#" #'gnus-summary-unmark-as-processable
+        "S" #'gnus-summary-limit-include-expunged
+        "C" #'gnus-summary-catchup
+        "H" #'gnus-summary-catchup-to-here
+        "h" #'gnus-summary-catchup-from-here
+        "C-c" #'gnus-summary-catchup-all
+        "k" #'gnus-summary-kill-same-subject-and-select
+        "K" #'gnus-summary-kill-same-subject
 
-(gnus-define-keys (gnus-summary-mscore-map "V" gnus-summary-mark-map)
-  "c" gnus-summary-clear-above
-  "u" gnus-summary-tick-above
-  "m" gnus-summary-mark-above
-  "k" gnus-summary-kill-below)
+        "P" (define-keymap :prefix 'gnus-uu-mark-map
+              "p" #'gnus-summary-mark-as-processable
+              "u" #'gnus-summary-unmark-as-processable
+              "U" #'gnus-summary-unmark-all-processable
+              "v" #'gnus-uu-mark-over
+              "s" #'gnus-uu-mark-series
+              "r" #'gnus-uu-mark-region
+              "g" #'gnus-uu-unmark-region
+              "R" #'gnus-uu-mark-by-regexp
+              "G" #'gnus-uu-unmark-by-regexp
+              "t" #'gnus-uu-mark-thread
+              "T" #'gnus-uu-unmark-thread
+              "a" #'gnus-uu-mark-all
+              "b" #'gnus-uu-mark-buffer
+              "S" #'gnus-uu-mark-sparse
+              "k" #'gnus-summary-kill-process-mark
+              "y" #'gnus-summary-yank-process-mark
+              "w" #'gnus-summary-save-process-mark
+              "i" #'gnus-uu-invert-processable)
 
-(gnus-define-keys (gnus-summary-limit-map "/" gnus-summary-mode-map)
-  "/" gnus-summary-limit-to-subject
-  "n" gnus-summary-limit-to-articles
-  "b" gnus-summary-limit-to-bodies
-  "h" gnus-summary-limit-to-headers
-  "w" gnus-summary-pop-limit
-  "s" gnus-summary-limit-to-subject
-  "a" gnus-summary-limit-to-author
-  "u" gnus-summary-limit-to-unread
-  "m" gnus-summary-limit-to-marks
-  "M" gnus-summary-limit-exclude-marks
-  "v" gnus-summary-limit-to-score
-  "*" gnus-summary-limit-include-cached
-  "D" gnus-summary-limit-include-dormant
-  "T" gnus-summary-limit-include-thread
-  "d" gnus-summary-limit-exclude-dormant
-  "t" gnus-summary-limit-to-age
-  "." gnus-summary-limit-to-unseen
-  "x" gnus-summary-limit-to-extra
-  "p" gnus-summary-limit-to-display-predicate
-  "E" gnus-summary-limit-include-expunged
-  "c" gnus-summary-limit-exclude-childless-dormant
-  "C" gnus-summary-limit-mark-excluded-as-read
-  "o" gnus-summary-insert-old-articles
-  "N" gnus-summary-insert-new-articles
-  "S" gnus-summary-limit-to-singletons
-  "r" gnus-summary-limit-to-replied
-  "R" gnus-summary-limit-to-recipient
-  "A" gnus-summary-limit-to-address)
+        "V" (define-keymap :prefix 'gnus-summary-mscore-map
+              "c" #'gnus-summary-clear-above
+              "u" #'gnus-summary-tick-above
+              "m" #'gnus-summary-mark-above
+              "k" #'gnus-summary-kill-below))
 
-(gnus-define-keys (gnus-summary-goto-map "G" gnus-summary-mode-map)
-  "n" gnus-summary-next-unread-article
-  "p" gnus-summary-prev-unread-article
-  "N" gnus-summary-next-article
-  "P" gnus-summary-prev-article
-  "\C-n" gnus-summary-next-same-subject
-  "\C-p" gnus-summary-prev-same-subject
-  "\M-n" gnus-summary-next-unread-subject
-  "\M-p" gnus-summary-prev-unread-subject
-  "f" gnus-summary-first-unread-article
-  "b" gnus-summary-best-unread-article
-  "u" gnus-summary-next-unseen-article
-  "U" gnus-summary-prev-unseen-article
-  "j" gnus-summary-goto-article
-  "g" gnus-summary-goto-subject
-  "l" gnus-summary-goto-last-article
-  "o" gnus-summary-pop-article)
+  "/" (define-keymap :prefix 'gnus-summary-limit-map
+        "/" #'gnus-summary-limit-to-subject
+        "n" #'gnus-summary-limit-to-articles
+        "b" #'gnus-summary-limit-to-bodies
+        "h" #'gnus-summary-limit-to-headers
+        "w" #'gnus-summary-pop-limit
+        "s" #'gnus-summary-limit-to-subject
+        "a" #'gnus-summary-limit-to-author
+        "u" #'gnus-summary-limit-to-unread
+        "m" #'gnus-summary-limit-to-marks
+        "M" #'gnus-summary-limit-exclude-marks
+        "v" #'gnus-summary-limit-to-score
+        "*" #'gnus-summary-limit-include-cached
+        "D" #'gnus-summary-limit-include-dormant
+        "T" #'gnus-summary-limit-include-thread
+        "d" #'gnus-summary-limit-exclude-dormant
+        "t" #'gnus-summary-limit-to-age
+        "." #'gnus-summary-limit-to-unseen
+        "x" #'gnus-summary-limit-to-extra
+        "p" #'gnus-summary-limit-to-display-predicate
+        "E" #'gnus-summary-limit-include-expunged
+        "c" #'gnus-summary-limit-exclude-childless-dormant
+        "C" #'gnus-summary-limit-mark-excluded-as-read
+        "o" #'gnus-summary-insert-old-articles
+        "N" #'gnus-summary-insert-new-articles
+        "S" #'gnus-summary-limit-to-singletons
+        "r" #'gnus-summary-limit-to-replied
+        "R" #'gnus-summary-limit-to-recipient
+        "A" #'gnus-summary-limit-to-address)
 
-(gnus-define-keys (gnus-summary-thread-map "T" gnus-summary-mode-map)
-  "k" gnus-summary-kill-thread
-  "E" gnus-summary-expire-thread
-  "l" gnus-summary-lower-thread
-  "i" gnus-summary-raise-thread
-  "T" gnus-summary-toggle-threads
-  "t" gnus-summary-rethread-current
-  "^" gnus-summary-reparent-thread
-  "\M-^" gnus-summary-reparent-children
-  "s" gnus-summary-show-thread
-  "S" gnus-summary-show-all-threads
-  "h" gnus-summary-hide-thread
-  "H" gnus-summary-hide-all-threads
-  "n" gnus-summary-next-thread
-  "p" gnus-summary-prev-thread
-  "u" gnus-summary-up-thread
-  "o" gnus-summary-top-thread
-  "d" gnus-summary-down-thread
-  "#" gnus-uu-mark-thread
-  "\M-#" gnus-uu-unmark-thread)
+  "G" (define-keymap :prefix 'gnus-summary-goto-map
+        "n" #'gnus-summary-next-unread-article
+        "p" #'gnus-summary-prev-unread-article
+        "N" #'gnus-summary-next-article
+        "P" #'gnus-summary-prev-article
+        "C-n" #'gnus-summary-next-same-subject
+        "C-p" #'gnus-summary-prev-same-subject
+        "M-n" #'gnus-summary-next-unread-subject
+        "M-p" #'gnus-summary-prev-unread-subject
+        "f" #'gnus-summary-first-unread-article
+        "b" #'gnus-summary-best-unread-article
+        "u" #'gnus-summary-next-unseen-article
+        "U" #'gnus-summary-prev-unseen-article
+        "j" #'gnus-summary-goto-article
+        "g" #'gnus-summary-goto-subject
+        "l" #'gnus-summary-goto-last-article
+        "o" #'gnus-summary-pop-article)
 
-(gnus-define-keys (gnus-summary-buffer-map "Y" gnus-summary-mode-map)
-  "g" gnus-summary-prepare
-  "c" gnus-summary-insert-cached-articles
-  "d" gnus-summary-insert-dormant-articles
-  "t" gnus-summary-insert-ticked-articles)
+  "T" (define-keymap :prefix 'gnus-summary-thread-map
+        "k" #'gnus-summary-kill-thread
+        "E" #'gnus-summary-expire-thread
+        "l" #'gnus-summary-lower-thread
+        "i" #'gnus-summary-raise-thread
+        "T" #'gnus-summary-toggle-threads
+        "t" #'gnus-summary-rethread-current
+        "^" #'gnus-summary-reparent-thread
+        "M-^" #'gnus-summary-reparent-children
+        "s" #'gnus-summary-show-thread
+        "S" #'gnus-summary-show-all-threads
+        "h" #'gnus-summary-hide-thread
+        "H" #'gnus-summary-hide-all-threads
+        "n" #'gnus-summary-next-thread
+        "p" #'gnus-summary-prev-thread
+        "u" #'gnus-summary-up-thread
+        "o" #'gnus-summary-top-thread
+        "d" #'gnus-summary-down-thread
+        "#" #'gnus-uu-mark-thread
+        "M-#" #'gnus-uu-unmark-thread)
 
-(gnus-define-keys (gnus-summary-exit-map "Z" gnus-summary-mode-map)
-  "c" gnus-summary-catchup-and-exit
-  "C" gnus-summary-catchup-all-and-exit
-  "E" gnus-summary-exit-no-update
-  "Q" gnus-summary-exit
-  "Z" gnus-summary-exit
-  "n" gnus-summary-catchup-and-goto-next-group
-  "p" gnus-summary-catchup-and-goto-prev-group
-  "R" gnus-summary-reselect-current-group
-  "G" gnus-summary-rescan-group
-  "N" gnus-summary-next-group
-  "s" gnus-summary-save-newsrc
-  "P" gnus-summary-prev-group)
+  "Y" (define-keymap :prefix 'gnus-summary-buffer-map
+        "g" #'gnus-summary-prepare
+        "c" #'gnus-summary-insert-cached-articles
+        "d" #'gnus-summary-insert-dormant-articles
+        "t" #'gnus-summary-insert-ticked-articles)
 
-(gnus-define-keys (gnus-summary-article-map "A" gnus-summary-mode-map)
-  " " gnus-summary-next-page
-  "n" gnus-summary-next-page
-  [?\S-\ ] gnus-summary-prev-page
-  "\177" gnus-summary-prev-page
-  [delete] gnus-summary-prev-page
-  "p" gnus-summary-prev-page
-  "\r" gnus-summary-scroll-up
-  "\M-\r" gnus-summary-scroll-down
-  "<" gnus-summary-beginning-of-article
-  ">" gnus-summary-end-of-article
-  "b" gnus-summary-beginning-of-article
-  "e" gnus-summary-end-of-article
-  "^" gnus-summary-refer-parent-article
-  "r" gnus-summary-refer-parent-article
-  "C" gnus-summary-show-complete-article
-  "D" gnus-summary-enter-digest-group
-  "R" gnus-summary-refer-references
-  "T" gnus-summary-refer-thread
-  "W" gnus-warp-to-article
-  "g" gnus-summary-show-article
-  "s" gnus-summary-isearch-article
-  "\t" gnus-summary-button-forward
-  [backtab] gnus-summary-button-backward
-  "w" gnus-summary-browse-url
-  "P" gnus-summary-print-article
-  "S" gnus-sticky-article
-  "M" gnus-mailing-list-insinuate
-  "t" gnus-article-babel)
+  "Z" (define-keymap :prefix 'gnus-summary-exit-map
+        "c" #'gnus-summary-catchup-and-exit
+        "C" #'gnus-summary-catchup-all-and-exit
+        "E" #'gnus-summary-exit-no-update
+        "Q" #'gnus-summary-exit
+        "Z" #'gnus-summary-exit
+        "n" #'gnus-summary-catchup-and-goto-next-group
+        "p" #'gnus-summary-catchup-and-goto-prev-group
+        "R" #'gnus-summary-reselect-current-group
+        "G" #'gnus-summary-rescan-group
+        "N" #'gnus-summary-next-group
+        "s" #'gnus-summary-save-newsrc
+        "P" #'gnus-summary-prev-group)
 
-(gnus-define-keys (gnus-summary-wash-map "W" gnus-summary-mode-map)
-  "b" gnus-article-add-buttons
-  "B" gnus-article-add-buttons-to-head
-  "o" gnus-article-treat-overstrike
-  "e" gnus-article-emphasize
-  "w" gnus-article-fill-cited-article
-  "Q" gnus-article-fill-long-lines
-  "L" gnus-article-toggle-truncate-lines
-  "C" gnus-article-capitalize-sentences
-  "c" gnus-article-remove-cr
-  "q" gnus-article-de-quoted-unreadable
-  "6" gnus-article-de-base64-unreadable
-  "Z" gnus-article-decode-HZ
-  "A" gnus-article-treat-ansi-sequences
-  "h" gnus-article-wash-html
-  "u" gnus-article-unsplit-urls
-  "s" gnus-summary-force-verify-and-decrypt
-  "f" gnus-article-display-x-face
-  "l" gnus-summary-stop-page-breaking
-  "r" gnus-summary-caesar-message
-  "m" gnus-summary-morse-message
-  "t" gnus-summary-toggle-header
-  "g" gnus-treat-smiley
-  "v" gnus-summary-verbose-headers
-  "a" gnus-article-strip-headers-in-body ;; mnemonic: wash archive
-  "p" gnus-article-verify-x-pgp-sig
-  "d" gnus-article-treat-smartquotes
-  "U" gnus-article-treat-non-ascii
-  "i" gnus-summary-idna-message)
+  "A" (define-keymap :prefix 'gnus-summary-article-map
+        "SPC" #'gnus-summary-next-page
+        "n" #'gnus-summary-next-page
+        "S-SPC" #'gnus-summary-prev-page
+        "DEL" #'gnus-summary-prev-page
+        "<delete>" #'gnus-summary-prev-page
+        "p" #'gnus-summary-prev-page
+        "RET" #'gnus-summary-scroll-up
+        "M-RET" #'gnus-summary-scroll-down
+        "<" #'gnus-summary-beginning-of-article
+        ">" #'gnus-summary-end-of-article
+        "b" #'gnus-summary-beginning-of-article
+        "e" #'gnus-summary-end-of-article
+        "^" #'gnus-summary-refer-parent-article
+        "r" #'gnus-summary-refer-parent-article
+        "C" #'gnus-summary-show-complete-article
+        "D" #'gnus-summary-enter-digest-group
+        "R" #'gnus-summary-refer-references
+        "T" #'gnus-summary-refer-thread
+        "W" #'gnus-warp-to-article
+        "g" #'gnus-summary-show-article
+        "s" #'gnus-summary-isearch-article
+        "TAB" #'gnus-summary-button-forward
+        "<backtab>" #'gnus-summary-button-backward
+        "w" #'gnus-summary-browse-url
+        "P" #'gnus-summary-print-article
+        "S" #'gnus-sticky-article
+        "M" #'gnus-mailing-list-insinuate
+        "t" #'gnus-article-babel)
 
-(gnus-define-keys (gnus-summary-wash-deuglify-map "Y" gnus-summary-wash-map)
-  ;; mnemonic: deuglif*Y*
-  "u" gnus-article-outlook-unwrap-lines
-  "a" gnus-article-outlook-repair-attribution
-  "c" gnus-article-outlook-rearrange-citation
-  "f" gnus-article-outlook-deuglify-article) ;; mnemonic: full deuglify
+  "W" (define-keymap :prefix 'gnus-summary-wash-map
+        "b" #'gnus-article-add-buttons
+        "B" #'gnus-article-add-buttons-to-head
+        "o" #'gnus-article-treat-overstrike
+        "e" #'gnus-article-emphasize
+        "w" #'gnus-article-fill-cited-article
+        "Q" #'gnus-article-fill-long-lines
+        "L" #'gnus-article-toggle-truncate-lines
+        "C" #'gnus-article-capitalize-sentences
+        "c" #'gnus-article-remove-cr
+        "q" #'gnus-article-de-quoted-unreadable
+        "6" #'gnus-article-de-base64-unreadable
+        "Z" #'gnus-article-decode-HZ
+        "A" #'gnus-article-treat-ansi-sequences
+        "h" #'gnus-article-wash-html
+        "u" #'gnus-article-unsplit-urls
+        "s" #'gnus-summary-force-verify-and-decrypt
+        "f" #'gnus-article-display-x-face
+        "l" #'gnus-summary-stop-page-breaking
+        "r" #'gnus-summary-caesar-message
+        "m" #'gnus-summary-morse-message
+        "t" #'gnus-summary-toggle-header
+        "g" #'gnus-treat-smiley
+        "v" #'gnus-summary-verbose-headers
+        "a" #'gnus-article-strip-headers-in-body ;; mnemonic: wash archive
+        "p" #'gnus-article-verify-x-pgp-sig
+        "d" #'gnus-article-treat-smartquotes
+        "U" #'gnus-article-treat-non-ascii
+        "i" #'gnus-summary-idna-message
 
-(gnus-define-keys (gnus-summary-wash-hide-map "W" gnus-summary-wash-map)
-  "a" gnus-article-hide
-  "h" gnus-article-hide-headers
-  "b" gnus-article-hide-boring-headers
-  "s" gnus-article-hide-signature
-  "c" gnus-article-hide-citation
-  "C" gnus-article-hide-citation-in-followups
-  "l" gnus-article-hide-list-identifiers
-  "B" gnus-article-strip-banner
-  "P" gnus-article-hide-pem
-  "\C-c" gnus-article-hide-citation-maybe)
+        "Y" (define-keymap :prefix 'gnus-summary-wash-deuglify-map
+              ;; mnemonic: deuglif*Y*
+              "u" #'gnus-article-outlook-unwrap-lines
+              "a" #'gnus-article-outlook-repair-attribution
+              "c" #'gnus-article-outlook-rearrange-citation
+              ;; mnemonic: full deuglify
+              "f" #'gnus-article-outlook-deuglify-article)
 
-(gnus-define-keys (gnus-summary-wash-highlight-map "H" gnus-summary-wash-map)
-  "a" gnus-article-highlight
-  "h" gnus-article-highlight-headers
-  "c" gnus-article-highlight-citation
-  "s" gnus-article-highlight-signature)
+        "W" (define-keymap :prefix 'gnus-summary-wash-hide-map
+              "a" #'gnus-article-hide
+              "h" #'gnus-article-hide-headers
+              "b" #'gnus-article-hide-boring-headers
+              "s" #'gnus-article-hide-signature
+              "c" #'gnus-article-hide-citation
+              "C" #'gnus-article-hide-citation-in-followups
+              "l" #'gnus-article-hide-list-identifiers
+              "B" #'gnus-article-strip-banner
+              "P" #'gnus-article-hide-pem
+              "C-c" #'gnus-article-hide-citation-maybe)
 
-(gnus-define-keys (gnus-summary-wash-header-map "G" gnus-summary-wash-map)
-  "f" gnus-article-treat-fold-headers
-  "u" gnus-article-treat-unfold-headers
-  "n" gnus-article-treat-fold-newsgroups)
+        "H" (define-keymap :prefix 'gnus-summary-wash-highlight-map
+              "a" #'gnus-article-highlight
+              "h" #'gnus-article-highlight-headers
+              "c" #'gnus-article-highlight-citation
+              "s" #'gnus-article-highlight-signature)
 
-(gnus-define-keys (gnus-summary-wash-display-map "D" gnus-summary-wash-map)
-  "x" gnus-article-display-x-face
-  "d" gnus-article-display-face
-  "s" gnus-treat-smiley
-  "D" gnus-article-remove-images
-  "W" gnus-article-show-images
-  "F" gnus-article-toggle-fonts
-  "f" gnus-treat-from-picon
-  "m" gnus-treat-mail-picon
-  "n" gnus-treat-newsgroups-picon
-  "g" gnus-treat-from-gravatar
-  "h" gnus-treat-mail-gravatar)
+        "G" (define-keymap :prefix 'gnus-summary-wash-header-map
+              "f" #'gnus-article-treat-fold-headers
+              "u" #'gnus-article-treat-unfold-headers
+              "n" #'gnus-article-treat-fold-newsgroups)
 
-(gnus-define-keys (gnus-summary-wash-mime-map "M" gnus-summary-wash-map)
-  "w" gnus-article-decode-mime-words
-  "c" gnus-article-decode-charset
-  "h" gnus-mime-buttonize-attachments-in-header
-  "v" gnus-mime-view-all-parts
-  "b" gnus-article-view-part)
+        "D" (define-keymap :prefix 'gnus-summary-wash-display-map
+              "x" #'gnus-article-display-x-face
+              "d" #'gnus-article-display-face
+              "s" #'gnus-treat-smiley
+              "e" #'gnus-article-emojize-symbols
+              "D" #'gnus-article-remove-images
+              "W" #'gnus-article-show-images
+              "F" #'gnus-article-toggle-fonts
+              "f" #'gnus-treat-from-picon
+              "m" #'gnus-treat-mail-picon
+              "n" #'gnus-treat-newsgroups-picon
+              "g" #'gnus-treat-from-gravatar
+              "h" #'gnus-treat-mail-gravatar)
 
-(gnus-define-keys (gnus-summary-wash-time-map "T" gnus-summary-wash-map)
-  "z" gnus-article-date-ut
-  "u" gnus-article-date-ut
-  "l" gnus-article-date-local
-  "p" gnus-article-date-english
-  "e" gnus-article-date-lapsed
-  "o" gnus-article-date-original
-  "i" gnus-article-date-iso8601
-  "s" gnus-article-date-user)
+        "M" (define-keymap :prefix 'gnus-summary-wash-mime-map
+              "w" #'gnus-article-decode-mime-words
+              "c" #'gnus-article-decode-charset
+              "h" #'gnus-mime-buttonize-attachments-in-header
+              "v" #'gnus-mime-view-all-parts
+              "b" #'gnus-article-view-part)
 
-(gnus-define-keys (gnus-summary-wash-empty-map "E" gnus-summary-wash-map)
-  "t" gnus-article-remove-trailing-blank-lines
-  "l" gnus-article-strip-leading-blank-lines
-  "m" gnus-article-strip-multiple-blank-lines
-  "a" gnus-article-strip-blank-lines
-  "A" gnus-article-strip-all-blank-lines
-  "s" gnus-article-strip-leading-space
-  "e" gnus-article-strip-trailing-space
-  "w" gnus-article-remove-leading-whitespace)
+        "T" (define-keymap :prefix 'gnus-summary-wash-time-map
+              "z" #'gnus-article-date-ut
+              "u" #'gnus-article-date-ut
+              "l" #'gnus-article-date-local
+              "p" #'gnus-article-date-english
+              "e" #'gnus-article-date-lapsed
+              "o" #'gnus-article-date-original
+              "i" #'gnus-article-date-iso8601
+              "s" #'gnus-article-date-user)
 
-(gnus-define-keys (gnus-summary-help-map "H" gnus-summary-mode-map)
-  "v" gnus-version
-  "d" gnus-summary-describe-group
-  "h" gnus-summary-describe-briefly
-  "i" gnus-info-find-node)
+        "E" (define-keymap :prefix 'gnus-summary-wash-empty-map
+              "t" #'gnus-article-remove-trailing-blank-lines
+              "l" #'gnus-article-strip-leading-blank-lines
+              "m" #'gnus-article-strip-multiple-blank-lines
+              "a" #'gnus-article-strip-blank-lines
+              "A" #'gnus-article-strip-all-blank-lines
+              "s" #'gnus-article-strip-leading-space
+              "e" #'gnus-article-strip-trailing-space
+              "w" #'gnus-article-remove-leading-whitespace))
 
-(gnus-define-keys (gnus-summary-backend-map "B" gnus-summary-mode-map)
-  "e" gnus-summary-expire-articles
-  "\M-\C-e" gnus-summary-expire-articles-now
-  "\177" gnus-summary-delete-article
-  [delete] gnus-summary-delete-article
-  [backspace] gnus-summary-delete-article
-  "m" gnus-summary-move-article
-  "r" gnus-summary-respool-article
-  "w" gnus-summary-edit-article
-  "c" gnus-summary-copy-article
-  "B" gnus-summary-crosspost-article
-  "q" gnus-summary-respool-query
-  "t" gnus-summary-respool-trace
-  "i" gnus-summary-import-article
-  "I" gnus-summary-create-article
-  "p" gnus-summary-article-posted-p)
+  "H" (define-keymap :prefix 'gnus-summary-help-map
+        "v" #'gnus-version
+        "d" #'gnus-summary-describe-group
+        "h" #'gnus-summary-describe-briefly
+        "i" #'gnus-info-find-node)
 
-(gnus-define-keys (gnus-summary-save-map "O" gnus-summary-mode-map)
-  "o" gnus-summary-save-article
-  "m" gnus-summary-save-article-mail
-  "F" gnus-summary-write-article-file
-  "r" gnus-summary-save-article-rmail
-  "f" gnus-summary-save-article-file
-  "b" gnus-summary-save-article-body-file
-  "B" gnus-summary-write-article-body-file
-  "h" gnus-summary-save-article-folder
-  "v" gnus-summary-save-article-vm
-  "p" gnus-summary-pipe-output
-  "P" gnus-summary-muttprint)
+  "B" (define-keymap :prefix 'gnus-summary-backend-map
+        "e" #'gnus-summary-expire-articles
+        "C-M-e" #'gnus-summary-expire-articles-now
+        "DEL" #'gnus-summary-delete-article
+        "<delete>" #'gnus-summary-delete-article
+        "<backspace>" #'gnus-summary-delete-article
+        "m" #'gnus-summary-move-article
+        "r" #'gnus-summary-respool-article
+        "w" #'gnus-summary-edit-article
+        "c" #'gnus-summary-copy-article
+        "B" #'gnus-summary-crosspost-article
+        "q" #'gnus-summary-respool-query
+        "t" #'gnus-summary-respool-trace
+        "i" #'gnus-summary-import-article
+        "I" #'gnus-summary-create-article
+        "p" #'gnus-summary-article-posted-p)
 
-(gnus-define-keys (gnus-summary-mime-map "K" gnus-summary-mode-map)
-  "b" gnus-summary-display-buttonized
-  "m" gnus-summary-repair-multipart
-  "v" gnus-article-view-part
-  "o" gnus-article-save-part
-  "O" gnus-article-save-part-and-strip
-  "r" gnus-article-replace-part
-  "d" gnus-article-delete-part
-  "t" gnus-article-view-part-as-type
-  "j" gnus-article-jump-to-part
-  "c" gnus-article-copy-part
-  "C" gnus-article-view-part-as-charset
-  "e" gnus-article-view-part-externally
-  "H" gnus-article-browse-html-article
-  "E" gnus-article-encrypt-body
-  "i" gnus-article-inline-part
-  "|" gnus-article-pipe-part)
+  "O" (define-keymap :prefix 'gnus-summary-save-map
+        "o" #'gnus-summary-save-article
+        "m" #'gnus-summary-save-article-mail
+        "F" #'gnus-summary-write-article-file
+        "r" #'gnus-summary-save-article-rmail
+        "f" #'gnus-summary-save-article-file
+        "b" #'gnus-summary-save-article-body-file
+        "B" #'gnus-summary-write-article-body-file
+        "h" #'gnus-summary-save-article-folder
+        "v" #'gnus-summary-save-article-vm
+        "p" #'gnus-summary-pipe-output
+        "P" #'gnus-summary-muttprint)
 
-(gnus-define-keys (gnus-uu-mark-map "P" gnus-summary-mark-map)
-  "p" gnus-summary-mark-as-processable
-  "u" gnus-summary-unmark-as-processable
-  "U" gnus-summary-unmark-all-processable
-  "v" gnus-uu-mark-over
-  "s" gnus-uu-mark-series
-  "r" gnus-uu-mark-region
-  "g" gnus-uu-unmark-region
-  "R" gnus-uu-mark-by-regexp
-  "G" gnus-uu-unmark-by-regexp
-  "t" gnus-uu-mark-thread
-  "T" gnus-uu-unmark-thread
-  "a" gnus-uu-mark-all
-  "b" gnus-uu-mark-buffer
-  "S" gnus-uu-mark-sparse
-  "k" gnus-summary-kill-process-mark
-  "y" gnus-summary-yank-process-mark
-  "w" gnus-summary-save-process-mark
-  "i" gnus-uu-invert-processable)
+  "K" (define-keymap :prefix 'gnus-summary-mime-map
+        "b" #'gnus-summary-display-buttonized
+        "m" #'gnus-summary-repair-multipart
+        "v" #'gnus-article-view-part
+        "o" #'gnus-article-save-part
+        "O" #'gnus-article-save-part-and-strip
+        "r" #'gnus-article-replace-part
+        "d" #'gnus-article-delete-part
+        "t" #'gnus-article-view-part-as-type
+        "j" #'gnus-article-jump-to-part
+        "c" #'gnus-article-copy-part
+        "C" #'gnus-article-view-part-as-charset
+        "e" #'gnus-article-view-part-externally
+        "H" #'gnus-article-browse-html-article
+        "E" #'gnus-article-encrypt-body
+        "i" #'gnus-article-inline-part
+        "|" #'gnus-article-pipe-part)
 
-(gnus-define-keys (gnus-uu-extract-map "X" gnus-summary-mode-map)
-  ;;"x" gnus-uu-extract-any
-  "m" gnus-summary-save-parts
-  "u" gnus-uu-decode-uu
-  "U" gnus-uu-decode-uu-and-save
-  "s" gnus-uu-decode-unshar
-  "S" gnus-uu-decode-unshar-and-save
-  "o" gnus-uu-decode-save
-  "O" gnus-uu-decode-save
-  "b" gnus-uu-decode-binhex
-  "B" gnus-uu-decode-binhex
-  "Y" gnus-uu-decode-yenc
-  "p" gnus-uu-decode-postscript
-  "P" gnus-uu-decode-postscript-and-save)
+  "X" (define-keymap :prefix 'gnus-uu-extract-map
+        ;;"x" gnus-uu-extract-any
+        "m" #'gnus-summary-save-parts
+        "u" #'gnus-uu-decode-uu
+        "U" #'gnus-uu-decode-uu-and-save
+        "s" #'gnus-uu-decode-unshar
+        "S" #'gnus-uu-decode-unshar-and-save
+        "o" #'gnus-uu-decode-save
+        "O" #'gnus-uu-decode-save
+        "b" #'gnus-uu-decode-binhex
+        "B" #'gnus-uu-decode-binhex
+        "Y" #'gnus-uu-decode-yenc
+        "p" #'gnus-uu-decode-postscript
+        "P" #'gnus-uu-decode-postscript-and-save
 
-(gnus-define-keys
-    (gnus-uu-extract-view-map "v" gnus-uu-extract-map)
-  "u" gnus-uu-decode-uu-view
-  "U" gnus-uu-decode-uu-and-save-view
-  "s" gnus-uu-decode-unshar-view
-  "S" gnus-uu-decode-unshar-and-save-view
-  "o" gnus-uu-decode-save-view
-  "O" gnus-uu-decode-save-view
-  "b" gnus-uu-decode-binhex-view
-  "B" gnus-uu-decode-binhex-view
-  "p" gnus-uu-decode-postscript-view
-  "P" gnus-uu-decode-postscript-and-save-view)
+        "v" (define-keymap :prefix 'gnus-uu-extract-view-map
+              "u" #'gnus-uu-decode-uu-view
+              "U" #'gnus-uu-decode-uu-and-save-view
+              "s" #'gnus-uu-decode-unshar-view
+              "S" #'gnus-uu-decode-unshar-and-save-view
+              "o" #'gnus-uu-decode-save-view
+              "O" #'gnus-uu-decode-save-view
+              "b" #'gnus-uu-decode-binhex-view
+              "B" #'gnus-uu-decode-binhex-view
+              "p" #'gnus-uu-decode-postscript-view
+              "P" #'gnus-uu-decode-postscript-and-save-view)))
 
 (defvar gnus-article-post-menu nil)
 
@@ -3970,10 +3968,9 @@ Returns \"  ?  \" if there's bad input or if another error occurs.
 Input should look like this: \"Sun, 14 Oct 2001 13:34:39 +0200\"."
   (condition-case ()
       (let* ((messy-date (gnus-date-get-time messy-date))
-	     (now (current-time))
 	     ;;If we don't find something suitable we'll use this one
 	     (my-format "%b %d '%y"))
-	(let* ((difference (time-subtract now messy-date))
+	(let* ((difference (time-subtract nil messy-date))
 	       (templist gnus-user-date-format-alist)
 	       (top (eval (caar templist) t)))
 	  (while (if (numberp top) (time-less-p top difference) (not top))
@@ -5004,23 +5001,13 @@ If LINE, insert the rebuilt thread starting on line LINE."
 			      gnus-article-sort-functions)))
       (gnus-message 7 "Sorting articles...done"))))
 
-;; Written by Hallvard B Furuseth <h.b.furuseth@usit.uio.no>.
-(defmacro gnus-thread-header (thread)
-  "Return header of first article in THREAD.
-Note that THREAD must never, ever be anything else than a variable -
-using some other form will lead to serious barfage."
-  (or (symbolp thread) (signal 'wrong-type-argument '(symbolp thread)))
-  ;; (8% speedup to gnus-summary-prepare, just for fun :-)
-  (cond
-   ((and (boundp 'lexical-binding) lexical-binding)
-    ;; FIXME: This version could be a "defsubst" rather than a macro.
-    `(#[257 "\211:\203\16\0\211@;\203\15\0A@@\207"
-            [] 2]
-      ,thread))
-   (t
-    ;; Not sure how XEmacs handles these things, so let's keep the old code.
-    (list 'byte-code "\10\211:\203\17\0\211@;\203\16\0A@@\207"
-          (vector thread) 2))))
+(defsubst gnus-thread-header (thread)
+  "Return header of first article in THREAD."
+  (if (consp thread)
+      (car (if (stringp (car thread))
+               (cadr thread)
+             thread))
+    thread))
 
 (defsubst gnus-article-sort-by-number (h1 h2)
   "Sort articles by article number."
@@ -5768,7 +5755,7 @@ If SELECT-ARTICLES, only select those articles from GROUP."
 	      ;;  (let ((n (cdr (gnus-active group))))
 	      ;;    (lambda () (> number (- n display))))
 	      (setq select-articles
-		    (gnus-uncompress-range
+		    (range-uncompress
 		     (cons (let ((tmp (- (cdr (gnus-active group)) display)))
 			     (if (> tmp 0)
 				 tmp
@@ -5941,7 +5928,7 @@ If SELECT-ARTICLES, only select those articles from GROUP."
   "Find out what articles the user wants to read."
   (let* ((only-read-p t)
 	 (articles
-	  (gnus-list-range-difference
+	  (range-list-difference
 	  ;; Select all articles if `read-all' is non-nil, or if there
 	  ;; are no unread articles.
 	  (if (or read-all
@@ -5956,13 +5943,13 @@ If SELECT-ARTICLES, only select those articles from GROUP."
 	      (or
 	       (if gnus-newsgroup-maximum-articles
 		   (let ((active (gnus-active group)))
-		     (gnus-uncompress-range
+		     (range-uncompress
 		      (cons (max (car active)
 				 (- (cdr active)
 				    gnus-newsgroup-maximum-articles
 				    -1))
 			    (cdr active))))
-		 (gnus-uncompress-range (gnus-active group)))
+		 (range-uncompress (gnus-active group)))
 	       (gnus-cache-articles-in-group group))
 	    ;; Select only the "normal" subset of articles.
 	    (setq only-read-p nil)
@@ -6053,7 +6040,7 @@ If SELECT-ARTICLES, only select those articles from GROUP."
 (defun gnus-killed-articles (killed articles)
   (let (out)
     (while articles
-      (when (inline (gnus-member-of-range (car articles) killed))
+      (when (inline (range-member-p (car articles) killed))
 	(push (car articles) out))
       (setq articles (cdr articles)))
     out))
@@ -6091,7 +6078,7 @@ If SELECT-ARTICLES, only select those articles from GROUP."
        ;; Adjust "simple" lists - compressed yet unsorted
        ((eq mark-type 'list)
         ;; Simultaneously uncompress and clip to active range
-        ;; See gnus-uncompress-range for a description of possible marks
+        ;; See range-uncompress for a description of possible marks
         (let (l lh)
           (if (not (cadr marks))
               (set var nil)
@@ -6190,10 +6177,10 @@ If SELECT-ARTICLES, only select those articles from GROUP."
 	;; When exiting the group, everything that's previously been
 	;; unseen is now seen.
 	(when (eq (cdr type) 'seen)
-	  (setq list (gnus-range-add list gnus-newsgroup-unseen)))
+	  (setq list (range-concat list gnus-newsgroup-unseen)))
 
 	(when (eq (gnus-article-mark-to-type (cdr type)) 'list)
-	  (setq list (gnus-compress-sequence (set symbol (sort list #'<)) t)))
+	  (setq list (range-compress-list (set symbol (sort list #'<)))))
 
 	(when (and (gnus-check-backend-function
 		    'request-set-mark gnus-newsgroup-name)
@@ -6202,20 +6189,19 @@ If SELECT-ARTICLES, only select those articles from GROUP."
 		 ;; Don't do anything about marks for articles we
 		 ;; didn't actually get any headers for.
 		 (del
-		  (gnus-list-range-intersection
+		  (range-list-intersection
 		   gnus-newsgroup-articles
-		   (gnus-remove-from-range (copy-tree old) list)))
+		   (range-remove (copy-tree old) list)))
 		 (add
-		  (gnus-list-range-intersection
+		  (range-list-intersection
 		   gnus-newsgroup-articles
-		   (gnus-remove-from-range
-		    (copy-tree list) old))))
+		   (range-remove (copy-tree list) old))))
 	    (when add
 	      (push (list add 'add (list (cdr type))) delta-marks))
 	    (when del
 	      ;; Don't delete marks from outside the active range.
 	      ;; This shouldn't happen, but is a sanity check.
-	      (setq del (gnus-sorted-range-intersection
+	      (setq del (range-intersection
 			 (gnus-active gnus-newsgroup-name) del))
 	      (push (list del 'del (list (cdr type))) delta-marks))))
 
@@ -6399,7 +6385,7 @@ The resulting hash table is returned, or nil if no Xrefs were found."
 	  (setq ninfo (cons 1 (1- (car active))))
 	(setq ninfo (gnus-info-read info)))
       ;; Then we add the read articles to the range.
-      (gnus-add-to-range
+      (range-add-list
        ninfo (setq articles (sort articles #'<))))))
 
 (defun gnus-group-make-articles-read (group articles)
@@ -6980,10 +6966,10 @@ displayed, no centering will be performed."
 	 (marked (gnus-info-marks info))
 	 (active (gnus-active group)))
     (and info active
-	 (gnus-list-range-difference
-	  (gnus-list-range-difference
+	 (range-list-difference
+	  (range-list-difference
 	   (gnus-sorted-complement
-	    (gnus-uncompress-range
+	    (range-uncompress
 	     (if gnus-newsgroup-maximum-articles
 		 (cons (max (car active)
 			    (- (cdr active)
@@ -7142,12 +7128,11 @@ The prefix argument ALL means to select all articles."
       (when group
 	(when gnus-newsgroup-kill-headers
 	  (setq gnus-newsgroup-killed
-		(gnus-compress-sequence
+		(range-compress-list
 		 (gnus-sorted-union
-		  (gnus-list-range-intersection
+		  (range-list-intersection
 		   gnus-newsgroup-unselected gnus-newsgroup-killed)
-		  gnus-newsgroup-unreads)
-		 t)))
+		  gnus-newsgroup-unreads))))
 	(unless (listp (cdr gnus-newsgroup-killed))
 	  (setq gnus-newsgroup-killed (list gnus-newsgroup-killed)))
 	(let ((headers gnus-newsgroup-headers)
@@ -7208,7 +7193,6 @@ If FORCE (the prefix), also save the .newsrc file(s)."
     (gnus-dribble-save)))
 
 (declare-function gnus-cache-write-active "gnus-cache" (&optional force))
-(declare-function gnus-article-stop-animations "gnus-art" ())
 
 (defun gnus-summary-exit (&optional temporary leave-hidden)
   "Exit reading current newsgroup, and then return to group selection mode.
@@ -7272,7 +7256,6 @@ If FORCE (the prefix), also save the .newsrc file(s)."
 		(not (string= group (gnus-group-group-name))))
       (gnus-group-next-unread-group 1))
     (setq group-point (point))
-    (gnus-article-stop-animations)
     (unless leave-hidden
       (gnus-configure-windows 'group 'force))
     (if temporary
@@ -7332,7 +7315,6 @@ If FORCE (the prefix), also save the .newsrc file(s)."
       (run-hooks 'gnus-summary-prepare-exit-hook)
       (when (gnus-buffer-live-p gnus-article-buffer)
 	(with-current-buffer gnus-article-buffer
-	  (gnus-article-stop-animations)
 	  (gnus-stop-downloads)
 	  (mm-destroy-parts gnus-article-mime-handles)
 	  ;; Set it to nil for safety reason.
@@ -7364,7 +7346,6 @@ If FORCE (the prefix), also save the .newsrc file(s)."
 	(gnus-group-update-group group nil t))
       (when (gnus-group-goto-group group)
 	(gnus-group-next-unread-group 1))
-      (gnus-article-stop-animations)
       (when quit-config
 	(gnus-handle-ephemeral-exit quit-config)))))
 
@@ -8067,9 +8048,7 @@ Return nil if there are no unread articles."
 Return nil if there are no unread articles."
   (interactive nil gnus-summary-mode)
   (prog1
-      (when (gnus-summary-first-subject t)
-	(gnus-summary-show-thread)
-	(gnus-summary-first-subject t))
+      (gnus-summary--goto-and-possibly-unhide t)
     (gnus-summary-position-point)))
 
 (defun gnus-summary-next-unseen-article (&optional backward)
@@ -8103,10 +8082,18 @@ Return nil if there are no unread articles."
 Return nil if there are no unseen articles."
   (interactive nil gnus-summary-mode)
   (prog1
-      (when (gnus-summary-first-subject nil nil t)
-	(gnus-summary-show-thread)
-	(gnus-summary-first-subject nil nil t))
+      (gnus-summary--goto-and-possibly-unhide)
     (gnus-summary-position-point)))
+
+(defun gnus-summary--goto-and-possibly-unhide (&optional unread undownloaded
+                                                         unseen)
+  (let ((first (gnus-summary-first-subject unread undownloaded unseen)))
+    (if (and first
+             (not (= first (gnus-summary-article-number))))
+        (progn
+          (gnus-summary-show-thread)
+          (gnus-summary-first-subject unread undownloaded unseen))
+      first)))
 
 (defun gnus-summary-first-unseen-or-unread-subject ()
   "Place the point on the subject line of the first unseen and unread article.
@@ -8114,12 +8101,8 @@ If all articles have been seen, on the subject line of the first unread
 article."
   (interactive nil gnus-summary-mode)
   (prog1
-      (unless (when (gnus-summary-first-subject nil nil t)
-		(gnus-summary-show-thread)
-		(gnus-summary-first-subject nil nil t))
-	(when (gnus-summary-first-subject t)
-	  (gnus-summary-show-thread)
-	  (gnus-summary-first-subject t)))
+      (unless (gnus-summary--goto-and-possibly-unhide nil nil t)
+        (gnus-summary-first-subject t))
     (gnus-summary-position-point)))
 
 (defun gnus-summary-first-article ()
@@ -8673,20 +8656,20 @@ these articles."
 	(gnus-fetch-old-headers nil)
 	(gnus-build-sparse-threads nil))
     (prog1
-	(gnus-summary-limit (if thread-only articles
-			      (nconc articles gnus-newsgroup-limit)))
-      (gnus-summary-limit-include-matching-articles
-       "subject"
-       (regexp-quote (gnus-general-simplify-subject
-		      (mail-header-subject (gnus-id-to-header id)))))
-      ;; the previous two calls each push a limit onto the limit
-      ;; stack. the first pop remove the articles that match the
-      ;; subject, while the second pop gets us back to the state
-      ;; before we started to deal with the thread. presumably we want
-      ;; to think of the thread and its associated subject matches as
-      ;; a single thing so that we need to pop only once to get back
-      ;; to the original view.
-      (pop gnus-newsgroup-limits)
+        (gnus-summary-limit (if thread-only articles
+                              (nconc articles gnus-newsgroup-limit)))
+      (let ((matching-subject (gnus-general-simplify-subject
+		               (mail-header-subject (gnus-id-to-header id)))))
+        (when matching-subject
+          (gnus-summary-limit-include-matching-articles
+           "subject"
+           matching-subject)
+          ;; Each of the previous two limit calls push a limit onto
+          ;; the limit stack. Presumably we want to think of the
+          ;; thread and its associated subject matches as a single
+          ;; thing so we probably want a single pop to restore the
+          ;; original view. Hence we pop this last limit off.
+          (pop gnus-newsgroup-limits)))
       (gnus-summary-position-point))))
 
 (defun gnus-summary-limit-include-matching-articles (header regexp)
@@ -9908,7 +9891,6 @@ article.  Normally, the keystroke is `\\[universal-argument] \\[gnus-summary-sho
       ;; Destroy any MIME parts.
       (when (gnus-buffer-live-p gnus-article-buffer)
 	(with-current-buffer gnus-article-buffer
-	  (gnus-article-stop-animations)
 	  (gnus-stop-downloads)
 	  (mm-destroy-parts gnus-article-mime-handles)
 	  ;; Set it to nil for safety reason.
@@ -10257,8 +10239,8 @@ ACTION can be either `move' (the default), `crosspost' or `copy'."
 		       (cdr art-group))
 	      (push 'read to-marks)
 	      (setf (gnus-info-read info)
-		    (gnus-add-to-range (gnus-info-read info)
-				       (list (cdr art-group)))))
+		    (range-add-list (gnus-info-read info)
+				    (list (cdr art-group)))))
 
 	    ;; See whether the article is to be put in the cache.
 	    (let* ((expirable (gnus-group-auto-expirable-p to-group))
@@ -10501,7 +10483,6 @@ latter case, they will be copied into the relevant groups."
   "Create an article in a mail newsgroup."
   (interactive nil gnus-summary-mode)
   (let ((group gnus-newsgroup-name)
-	(now (current-time))
 	group-art)
     (unless (gnus-check-backend-function 'request-accept-article group)
       (error "%s does not support article importing" group))
@@ -10511,7 +10492,7 @@ latter case, they will be copied into the relevant groups."
       ;; This doesn't look like an article, so we fudge some headers.
       (insert "From: " (read-string "From: ") "\n"
 	      "Subject: " (read-string "Subject: ") "\n"
-	      "Date: " (message-make-date now) "\n"
+	      "Date: " (message-make-date) "\n"
 	      "Message-ID: " (message-make-message-id) "\n")
       (setq group-art (gnus-request-accept-article group nil t))
       (kill-buffer (current-buffer)))
@@ -10542,7 +10523,7 @@ This will be the case if the article has both been mailed and posted."
     ;; This backend supports expiry.
     (let* ((total (gnus-group-total-expirable-p gnus-newsgroup-name))
 	   (expirable
-	    (gnus-list-range-difference
+	    (range-list-difference
 	     (if total
 		 (progn
 		   ;; We need to update the info for
@@ -11915,7 +11896,8 @@ Returns nil if no threads were there to be hidden."
   (beginning-of-line)
   (let ((start (point))
 	(starteol (line-end-position))
-	(article (gnus-summary-article-number)))
+	(article (unless (gnus-summary-article-intangible-p)
+                   (gnus-summary-article-number))))
     ;; Go forward until either the buffer ends or the subthread ends.
     (when (and (not (eobp))
 	       (or (zerop (gnus-summary-next-thread 1 t))
@@ -11929,7 +11911,9 @@ Returns nil if no threads were there to be hidden."
 	      (let ((ol (make-overlay starteol (point) nil t nil)))
 		(overlay-put ol 'invisible 'gnus-sum)
 		(overlay-put ol 'evaporate t)))
-	    (gnus-summary-goto-subject article)
+	    (if article
+                (gnus-summary-goto-subject article)
+              (gnus-summary-position-point))
 	    ;; We moved backward past the start point (invisible thread?)
             (when (> start (point))
               (goto-char starteol)))
@@ -12888,8 +12872,8 @@ UNREAD is a sorted list."
 			(gnus-find-method-for-group group)
 			'server-marks)
 		       (gnus-check-backend-function 'request-set-mark group))
-	      (let ((del (gnus-remove-from-range (gnus-info-read info) read))
-		    (add (gnus-remove-from-range read (gnus-info-read info))))
+	      (let ((del (range-remove (gnus-info-read info) read))
+		    (add (range-remove read (gnus-info-read info))))
 		(when (or add del)
 		  (unless (gnus-check-group group)
 		    (error "Can't open server for %s" group))
@@ -13147,10 +13131,10 @@ If ALL is a number, fetch this number of articles."
 	      ;; Some nntp servers lie about their active range.  When
 	      ;; this happens, the active range can be in the millions.
 	      ;; Use a compressed range to avoid creating a huge list.
-	      (gnus-range-difference
-	       (gnus-range-difference (list gnus-newsgroup-active) old)
+	      (range-difference
+	       (range-difference (list gnus-newsgroup-active) old)
 	       gnus-newsgroup-unexist))
-	(setq len (gnus-range-length older))
+	(setq len (range-length older))
 	(cond
 	 ((null older) nil)
 	 ((numberp all)
@@ -13167,9 +13151,9 @@ If ALL is a number, fetch this number of articles."
 		      (push max older)
 		      (setq all (1- all)
 			    max (1- max))))))
-	    (setq older (gnus-uncompress-range older))))
+	    (setq older (range-uncompress older))))
 	 (all
-	  (setq older (gnus-uncompress-range older)))
+	  (setq older (range-uncompress older)))
 	 (t
 	  (when (and (numberp gnus-large-newsgroup)
 		   (> len gnus-large-newsgroup))
@@ -13204,7 +13188,7 @@ If ALL is a number, fetch this number of articles."
 			      (push max older)
 			      (setq all (1- all)
 				    max (1- max))))))))))
-	  (setq older (gnus-uncompress-range older))))
+	  (setq older (range-uncompress older))))
 	(if (not older)
 	    (message "No old news.")
 	  (gnus-summary-insert-articles older)

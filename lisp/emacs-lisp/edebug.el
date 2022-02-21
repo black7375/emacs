@@ -98,7 +98,11 @@ This applies to `eval-defun', `eval-region', `eval-buffer', and
 You can use the command `edebug-all-defs' to toggle the value of this
 variable.  You may wish to make it local to each buffer with
 \(make-local-variable \\='edebug-all-defs) in your
-`emacs-lisp-mode-hook'."
+`emacs-lisp-mode-hook'.
+
+Note that this user option has no effect unless the edebug
+package has been loaded."
+  :require 'edebug
   :type 'boolean)
 
 ;;;###autoload
@@ -3519,7 +3523,8 @@ The removes the effect of `edebug-on-entry'.  If FUNCTION is
 nil, remove `edebug-on-entry' on all functions."
   (interactive
    (list (let ((name (completing-read
-                      "Cancel edebug on entry to (default all functions): "
+                      (format-prompt "Cancel edebug on entry to"
+                                     "all functions")
                       (let ((functions (edebug--edebug-on-entry-functions)))
                         (unless functions
                           (user-error "No functions have `edebug-on-entry'"))
@@ -4548,7 +4553,8 @@ instrumentation for, defaulting to all functions."
         (user-error "Found no functions to remove instrumentation from"))
       (let ((name
              (completing-read
-              "Remove instrumentation from (default all functions): "
+              (format-prompt "Remove instrumentation from"
+                             "all functions")
               functions)))
         (if (and name
                  (not (equal name "")))

@@ -96,18 +96,28 @@
     (bindings--define-key menu [separator-print]
       menu-bar-separator)
 
-    (unless (featurep 'ns)
-      (bindings--define-key menu [close-tab]
-        '(menu-item "Close Tab" tab-close
-                    :visible (fboundp 'tab-close)
-                    :help "Close currently selected tab"))
-      (bindings--define-key menu [make-tab]
-        '(menu-item "New Tab" tab-new
-                    :visible (fboundp 'tab-new)
-                    :help "Open a new tab"))
+    (bindings--define-key menu [close-tab]
+      '(menu-item "Close Tab" tab-close
+                  :visible (fboundp 'tab-close)
+                  :help "Close currently selected tab"))
+    (bindings--define-key menu [make-tab]
+      '(menu-item "New Tab" tab-new
+                  :visible (fboundp 'tab-new)
+                  :help "Open a new tab"))
 
-      (bindings--define-key menu [separator-tab]
-        menu-bar-separator))
+    (bindings--define-key menu [separator-tab]
+      menu-bar-separator)
+
+    (bindings--define-key menu [undelete-frame-mode]
+      '(menu-item "Allow Undeleting Frames" undelete-frame-mode
+                  :help "Allow frames to be restored after deletion"
+                  :button (:toggle . undelete-frame-mode)))
+
+    (bindings--define-key menu [undelete-last-deleted-frame]
+      '(menu-item "Undelete Frame" undelete-frame
+                  :enable (and undelete-frame-mode
+                                (car undelete-frame--deleted-frames))
+                  :help "Undelete the most recently deleted frame"))
 
     ;; Don't use delete-frame as event name because that is a special
     ;; event.
@@ -413,8 +423,14 @@
     (bindings--define-key menu [separator-tag-file]
       '(menu-item "--" nil :visible (menu-bar-goto-uses-etags-p)))
 
+    (bindings--define-key menu [xref-forward]
+      '(menu-item "Forward" xref-go-forward
+                  :visible (and (featurep 'xref)
+                                (not (xref-forward-history-empty-p)))
+                  :help "Forward to the position gone Back from"))
+
     (bindings--define-key menu [xref-pop]
-      '(menu-item "Back" xref-pop-marker-stack
+      '(menu-item "Back" xref-go-back
                   :visible (and (featurep 'xref)
                                 (not (xref-marker-stack-empty-p)))
                   :help "Back to the position of the last search"))
@@ -514,7 +530,11 @@
                                          (cdr yank-menu)
                                        kill-ring))
                                     (not buffer-read-only))))
-                  :help "Paste (yank) text most recently cut/copied"))
+                  :help "Paste (yank) text most recently cut/copied"
+                  :keys ,(lambda ()
+                           (if cua-mode
+                               "\\[cua-paste]"
+                             "\\[yank]"))))
     (bindings--define-key menu [copy]
       ;; ns-win.el said: Substitute a Copy function that works better
       ;; under X (for GNUstep).
@@ -523,14 +543,23 @@
                             'kill-ring-save)
                   :enable mark-active
                   :help "Copy text in region between mark and current position"
-                  :keys ,(if (featurep 'ns)
-                             "\\[ns-copy-including-secondary]"
-                           "\\[kill-ring-save]")))
+                  :keys ,(lambda ()
+                           (cond
+                            ((featurep 'ns)
+                             "\\[ns-copy-including-secondary]")
+                            ((and cua-mode mark-active)
+                             "\\[cua-copy-handler]")
+                            (t
+                             "\\[kill-ring-save]")))))
     (bindings--define-key menu [cut]
-      '(menu-item "Cut" kill-region
+      `(menu-item "Cut" kill-region
                   :enable (and mark-active (not buffer-read-only))
                   :help
-                  "Cut (kill) text in region between mark and current position"))
+                  "Cut (kill) text in region between mark and current position"
+                  :keys ,(lambda ()
+                           (if (and cua-mode mark-active)
+                               "\\[cua-cut-handler]"
+                             "\\[kill-region]"))))
     ;; ns-win.el said: Separate undo from cut/paste section.
     (if (featurep 'ns)
         (bindings--define-key menu [separator-undo] menu-bar-separator))
@@ -1328,14 +1357,13 @@ mail status in mode line"))
                               (frame-parameter (menu-bar-frame-for-menubar)
                                                'menu-bar-lines)))))
 
-    (unless (featurep 'ns)
-      (bindings--define-key menu [showhide-tab-bar]
-        '(menu-item "Tab Bar" toggle-tab-bar-mode-from-frame
-                    :help "Turn tab bar on/off"
-                    :button
-                    (:toggle . (menu-bar-positive-p
-                                (frame-parameter (menu-bar-frame-for-menubar)
-                                                 'tab-bar-lines))))))
+    (bindings--define-key menu [showhide-tab-bar]
+      '(menu-item "Tab Bar" toggle-tab-bar-mode-from-frame
+                  :help "Turn tab bar on/off"
+                  :button
+                  (:toggle . (menu-bar-positive-p
+                              (frame-parameter (menu-bar-frame-for-menubar)
+                                               'tab-bar-lines)))))
 
     (if (and (boundp 'menu-bar-showhide-tool-bar-menu)
              (keymapp menu-bar-showhide-tool-bar-menu))
@@ -1918,10 +1946,7 @@ key, a click, or a menu-item"))
   (let* ((default (thing-at-point 'sexp))
          (topic
           (read-from-minibuffer
-           (format "Subject to look up%s: "
-                   (if default
-                       (format " (default \"%s\")" default)
-                     ""))
+           (format-prompt "Subject to look up" default)
            nil nil nil nil default)))
     (list (if (zerop (length topic))
               default
@@ -2163,6 +2188,12 @@ otherwise it could decide to silently do nothing."
   :type 'integer
   :group 'menu)
 
+(defcustom yank-menu-max-items 60
+  "Maximum number of entries to display in the `yank-menu'."
+  :type 'integer
+  :group 'menu
+  :version "29.1")
+
 (defun menu-bar-update-yank-menu (string old)
   (let ((front (car (cdr yank-menu)))
 	(menu-string (if (<= (length string) yank-menu-length)
@@ -2186,8 +2217,9 @@ otherwise it could decide to silently do nothing."
 	      (cons
 	       (cons string (cons menu-string 'menu-bar-select-yank))
 	       (cdr yank-menu)))))
-  (if (> (length (cdr yank-menu)) kill-ring-max)
-      (setcdr (nthcdr kill-ring-max yank-menu) nil)))
+  (let ((max-items (min yank-menu-max-items kill-ring-max)))
+    (if (> (length (cdr yank-menu)) max-items)
+        (setcdr (nthcdr max-items yank-menu) nil))))
 
 (put 'menu-bar-select-yank 'apropos-inhibit t)
 (defun menu-bar-select-yank ()
@@ -2310,9 +2342,13 @@ It must accept a buffer as its only required argument.")
   (and (lookup-key (current-global-map) [menu-bar buffer])
        (or force (frame-or-buffer-changed-p))
        (let ((buffers (buffer-list))
-	     (frames (frame-list))
-	     buffers-menu)
-
+	     frames buffers-menu)
+         ;; Ignore the initial frame if present.  It can happen if
+         ;; Emacs was started as a daemon.  (bug#53740)
+         (dolist (frame (frame-list))
+           (unless (equal (terminal-name (frame-terminal frame))
+                          "initial_terminal")
+             (push frame frames)))
 	 ;; Make the menu of buffers proper.
 	 (setq buffers-menu
                (let ((i 0)
@@ -2505,7 +2541,7 @@ Use \\[menu-bar-mode] to make the menu bar appear."))))
 (put 'menu-bar-mode 'standard-value '(t))
 
 (defun toggle-menu-bar-mode-from-frame (&optional arg)
-  "Toggle display of the menu bar of the current frame.
+  "Toggle display of the menu bar.
 See `menu-bar-mode' for more information."
   (interactive (list (or current-prefix-arg 'toggle)))
   (if (eq arg 'toggle)
@@ -2518,6 +2554,8 @@ See `menu-bar-mode' for more information."
 (declare-function x-menu-bar-open "term/x-win" (&optional frame))
 (declare-function w32-menu-bar-open "term/w32-win" (&optional frame))
 (declare-function mac-menu-bar-open "term/mac-win" (&optional frame))
+(declare-function pgtk-menu-bar-open "term/pgtk-win" (&optional frame))
+(declare-function haiku-menu-bar-open "haikumenu.c" (&optional frame))
 
 (defun lookup-key-ignore-too-long (map key)
   "Call `lookup-key' and convert numeric values to nil."
@@ -2596,8 +2634,11 @@ FROM-MENU-BAR, if non-nil, means we are dropping one of menu-bar's menus."
       ;; `setup-specified-language-environment', for instance,
       ;; expects this to be set from a menu keymap.
       (setq last-command-event (car (last event)))
-      ;; mouse-major-mode-menu was using `command-execute' instead.
-      (call-interactively cmd))))
+      (setq from--tty-menu-p nil)
+      ;; Signal use-dialog-box-p this command was invoked from a menu.
+      (let ((from--tty-menu-p t))
+        ;; mouse-major-mode-menu was using `command-execute' instead.
+        (call-interactively cmd)))))
 
 (defun popup-menu-normalize-position (position)
   "Convert the POSITION to the form which `popup-menu' expects internally.
@@ -2643,9 +2684,10 @@ first TTY menu-bar menu to be dropped down.  Interactively,
 this is the numeric argument to the command.
 This function decides which method to use to access the menu
 depending on FRAME's terminal device.  On X displays, it calls
-`x-menu-bar-open'; on Windows, `w32-menu-bar-open'; otherwise it
-calls either `popup-menu' or `tmm-menubar' depending on whether
-`tty-menu-open-use-tmm' is nil or not.
+`x-menu-bar-open'; on Windows, `w32-menu-bar-open'; on Haiku,
+`haiku-menu-bar-open'; otherwise it calls either `popup-menu'
+or `tmm-menubar' depending on whether `tty-menu-open-use-tmm'
+is nil or not.
 
 If FRAME is nil or not given, use the selected frame."
   (interactive
@@ -2655,6 +2697,8 @@ If FRAME is nil or not given, use the selected frame."
      ((eq type 'x) (x-menu-bar-open frame))
      ((eq type 'w32) (w32-menu-bar-open frame))
      ((eq type 'mac) (mac-menu-bar-open frame))
+     ((eq type 'haiku) (haiku-menu-bar-open frame))
+     ((eq type 'pgtk) (pgtk-menu-bar-open frame))
      ((and (null tty-menu-open-use-tmm)
 	   (not (zerop (or (frame-parameter nil 'menu-bar-lines) 0))))
       ;; Make sure the menu bar is up to date.  One situation where

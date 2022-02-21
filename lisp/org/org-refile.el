@@ -566,16 +566,16 @@ prefix argument (`C-u C-u C-u C-c C-w')."
 	       (let ((bookmark-name (plist-get org-bookmark-names-plist
 					       :last-refile)))
 		 (when bookmark-name
-		   (with-demoted-errors
-		       (bookmark-set bookmark-name))))
+		   (with-demoted-errors "Bookmark set error: %S"
+		     (bookmark-set bookmark-name))))
 	       ;; If we are refiling for capture, make sure that the
 	       ;; last-capture pointers point here
 	       (when (bound-and-true-p org-capture-is-refiling)
 		 (let ((bookmark-name (plist-get org-bookmark-names-plist
 						 :last-capture-marker)))
 		   (when bookmark-name
-		     (with-demoted-errors
-			 (bookmark-set bookmark-name))))
+		     (with-demoted-errors "Bookmark set error: %S"
+		       (bookmark-set bookmark-name))))
 		 (move-marker org-capture-last-stored-marker (point)))
 	       (when (fboundp 'deactivate-mark) (deactivate-mark))
 	       (run-hooks 'org-after-refile-insert-hook)))
@@ -640,11 +640,13 @@ this function appends the default value from
 	       org-refile-target-table))
 	 (completion-ignore-case t)
 	 cdef
-	 (prompt (concat prompt
-			 (or (and (car org-refile-history)
-				  (concat " (default " (car org-refile-history) ")"))
-			     (and (assoc cbnex tbl) (setq cdef cbnex)
-				  (concat " (default " cbnex ")"))) ": "))
+         (prompt (let ((default (or (car org-refile-history)
+                                    (and (assoc cbnex tbl) (setq cdef cbnex)
+                                         cbnex))))
+                   ;; `format-prompt' is new in Emacs 28.1.
+                   (if (fboundp 'format-prompt)
+                       (format-prompt prompt default)
+                     (concat prompt " (default " default ": "))))
 	 pa answ parent-target child parent old-hist)
     (setq old-hist org-refile-history)
     (setq answ (funcall cfunc prompt tbl nil (not new-nodes)

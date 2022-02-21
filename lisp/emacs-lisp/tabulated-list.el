@@ -115,16 +115,25 @@ where:
 This should be either a function, or a list.
 If a list, each element has the form (ID [DESC1 ... DESCN]),
 where:
+
  - ID is nil, or a Lisp object uniquely identifying this entry,
    which is used to keep the cursor on the \"same\" entry when
    rearranging the list.  Comparison is done with `equal'.
 
  - Each DESC is a column descriptor, one for each column
-   specified in `tabulated-list-format'.  A descriptor is either
-   a string, which is printed as-is, or a list (LABEL . PROPS),
-   which means to use `insert-text-button' to insert a text
-   button with label LABEL and button properties PROPS.
-   The string, or button label, must not contain any newline.
+   specified in `tabulated-list-format'.  The descriptor DESC is
+   one of:
+
+    - A string, which is printed as-is, and must not contain any
+      newlines.
+
+    - An image descriptor (a list), which is used to insert an
+      image (see Info node `(elisp) Image Descriptors').
+
+    - A list (LABEL . PROPS), which means to use
+      `insert-text-button' to insert a text button with label
+      LABEL and button properties PROPS.  LABEL must not contain
+      any newlines.
 
 If `tabulated-list-entries' is a function, it is called with no
 arguments and must return a list of the above form.")
@@ -547,7 +556,9 @@ Return the column number after insertion."
 	 (props     (nthcdr 3 format))
 	 (pad-right (or (plist-get props :pad-right) 1))
          (right-align (plist-get props :right-align))
-	 (label     (if (stringp col-desc) col-desc (car col-desc)))
+         (label (cond ((stringp col-desc) col-desc)
+                      ((eq (car col-desc) 'image) " ")
+                      (t (car col-desc))))
          (label-width (string-width label))
 	 (help-echo (concat (car format) ": " label))
 	 (opoint (point))
@@ -571,18 +582,21 @@ Return the column number after insertion."
                             'display `(space :align-to ,(+ x shift))))
         (setq width (- width shift))
         (setq x (+ x shift))))
-    (if (stringp col-desc)
-	(insert (if (get-text-property 0 'help-echo label)
-		    label
-		  (propertize label 'help-echo help-echo)))
-      (apply 'insert-text-button label (cdr col-desc)))
+    (cond ((stringp col-desc)
+           (insert (if (get-text-property 0 'help-echo label)
+                       label
+                     (propertize label 'help-echo help-echo))))
+          ((eq (car col-desc) 'image)
+           (insert (propertize " "
+                               'display col-desc
+                               'help-echo help-echo)))
+          ((apply 'insert-text-button label (cdr col-desc))))
     (let ((next-x (+ x pad-right width)))
       ;; No need to append any spaces if this is the last column.
       (when not-last-col
         (when (> pad-right 0) (insert (make-string pad-right ?\s)))
         (insert (propertize
-                 ;; We need at least one space to align correctly.
-                 (make-string (- width (min 1 width label-width)) ?\s)
+                 (make-string (- width (min width label-width)) ?\s)
                  'display `(space :align-to ,next-x))))
       (put-text-property opoint (point) 'tabulated-list-column-name name)
       next-x)))
@@ -669,6 +683,10 @@ With a numeric prefix argument N, sort the Nth column.
 If the numeric prefix is -1, restore order the list was
 originally displayed in."
   (interactive "P")
+  (when (and n
+             (or (>= n (length tabulated-list-format))
+                 (< n -1)))
+    (user-error "Invalid column number"))
   (if (equal n -1)
       ;; Restore original order.
       (progn
@@ -713,6 +731,7 @@ Interactively, N is the prefix numeric argument, and defaults to
 1."
   (interactive "p")
   (let ((start (current-column))
+        (entry (tabulated-list-get-entry))
         (nb-cols (length tabulated-list-format))
         (col-nb 0)
         (total-width 0)
@@ -720,14 +739,25 @@ Interactively, N is the prefix numeric argument, and defaults to
         col-width)
     (while (and (not found)
                 (< col-nb nb-cols))
-      (if (> start
-             (setq total-width
-                   (+ total-width
-                      (setq col-width
-                            (cadr (aref tabulated-list-format
-                                        col-nb))))))
+      (if (>= start
+              (setq total-width
+                    (+ total-width
+                       (max (setq col-width
+                                  (cadr (aref tabulated-list-format
+                                              col-nb)))
+                            (let ((desc (aref entry col-nb)))
+                              (string-width (if (stringp desc)
+                                                desc
+                                              (car desc)))))
+                       (or (plist-get (nthcdr 3 (aref tabulated-list-format
+                                                      col-nb))
+                                      :pad-right)
+                           1))))
           (setq col-nb (1+ col-nb))
         (setq found t)
+        ;; `tabulated-list-format' may be a constant (sharing list
+        ;; structures), so copy it before mutating.
+        (setq tabulated-list-format (copy-tree tabulated-list-format t))
         (setf (cadr (aref tabulated-list-format col-nb))
               (max 1 (+ col-width n)))
         (tabulated-list-print t)

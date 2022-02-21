@@ -254,7 +254,7 @@ TRUNCATED is non-nil if the text of this entity was truncated."))
 	(unless (y-or-n-p "This entity is truncated; save anyway? ")
 	  (error "Aborted")))
     (setq filename (expand-file-name
-		    (read-file-name (format "Save as (default: %s): " filename)
+                    (read-file-name (format-prompt "Save as" filename)
 				    directory
 				    (expand-file-name filename directory))
 		    directory))
@@ -1568,9 +1568,5 @@ This is the usual value of `rmail-insert-mime-forwarded-message-function'."
 (setq rmail-search-mime-message-function 'rmail-search-mime-message)
 
 (provide 'rmailmm)
-
-;; Local Variables:
-;; generated-autoload-file: "rmail-loaddefs.el"
-;; End:
 
 ;;; rmailmm.el ends here

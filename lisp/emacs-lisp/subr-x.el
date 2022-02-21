@@ -208,7 +208,9 @@ The variable list SPEC is the same as in `if-let'."
   (string= string ""))
 
 (defsubst string-join (strings &optional separator)
-  "Join all STRINGS using SEPARATOR."
+  "Join all STRINGS using SEPARATOR.
+Optional argument SEPARATOR must be a string, a vector, or a list of
+characters; nil stands for the empty string."
   (mapconcat #'identity strings separator))
 
 (define-obsolete-function-alias 'string-reverse 'reverse "25.1")
@@ -400,6 +402,156 @@ as the new values of the bound variables in the recursive invocation."
       (cl-labels ((,name ,fargs . ,body)) #',name)
       . ,aargs)))
 
+(defmacro with-memoization (place &rest code)
+  "Return the value of CODE and stash it in PLACE.
+If PLACE's value is non-nil, then don't bother evaluating CODE
+and return the value found in PLACE instead."
+  (declare (indent 1) (debug (gv-place body)))
+  (gv-letplace (getter setter) place
+    `(or ,getter
+         ,(macroexp-let2 nil val (macroexp-progn code)
+            `(progn
+               ,(funcall setter val)
+               ,val)))))
+
+;;;###autoload
+(defun ensure-empty-lines (&optional lines)
+  "Ensure that there are LINES number of empty lines before point.
+If LINES is nil or omitted, ensure that there is a single empty
+line before point.
+
+If called interactively, LINES is given by the prefix argument.
+
+If there are more than LINES empty lines before point, the number
+of empty lines is reduced to LINES.
+
+If point is not at the beginning of a line, a newline character
+is inserted before adjusting the number of empty lines."
+  (interactive "p")
+  (unless (bolp)
+    (insert "\n"))
+  (let ((lines (or lines 1))
+        (start (save-excursion
+                 (if (re-search-backward "[^\n]" nil t)
+                     (+ (point) 2)
+                   (point-min)))))
+    (cond
+     ((> (- (point) start) lines)
+      (delete-region (point) (- (point) (- (point) start lines))))
+     ((< (- (point) start) lines)
+      (insert (make-string (- lines (- (point) start)) ?\n))))))
+
+;;;###autoload
+(defun string-pixel-width (string)
+  "Return the width of STRING in pixels."
+  (with-temp-buffer
+    (insert string)
+    (car (buffer-text-pixel-size nil nil t))))
+
+;;;###autoload
+(defun string-glyph-split (string)
+  "Split STRING into a list of strings representing separate glyphs.
+This takes into account combining characters and grapheme clusters."
+  (let ((result nil)
+        (start 0)
+        comp)
+    (while (< start (length string))
+      (if (setq comp (find-composition-internal
+                      start
+                      ;; Don't search backward in the string for the
+                      ;; start of the composition.
+                      (min (length string) (1+ start))
+                      string nil))
+          (progn
+            (push (substring string (car comp) (cadr comp)) result)
+            (setq start (cadr comp)))
+        (push (substring string start (1+ start)) result)
+        (setq start (1+ start))))
+    (nreverse result)))
+
+;;;###autoload
+(defun add-display-text-property (start end prop value
+                                        &optional object)
+  "Add display property PROP with VALUE to the text from START to END.
+If any text in the region has a non-nil `display' property, those
+properties are retained.
+
+If OBJECT is non-nil, it should be a string or a buffer.  If nil,
+this defaults to the current buffer."
+  (let ((sub-start start)
+        (sub-end 0)
+        disp)
+    (while (< sub-end end)
+      (setq sub-end (next-single-property-change sub-start 'display object
+                                                 (if (stringp object)
+                                                     (min (length object) end)
+                                                   (min end (point-max)))))
+      (if (not (setq disp (get-text-property sub-start 'display object)))
+          ;; No old properties in this range.
+          (put-text-property sub-start sub-end 'display (list prop value))
+        ;; We have old properties.
+        (let ((vector nil))
+          ;; Make disp into a list.
+          (setq disp
+                (cond
+                 ((vectorp disp)
+                  (setq vector t)
+                  (seq-into disp 'list))
+                 ((not (consp (car disp)))
+                  (list disp))
+                 (t
+                  disp)))
+          ;; Remove any old instances.
+          (when-let ((old (assoc prop disp)))
+            (setq disp (delete old disp)))
+          (setq disp (cons (list prop value) disp))
+          (when vector
+            (setq disp (seq-into disp 'vector)))
+          ;; Finally update the range.
+          (put-text-property sub-start sub-end 'display disp)))
+      (setq sub-start sub-end))))
+
+;;;###autoload
+(defun read-process-name (prompt)
+  "Query the user for a process and return the process object."
+  ;; Currently supports only the PROCESS argument.
+  ;; Must either return a list containing a process, or signal an error.
+  ;; (Returning `nil' would mean the current buffer's process.)
+  (unless (fboundp 'process-list)
+    (error "Asynchronous subprocesses are not supported on this system"))
+  ;; Local function to return cons of a complete-able name, and the
+  ;; associated process object, for use with `completing-read'.
+  (cl-flet ((procitem
+             (p) (when (process-live-p p)
+                   (let ((pid (process-id p))
+                         (procname (process-name p))
+                         (procbuf (process-buffer p)))
+                     (and (eq (process-type p) 'real)
+                          (cons (if procbuf
+                                    (format "%s (%s) in buffer %s"
+                                            procname pid
+                                            (buffer-name procbuf))
+                                  (format "%s (%s)" procname pid))
+                                p))))))
+    ;; Perform `completing-read' for a process.
+    (let* ((currproc (get-buffer-process (current-buffer)))
+           (proclist (or (process-list)
+                         (error "No processes found")))
+           (collection (delq nil (mapcar #'procitem proclist)))
+           (selection (completing-read
+                       (format-prompt prompt
+                                      (and currproc
+                                           (eq (process-type currproc) 'real)
+                                           (procitem currproc)))
+                       collection nil :require-match nil nil
+                       (car (seq-find (lambda (proc)
+                                        (eq currproc (cdr proc)))
+                                      collection))))
+           (process (and selection
+                         (cdr (assoc selection collection)))))
+      (unless process
+        (error "No process selected"))
+      process)))
 
 (provide 'subr-x)
 

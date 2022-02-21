@@ -396,12 +396,8 @@ and `fill-nobreak-invisible'."
 	  (save-excursion
 	    (skip-chars-backward " ")
 	    (and (eq (preceding-char) ?.)
-		 (looking-at " \\([^ ]\\|$\\)"))))
-     ;; Another approach to the same problem.
-     (save-excursion
-       (skip-chars-backward " ")
-       (and (eq (preceding-char) ?.)
-	    (not (progn (forward-char -1) (looking-at (sentence-end))))))
+                 ;; There's something more after the space.
+		 (looking-at " [^ \n]"))))
      ;; Don't split a line if the rest would look like a new paragraph.
      (unless use-hard-newlines
        (save-excursion
@@ -709,13 +705,15 @@ space does not end a sentence, so don't break a line there."
     (goto-char from-plus-indent))
 
   (if (not (> to (point)))
-      nil ;; There is no paragraph, only whitespace: exit now.
+      ;; There is no paragraph, only whitespace: exit now.
+      (progn
+        (set-marker to nil)
+        nil)
 
     (or justify (setq justify (current-justification)))
 
     ;; Don't let Adaptive Fill mode alter the fill prefix permanently.
-    (let ((actual-fill-prefix fill-prefix)
-          (fill-prefix fill-prefix))
+    (let ((fill-prefix fill-prefix))
       ;; Figure out how this paragraph is indented, if desired.
       (when (and adaptive-fill-mode
 		 (or (null fill-prefix) (string= fill-prefix "")))
@@ -755,18 +753,9 @@ space does not end a sentence, so don't break a line there."
 
 	;; This is the actual filling loop.
 	(goto-char from)
-	(let ((first t)
-              linebeg)
-	  (while (< (point) to)
-            ;; On the first line, there may be text in the fill prefix
-            ;; zone (when `fill-prefix' is specified externally, and
-            ;; not computed).  In that case, don't consider that area
-            ;; when trying to find a place to put a line break
-            ;; (bug#45720).
-            (if (not first)
-	        (setq linebeg (point))
-              (setq first nil
-                    linebeg (+ (point) (length actual-fill-prefix))))
+	(let (linebeg)
+          (while (< (point) to)
+	    (setq linebeg (point))
 	    (move-to-column (current-fill-column))
 	    (if (when (and (< (point) to) (< linebeg to))
 		  ;; Find the position where we'll break the line.
@@ -795,6 +784,7 @@ space does not end a sentence, so don't break a line there."
       ;; Leave point after final newline.
       (goto-char to)
       (unless (eobp) (forward-char 1))
+      (set-marker to nil)
       ;; Return the fill-prefix we used
       fill-prefix)))
 

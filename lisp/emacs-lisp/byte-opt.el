@@ -37,125 +37,11 @@
 
 ;; TO DO:
 ;;
-;; (apply (lambda (x &rest y) ...) 1 (foo))
-;;
-;; maintain a list of functions known not to access any global variables
-;; (actually, give them a 'dynamically-safe property) and then
-;;   (let ( v1 v2 ... vM vN ) <...dynamically-safe...> )  ==>
-;;   (let ( v1 v2 ... vM ) vN <...dynamically-safe...> )
-;; by recursing on this, we might be able to eliminate the entire let.
-;; However certain variables should never have their bindings optimized
-;; away, because they affect everything.
-;;   (put 'debug-on-error 'binding-is-magic t)
-;;   (put 'debug-on-abort 'binding-is-magic t)
-;;   (put 'debug-on-next-call 'binding-is-magic t)
-;;   (put 'inhibit-quit 'binding-is-magic t)
-;;   (put 'quit-flag 'binding-is-magic t)
-;;   (put 't 'binding-is-magic t)
-;;   (put 'nil 'binding-is-magic t)
-;; possibly also
-;;   (put 'gc-cons-threshold 'binding-is-magic t)
-;;   (put 'track-mouse 'binding-is-magic t)
-;; others?
-;;
-;; Simple defsubsts often produce forms like
-;;    (let ((v1 (f1)) (v2 (f2)) ...)
-;;       (FN v1 v2 ...))
-;; It would be nice if we could optimize this to
-;;    (FN (f1) (f2) ...)
-;; but we can't unless FN is dynamically-safe (it might be dynamically
-;; referring to the bindings that the lambda arglist established.)
-;; One of the uncountable lossages introduced by dynamic scope...
-;;
-;; Maybe there should be a control-structure that says "turn on
-;; fast-and-loose type-assumptive optimizations here."  Then when
-;; we see a form like (car foo) we can from then on assume that
-;; the variable foo is of type cons, and optimize based on that.
-;; But, this won't win much because of (you guessed it) dynamic
-;; scope.  Anything down the stack could change the value.
-;; (Another reason it doesn't work is that it is perfectly valid
-;; to call car with a null argument.)  A better approach might
-;; be to allow type-specification of the form
-;;   (put 'foo 'arg-types '(float (list integer) dynamic))
-;;   (put 'foo 'result-type 'bool)
-;; It should be possible to have these types checked to a certain
-;; degree.
-;;
-;; collapse common subexpressions
-;;
-;; It would be nice if redundant sequences could be factored out as well,
-;; when they are known to have no side-effects:
-;;   (list (+ a b c) (+ a b c))   -->  a b add c add dup list-2
-;; but beware of traps like
-;;   (cons (list x y) (list x y))
-;;
-;; Tail-recursion elimination is not really possible in Emacs Lisp.
-;; Tail-recursion elimination is almost always impossible when all variables
-;; have dynamic scope, but given that the "return" byteop requires the
-;; binding stack to be empty (rather than emptying it itself), there can be
-;; no truly tail-recursive Emacs Lisp functions that take any arguments or
-;; make any bindings.
-;;
-;; Here is an example of an Emacs Lisp function which could safely be
-;; byte-compiled tail-recursively:
-;;
-;;  (defun tail-map (fn list)
-;;    (cond (list
-;;           (funcall fn (car list))
-;;           (tail-map fn (cdr list)))))
-;;
-;; However, if there was even a single let-binding around the COND,
-;; it could not be byte-compiled, because there would be an "unbind"
-;; byte-op between the final "call" and "return."  Adding a
-;; Bunbind_all byteop would fix this.
-;;
-;;   (defun foo (x y z) ... (foo a b c))
-;;   ... (const foo) (varref a) (varref b) (varref c) (call 3) END: (return)
-;;   ... (varref a) (varbind x) (varref b) (varbind y) (varref c) (varbind z) (goto 0) END: (unbind-all) (return)
-;;   ... (varref a) (varset x) (varref b) (varset y) (varref c) (varset z) (goto 0) END: (return)
-;;
-;; this also can be considered tail recursion:
-;;
-;;   ... (const foo) (varref a) (call 1) (goto X) ... X: (return)
-;; could generalize this by doing the optimization
-;;   (goto X) ... X: (return)  -->  (return)
-;;
-;; But this doesn't solve all of the problems: although by doing tail-
-;; recursion elimination in this way, the call-stack does not grow, the
-;; binding-stack would grow with each recursive step, and would eventually
-;; overflow.  I don't believe there is any way around this without lexical
-;; scope.
-;;
-;; Wouldn't it be nice if Emacs Lisp had lexical scope.
-;;
-;; Idea: the form (lexical-scope) in a file means that the file may be
-;; compiled lexically.  This proclamation is file-local.  Then, within
-;; that file, "let" would establish lexical bindings, and "let-dynamic"
-;; would do things the old way.  (Or we could use CL "declare" forms.)
-;; We'd have to notice defvars and defconsts, since those variables should
-;; always be dynamic, and attempting to do a lexical binding of them
-;; should simply do a dynamic binding instead.
-;; But!  We need to know about variables that were not necessarily defvared
-;; in the file being compiled (doing a boundp check isn't good enough.)
-;; Fdefvar() would have to be modified to add something to the plist.
-;;
-;; A major disadvantage of this scheme is that the interpreter and compiler
-;; would have different semantics for files compiled with (dynamic-scope).
-;; Since this would be a file-local optimization, there would be no way to
-;; modify the interpreter to obey this (unless the loader was hacked
-;; in some grody way, but that's a really bad idea.)
-
-;; Other things to consider:
-
-;; ;; Associative math should recognize subcalls to identical function:
-;; (disassemble (lambda (x) (+ (+ (foo) 1) (+ (bar) 2))))
-;; ;; This should generate the same as (1+ x) and (1- x)
-
-;; (disassemble (lambda (x) (cons (+ x 1) (- x 1))))
 ;; ;; An awful lot of functions always return a non-nil value.  If they're
 ;; ;; error free also they may act as true-constants.
-
+;;
 ;; (disassemble (lambda (x) (and (point) (foo))))
+
 ;; ;; When
 ;; ;;   - all but one arguments to a function are constant
 ;; ;;   - the non-constant argument is an if-expression (cond-expression?)
@@ -264,8 +150,9 @@ Earlier variables shadow later ones with the same name.")
                    (cdr (assq name byte-compile-function-environment)))))
     (pcase fn
       ('nil
-       (byte-compile-warn "attempt to inline `%s' before it was defined"
-                          name)
+       (byte-compile-warn-x name
+                            "attempt to inline `%s' before it was defined"
+                            name)
        form)
       (`(autoload . ,_)
        (error "File `%s' didn't define `%s'" (nth 1 fn) name))
@@ -342,8 +229,12 @@ for speeding up processing.")
       (numberp expr)
       (stringp expr)
       (and (consp expr)
-           (memq (car expr) '(quote function))
-           (symbolp (cadr expr)))
+           (or (and (memq (car expr) '(quote function))
+                    (symbolp (cadr expr)))
+               ;; (internal-get-closed-var N) can be considered constant for
+               ;; const-prop purposes.
+               (and (eq (car expr) 'internal-get-closed-var)
+                    (integerp (cadr expr)))))
       (keywordp expr)))
 
 (defmacro byte-optimize--pcase (exp &rest cases)
@@ -417,8 +308,8 @@ for speeding up processing.")
         (t form)))
       (`(quote . ,v)
        (if (or (not v) (cdr v))
-	   (byte-compile-warn "malformed quote form: `%s'"
-			      (prin1-to-string form)))
+	   (byte-compile-warn-x form "malformed quote form: `%s'"
+			        form))
        ;; Map (quote nil) to nil to simplify optimizer logic.
        ;; Map quoted constants to nil if for-effect (just because).
        (and (car v)
@@ -436,8 +327,9 @@ for speeding up processing.")
                            (cons
                             (byte-optimize-form (car clause) nil)
                             (byte-optimize-body (cdr clause) for-effect))
-                         (byte-compile-warn "malformed cond form: `%s'"
-                                            (prin1-to-string clause))
+                         (byte-compile-warn-x
+                          clause "malformed cond form: `%s'"
+                          clause)
                          clause))
                      clauses)))
       (`(progn . ,exps)
@@ -513,8 +405,7 @@ for speeding up processing.")
          `(while ,condition . ,body)))
 
       (`(interactive . ,_)
-       (byte-compile-warn "misplaced interactive spec: `%s'"
-			  (prin1-to-string form))
+       (byte-compile-warn-x form "misplaced interactive spec: `%s'" form)
        nil)
 
       (`(function . ,_)
@@ -582,7 +473,7 @@ for speeding up processing.")
          (while args
            (unless (and (consp args)
                         (symbolp (car args)) (consp (cdr args)))
-             (byte-compile-warn "malformed setq form: %S" form))
+             (byte-compile-warn-x form "malformed setq form: %S" form))
            (let* ((var (car args))
                   (expr (cadr args))
                   (lexvar (assq var byte-optimize--lexvars))
@@ -615,8 +506,7 @@ for speeding up processing.")
        (cons fn (mapcar #'byte-optimize-form exps)))
 
       (`(,(pred (not symbolp)) . ,_)
-       (byte-compile-warn "`%s' is a malformed function"
-			  (prin1-to-string fn))
+       (byte-compile-warn-x fn "`%s' is a malformed function" fn)
        form)
 
       ((guard (when for-effect
@@ -624,8 +514,10 @@ for speeding up processing.")
 		    (or byte-compile-delete-errors
 		        (eq tmp 'error-free)
 		        (progn
-			  (byte-compile-warn "value returned from %s is unused"
-					     (prin1-to-string form))
+			  (byte-compile-warn-x
+                           form
+                           "value returned from %s is unused"
+			   form)
 			  nil)))))
        (byte-compile-log "  %s called for effect; deleted" fn)
        ;; appending a nil here might not be necessary, but it can't hurt.
@@ -821,7 +713,8 @@ for speeding up processing.")
 	         (if (symbolp binding)
 		     binding
 	           (when (or (atom binding) (cddr binding))
-		     (byte-compile-warn "malformed let binding: `%S'" binding))
+		     (byte-compile-warn-x
+                      binding "malformed let binding: `%S'" binding))
 	           (list (car binding)
 		         (byte-optimize-form (nth 1 binding) nil))))
 	       (car form))
@@ -1261,7 +1154,7 @@ See Info node `(elisp) Integer Basics'."
 	    (list 'or (car (car clauses))
 		  (byte-optimize-cond
 		   (cons (car form) (cdr (cdr form)))))
-	  form))
+	  (and clauses form)))
     form))
 
 (defun byte-optimize-if (form)
@@ -1304,7 +1197,7 @@ See Info node `(elisp) Integer Basics'."
 
 (defun byte-optimize-while (form)
   (when (< (length form) 2)
-    (byte-compile-warn "too few arguments for `while'"))
+    (byte-compile-warn-x form "too few arguments for `while'"))
   (if (nth 1 form)
       form))
 
@@ -1342,9 +1235,10 @@ See Info node `(elisp) Integer Basics'."
 		  (let ((butlast (nreverse (cdr (reverse (cdr (cdr form)))))))
 		    (nconc (list 'funcall fn) butlast
 			   (mapcar (lambda (x) (list 'quote x)) (nth 1 last))))
-	        (byte-compile-warn
+	        (byte-compile-warn-x
+                 last
 	         "last arg to apply can't be a literal atom: `%s'"
-	         (prin1-to-string last))
+	         last)
 	        nil))
 	  form))))
 
@@ -1460,6 +1354,7 @@ See Info node `(elisp) Integer Basics'."
 (let ((side-effect-free-fns
        '(% * + - / /= 1+ 1- < <= = > >= abs acos append aref ash asin atan
 	 assq
+         base64-decode-string base64-encode-string base64url-encode-string
          bool-vector-count-consecutive bool-vector-count-population
          bool-vector-subsetp
 	 boundp buffer-file-name buffer-local-variables buffer-modified-p
@@ -1616,6 +1511,7 @@ See Info node `(elisp) Integer Basics'."
          assq rassq rassoc
          plist-get lax-plist-get plist-member
          aref elt
+         base64-decode-string base64-encode-string base64url-encode-string
          bool-vector-subsetp
          bool-vector-count-population bool-vector-count-consecutive
          )))

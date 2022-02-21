@@ -135,6 +135,7 @@ extern filedesc fd_info [ MAXDESC ];
 #define FILE_SOCKET             0x0200
 #define FILE_NDELAY             0x0400
 #define FILE_SERIAL             0x0800
+#define FILE_DONT_CLOSE         0x1000
 
 extern child_process * new_child (void);
 extern void delete_child (child_process *cp);
@@ -161,8 +162,9 @@ extern void prepare_standard_handles (int in, int out,
 extern void reset_standard_handles (int in, int out,
 				    int err, HANDLE handles[3]);
 
-/* Return the string resource associated with KEY of type TYPE.  */
-extern LPBYTE w32_get_resource (const char * key, LPDWORD type);
+/* Query Windows Registry and return the resource associated
+   associated with KEY and NAME of type TYPE.  */
+extern LPBYTE w32_get_resource (const char * key, const char * name, LPDWORD type);
 
 extern void release_listen_threads (void);
 extern void init_ntproc (int);

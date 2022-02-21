@@ -444,10 +444,10 @@ List has a form of (file-name full-file-name (attribute-list))."
 			  ((eq op-symbol 'chgrp)
 			   (file-attribute-group-id
 			    (file-attributes default-file 'string))))))
-	 (prompt (concat "Change " attribute-name " of %s to"
-			 (if (eq op-symbol 'touch)
-			     " (default now): "
-			   ": ")))
+         (prompt (format-prompt "Change %s of %%s to"
+                                (when (eq op-symbol 'touch)
+                                    "now")
+                                attribute-name))
 	 (new-attribute (dired-mark-read-string prompt nil op-symbol
 						arg files default
 						(cond ((eq op-symbol 'chown)
@@ -1009,6 +1009,7 @@ the offending ARGUMENTS or PROGRAM if no ARGUMENTS were provided."
       (erase-buffer)
       (setq default-directory dir	; caller's default-directory
 	    err (not (eq 0 (apply #'process-file program nil t nil arguments))))
+      (dired-uncache dir)
       (if err
 	  (progn
 	    (dired-log (concat program " " (prin1-to-string arguments) "\n"))
@@ -1034,6 +1035,7 @@ Return the result of `process-file' - zero for success."
                    nil
                    shell-command-switch
                    cmd)))
+        (dired-uncache dir)
         (unless (zerop res)
           (pop-to-buffer out-buffer))
         res))))
@@ -1282,9 +1284,9 @@ Return nil if no change in files."
                (prog1 (setq newname (file-name-as-directory newname))
                  (dired-shell-command
                   (replace-regexp-in-string
-                   "%o" (shell-quote-argument newname)
+                   "%o" (shell-quote-argument (file-local-name newname))
                    (replace-regexp-in-string
-                    "%i" (shell-quote-argument file)
+                    "%i" (shell-quote-argument (file-local-name file))
                     command
                     nil t)
                    nil t)))
@@ -1295,10 +1297,10 @@ Return nil if no change in files."
                            (dired-check-process msg
                                                 (substring command 0 match)
                                                 (substring command (1+ match))
-                                                file)
+                                                (file-local-name file))
                          (dired-check-process msg
                                               command
-                                              file))
+                                              (file-local-name file)))
                  newname))))
           (t
            ;; We don't recognize the file as compressed, so compress it.
@@ -1316,7 +1318,8 @@ Return nil if no change in files."
                                (default-directory (file-name-directory file)))
                            (dired-shell-command
                             (replace-regexp-in-string
-                             "%o" (shell-quote-argument out-name)
+                             "%o" (shell-quote-argument
+                                   (file-local-name out-name))
                              (replace-regexp-in-string
                               "%i" (shell-quote-argument
                                     (file-name-nondirectory file))
@@ -1346,9 +1349,10 @@ see `dired-compress-file-alist' for the supported suffixes list"
                                 out-name)))
                           (dired-shell-command
                            (replace-regexp-in-string
-                            "%o" (shell-quote-argument out-name)
+                            "%o" (shell-quote-argument
+                                  (file-local-name out-name))
                             (replace-regexp-in-string
-                             "%i" (shell-quote-argument file)
+                             "%i" (shell-quote-argument (file-local-name file))
                              (cdr rule)
                              nil t)
                             nil t))
@@ -1363,7 +1367,8 @@ see `dired-compress-file-alist' for the supported suffixes list"
                             out-name)))))
              (file-error
               (if (not (dired-check-process (concat "Compressing " file)
-                                            "compress" "-f" file))
+                                            "compress" "-f"
+                                            (file-local-name file)))
                   ;; Don't use NEWNAME with `compress'.
                   (concat file ".Z"))))))))
 
@@ -1784,12 +1789,45 @@ Special value `always' suppresses confirmation."
   "Whether Dired should create destination dirs when copying/removing files.
 If nil, don't create them.
 If `always', create them without asking.
-If `ask', ask for user confirmation."
+If `ask', ask for user confirmation.
+
+Also see `dired-create-destination-dirs-on-trailing-dirsep'."
   :type '(choice (const :tag "Never create non-existent dirs" nil)
 		 (const :tag "Always create non-existent dirs" always)
 		 (const :tag "Ask for user confirmation" ask))
   :group 'dired
   :version "27.1")
+
+(defcustom dired-create-destination-dirs-on-trailing-dirsep nil
+  "If non-nil, treat a trailing slash at queried destination dir specially.
+
+If this variable is non-nil and a single destination filename is
+queried which ends in a directory separator (/), it will be
+treated as a non-existent directory and acted on according to
+`dired-create-destination-dirs'.
+
+This option is only relevant if `dired-create-destination-dirs'
+is non-nil, too.
+
+For example, if both `dired-create-destination-dirs' and this
+option are non-nil, renaming a directory named `old_name' to
+`new_name/' (note the trailing directory separator) where
+`new_name' does not exists already, it will be created and
+`old_name' be moved into it.  If only `new_name' (without the
+trailing /) is given or this option or
+`dired-create-destination-dirs' is `nil', `old_name' will be
+renamed to `new_name'."
+  :type '(choice
+          (const :tag
+                 (concat "Do not treat destination dirs with a "
+                         "trailing directory separator specially")
+                 nil)
+          (const :tag
+                 (concat "Treat destination dirs with trailing "
+                         "directory separator specially")
+                 t))
+  :group 'dired
+  :version "29.1")
 
 (defun dired-maybe-create-dirs (dir)
   "Create DIR if doesn't exist according to `dired-create-destination-dirs'."
@@ -1986,11 +2024,12 @@ or with the current marker character if MARKER-CHAR is t."
           (let* ((overwrite (file-exists-p to))
                  (dired-overwrite-confirmed ; for dired-handle-overwrite
                   (and overwrite
-                       (let ((help-form (format-message "\
-Type SPC or `y' to overwrite file `%s',
-DEL or `n' to skip to next,
-ESC or `q' to not overwrite any of the remaining files,
-`!' to overwrite all remaining files with no more questions." to)))
+                       (let ((help-form (format-message
+                                         (substitute-command-keys "\
+Type \\`SPC' or \\`y' to overwrite file `%s',
+\\`DEL' or \\`n' to skip to next,
+\\`ESC' or \\`q' to not overwrite any of the remaining files,
+\\`!' to overwrite all remaining files with no more questions.") to)))
                          (dired-query 'overwrite-query
                                       "Overwrite `%s'?" to))))
                  ;; must determine if FROM is marked before file-creator
@@ -2106,18 +2145,23 @@ Prompt user for a target directory in which to create the new
   one file is marked.  The initial suggestion for target is the
   Dired buffer's current directory (or, if `dired-dwim-target' is
   non-nil, the current directory of a neighboring Dired window).
+
 OP-SYMBOL is the symbol for the operation.  Function `dired-mark-pop-up'
   will determine whether pop-ups are appropriate for this OP-SYMBOL.
+
 FILE-CREATOR and OPERATION as in `dired-create-files'.
+
 ARG as in `dired-get-marked-files'.
+
 Optional arg MARKER-CHAR as in `dired-create-files'.
+
 Optional arg OP1 is an alternate form for OPERATION if there is
   only one file.
+
 Optional arg HOW-TO determines how to treat the target.
   If HOW-TO is nil, use `file-directory-p' to determine if the
    target is a directory.  If so, the marked file(s) are created
-   inside that directory.  Otherwise, the target is a plain file;
-   an error is raised unless there is exactly one marked file.
+   inside that directory.
   If HOW-TO is t, target is always treated as a plain file.
   Otherwise, HOW-TO should be a function of one argument, TARGET.
    If its return value is nil, TARGET is regarded as a plain file.
@@ -2130,6 +2174,11 @@ Optional arg HOW-TO determines how to treat the target.
       target    - the name of the target itself.
     The rest of elements of the list returned by HOW-TO are optional
     arguments for the function that is the first element of the list.
+
+    This can be useful because by default, copying a single file
+    would replace the tar file.  But this could be overridden to
+    add or replace entries in the tar file.
+
    For any other return value, TARGET is treated as a directory."
   (or op1 (setq op1 operation))
   (let* ((fn-list (dired-get-marked-files nil arg nil nil t))
@@ -2159,7 +2208,12 @@ Optional arg HOW-TO determines how to treat the target.
 		     target-dir op-symbol arg rfn-list default))))
 	 (into-dir
           (progn
-            (unless dired-one-file (dired-maybe-create-dirs target))
+            (when
+                (or
+                 (not dired-one-file)
+                 (and dired-create-destination-dirs-on-trailing-dirsep
+                      (directory-name-p target)))
+              (dired-maybe-create-dirs target))
             (cond ((null how-to)
 		   ;; Allow users to change the letter case of
 		   ;; a directory on a case-insensitive
@@ -2373,7 +2427,7 @@ If FILE already exists, signal an error."
 
 (defvar dired-copy-how-to-fn nil
   "Either nil or a function used by `dired-do-copy' to determine target.
-See HOW-TO argument for `dired-do-create-files'.")
+See HOW-TO argument for `dired-do-create-files' for an explanation.")
 
 ;;;###autoload
 (defun dired-do-copy (&optional arg)
@@ -2483,11 +2537,12 @@ Also see `dired-do-revert-buffer'."
   ;; Optional arg MARKER-CHAR as in dired-create-files.
   (let* ((fn-list (dired-get-marked-files nil arg))
 	 (operation-prompt (concat operation " `%s' to `%s'?"))
-	 (rename-regexp-help-form (format-message "\
-Type SPC or `y' to %s one match, DEL or `n' to skip to next,
-`!' to %s all remaining matches with no more questions."
-						  (downcase operation)
-						  (downcase operation)))
+         (rename-regexp-help-form (format-message
+                                   (substitute-command-keys "\
+Type \\`SPC' or \\`y' to %s one match, \\`DEL' or \\`n' to skip to next,
+\\`!' to %s all remaining matches with no more questions.")
+                                   (downcase operation)
+                                   (downcase operation)))
 	 (regexp-name-constructor
 	  ;; Function to construct new filename using REGEXP and NEWNAME:
 	  (if whole-name		; easy (but rare) case
@@ -2608,11 +2663,12 @@ See function `dired-do-rename-regexp' for more info."
        (let ((to (concat (file-name-directory from)
 			 (funcall basename-constructor
 				  (file-name-nondirectory from)))))
-	 (and (let ((help-form (format-message "\
-Type SPC or `y' to %s one file, DEL or `n' to skip to next,
-`!' to %s all remaining matches with no more questions."
-					       (downcase operation)
-					       (downcase operation))))
+         (and (let ((help-form (format-message
+                                (substitute-command-keys "\
+Type \\`SPC' or \\`y' to %s one file, \\`DEL' or \\`n' to skip to next,
+\\`!' to %s all remaining matches with no more questions.")
+                                (downcase operation)
+                                (downcase operation))))
 		(dired-query 'rename-non-directory-query
 			     (concat operation " `%s' to `%s'")
 			     (dired-make-relative from)
@@ -2862,8 +2918,8 @@ of marked files.  If KILL-ROOT is non-nil, kill DIRNAME as well."
   ;;   if dired-actual-switches contained t.
   (setq dir1 (file-name-as-directory dir1)
 	dir2 (file-name-as-directory dir2))
-  (let ((components-1 (dired-split "/" dir1))
-	(components-2 (dired-split "/" dir2)))
+  (let ((components-1 (split-string dir1 "/"))
+	(components-2 (split-string dir2 "/")))
     (while (and components-1
 		components-2
 		(equal (car components-1) (car components-2)))
@@ -2882,7 +2938,6 @@ of marked files.  If KILL-ROOT is non-nil, kill DIRNAME as well."
 	     nil)
 	    (t (error "This can't happen"))))))
 
-;; There should be a builtin split function - inverse to mapconcat.
 (defun dired-split (pat str &optional limit)
   "Splitting on regexp PAT, turn string STR into a list of substrings.
 Optional third arg LIMIT (>= 1) is a limit to the length of the
@@ -2892,6 +2947,7 @@ Thus, if SEP is a regexp that only matches itself,
    (mapconcat #'identity (dired-split SEP STRING) SEP)
 
 is always equal to STRING."
+  (declare (obsolete split-string "29.1"))
   (let* ((start (string-match pat str))
 	 (result (list (substring str 0 start)))
 	 (count 1)

@@ -122,10 +122,7 @@
 	 (autoload 'zeroconf-init "zeroconf")
 	 (tramp-compat-funcall 'dbus-get-unique-name :system)
 	 (tramp-compat-funcall 'dbus-get-unique-name :session)
-	 (or ;; Until Emacs 25, `process-attributes' could crash Emacs
-	     ;; for some processes.  Better we don't check.
-	     (<= emacs-major-version 25)
-	     (tramp-process-running-p "gvfs-fuse-daemon")
+	 (or (tramp-process-running-p "gvfs-fuse-daemon")
 	     (tramp-process-running-p "gvfsd-fuse"))))
   "Non-nil when GVFS is available.")
 
@@ -471,8 +468,7 @@ It has been changed in GVFS 1.14.")
 ;;   </method>
 ;; </interface>
 
-;; The basic structure for GNOME Online Accounts.  We use a list :type,
-;; in order to be compatible with Emacs 25.
+;; The basic structure for GNOME Online Accounts.
 (cl-defstruct (tramp-goa-account (:type list) :named) method user host port)
 
 ;;;###tramp-autoload
@@ -672,8 +668,7 @@ It has been changed in GVFS 1.14.")
 ;;       STRING		    key (always-call-mount, is-removable, ...)
 ;;       VARIANT	    value (boolean?)
 
-;; The basic structure for media devices.  We use a list :type, in
-;; order to be compatible with Emacs 25.
+;; The basic structure for media devices.
 (cl-defstruct (tramp-media-device (:type list) :named) method host port)
 
 ;; "gvfs-<command>" utilities have been deprecated in GVFS 1.31.1.  We
@@ -749,7 +744,8 @@ It has been changed in GVFS 1.14.")
 ;; New handlers should be added here.
 ;;;###tramp-autoload
 (defconst tramp-gvfs-file-name-handler-alist
-  '((access-file . tramp-handle-access-file)
+  '((abbreviate-file-name . tramp-handle-abbreviate-file-name)
+    (access-file . tramp-handle-access-file)
     (add-name-to-file . tramp-handle-add-name-to-file)
     ;; `byte-compiler-base-file-name' performed by default handler.
     (copy-directory . tramp-handle-copy-directory)
@@ -834,12 +830,11 @@ Operations not mentioned here will be handled by the default Emacs primitives.")
 ;; It must be a `defsubst' in order to push the whole code into
 ;; tramp-loaddefs.el.  Otherwise, there would be recursive autoloading.
 ;;;###tramp-autoload
-(defsubst tramp-gvfs-file-name-p (filename)
-  "Check if it's a FILENAME handled by the GVFS daemon."
-  (and (tramp-tramp-file-p filename)
-       (let ((method
-	      (tramp-file-name-method (tramp-dissect-file-name filename))))
-	 (and (stringp method) (member method tramp-gvfs-methods)))))
+(defsubst tramp-gvfs-file-name-p (vec-or-filename)
+  "Check if it's a VEC-OR-FILENAME handled by the GVFS daemon."
+  (when-let* ((vec (tramp-ensure-dissected-file-name vec-or-filename)))
+    (let ((method (tramp-file-name-method vec)))
+      (and (stringp method) (member method tramp-gvfs-methods)))))
 
 ;;;###tramp-autoload
 (defun tramp-gvfs-file-name-handler (operation &rest args)
@@ -921,8 +916,6 @@ or `dbus-call-method-asynchronously'."
      ;; when loading.
      (dbus-ignore-errors (tramp-dbus-function ,vec func args))))
 
-(font-lock-add-keywords 'emacs-lisp-mode '("\\<with-tramp-dbus-call-method\\>"))
-
 (defmacro with-tramp-dbus-get-all-properties
   (vec bus service path interface)
   "Return all properties of INTERFACE.
@@ -936,8 +929,6 @@ The call will be traced by Tramp with trace level 6."
 	   (list ,bus ,service ,path)))
      (tramp-dbus-function
       ,vec #'dbus-get-all-properties (list ,bus ,service ,path ,interface))))
-
-(font-lock-add-keywords 'emacs-lisp-mode '("\\<with-tramp-dbus-get-all-properties\\>"))
 
 (defvar tramp-gvfs-dbus-event-vector nil
   "Current Tramp file name to be used, as vector.
@@ -1002,7 +993,7 @@ file names."
 
       (with-parsed-tramp-file-name (if t1 filename newname) nil
 	(unless (file-exists-p filename)
-	  (tramp-compat-file-missing v filename))
+	  (tramp-error v 'file-missing filename))
 	(when (and (not ok-if-already-exists) (file-exists-p newname))
 	  (tramp-error v 'file-already-exists newname))
 	(when (and (file-directory-p newname)
@@ -1102,8 +1093,7 @@ file names."
   (tramp-skeleton-delete-directory directory recursive trash
     (if (and recursive (not (file-symlink-p directory)))
 	(mapc (lambda (file)
-		(if (eq t (tramp-compat-file-attribute-type
-			   (file-attributes file)))
+		(if (eq t (file-attribute-type (file-attributes file)))
 		    (delete-directory file recursive)
 		  (delete-file file)))
 	      (directory-files
@@ -1155,15 +1145,12 @@ file names."
 	   (make-tramp-file-name
 	    :method method :user user :domain domain
 	    :host host :port port :localname "/" :hop hop)))
-	(setq localname
-	      (replace-match
-	       (tramp-get-connection-property v "default-location" "~")
-	       nil t localname 1)))
-      ;; Tilde expansion is not possible.
-      (when (string-match-p "\\`\\(~[^/]*\\)\\(.*\\)\\'" localname)
-	(tramp-error
-	 v 'file-error
-	 "Cannot expand tilde in file `%s'" name))
+	(unless (string-empty-p
+		 (tramp-get-connection-property v "default-location" ""))
+	  (setq localname
+		(replace-match
+		 (tramp-get-connection-property v "default-location" "~")
+		 nil t localname 1))))
       (unless (tramp-run-real-handler #'file-name-absolute-p (list localname))
 	(setq localname (concat "/" localname)))
       ;; We do not pass "/..".
@@ -1178,10 +1165,12 @@ file names."
       ;; Do not keep "/..".
       (when (string-match-p "^/\\.\\.?$" localname)
 	(setq localname "/"))
-      ;; No tilde characters in file name, do normal
-      ;; `expand-file-name' (this does "/./" and "/../").
+      ;; Do normal `expand-file-name' (this does "/./" and "/../"),
+      ;; unless there are tilde characters in file name.
       (tramp-make-tramp-file-name
-       v (tramp-run-real-handler #'expand-file-name (list localname))))))
+       v (if (string-match-p "\\`~" localname)
+	     localname
+	   (tramp-run-real-handler #'expand-file-name (list localname)))))))
 
 (defun tramp-gvfs-get-directory-attributes (directory)
   "Return GVFS attributes association list of all files in DIRECTORY."
@@ -1463,7 +1452,7 @@ If FILE-SYSTEM is non-nil, return file system attributes."
 `file-notify' events."
   (let* ((events (process-get proc 'events))
 	 (rest-string (process-get proc 'rest-string))
-	 (dd (with-current-buffer (process-buffer proc) default-directory))
+	 (dd (tramp-get-default-directory (process-buffer proc)))
 	 (ddu (regexp-quote (tramp-gvfs-url-file-name dd))))
     (when rest-string
       (tramp-message proc 10 "Previous string:\n%s" rest-string))
@@ -1528,11 +1517,13 @@ If FILE-SYSTEM is non-nil, return file system attributes."
 	   (size (cdr (assoc "filesystem::size" attr)))
 	   (used (cdr (assoc "filesystem::used" attr)))
 	   (free (cdr (assoc "filesystem::free" attr))))
-      (when (or size used free)
-	(list (string-to-number (or size "0"))
-	      (string-to-number (or free "0"))
-	      (- (string-to-number (or size "0"))
-		 (string-to-number (or used "0"))))))))
+      (when (or size free)
+	(list (and size (string-to-number size))
+	      (and free (string-to-number free))
+	      ;; "mtp" connections do not return "filesystem::used".
+	      (or (and size used
+		       (- (string-to-number size) (string-to-number used)))
+		  (and free (string-to-number free))))))))
 
 (defun tramp-gvfs-handle-make-directory (dir &optional parents)
   "Like `make-directory' for Tramp files."
@@ -1602,7 +1593,7 @@ If FILE-SYSTEM is non-nil, return file system attributes."
       "%s" (if (or (null time)
 		   (tramp-compat-time-equal-p time tramp-time-doesnt-exist)
 		   (tramp-compat-time-equal-p time tramp-time-dont-know))
-	       (current-time)
+	       nil
 	     time)))))
 
 (defun tramp-gvfs-handle-get-remote-uid (vec id-format)
@@ -1614,9 +1605,8 @@ ID-FORMAT valid values are `string' and `integer'."
 		(tramp-get-connection-property
 		 (tramp-get-process vec) "share"
 		 (tramp-get-connection-property vec "default-location" nil))))
-      (tramp-compat-file-attribute-user-id
-       (file-attributes
-	(tramp-make-tramp-file-name vec localname) id-format)))))
+      (file-attribute-user-id
+       (file-attributes (tramp-make-tramp-file-name vec localname) id-format)))))
 
 (defun tramp-gvfs-handle-get-remote-gid (vec id-format)
   "The gid of the remote connection VEC, in ID-FORMAT.
@@ -1625,9 +1615,8 @@ ID-FORMAT valid values are `string' and `integer'."
 	      (tramp-get-connection-property
 	       (tramp-get-process vec) "share"
 	       (tramp-get-connection-property vec "default-location" nil))))
-    (tramp-compat-file-attribute-group-id
-     (file-attributes
-      (tramp-make-tramp-file-name vec localname) id-format))))
+    (file-attribute-group-id
+     (file-attributes (tramp-make-tramp-file-name vec localname) id-format))))
 
 (defun tramp-gvfs-handle-set-file-uid-gid (filename &optional uid gid)
   "Like `tramp-set-file-uid-gid' for Tramp files."
@@ -1865,9 +1854,9 @@ Their full names are \"org.gtk.vfs.MountTracker.mounted\" and
 		    host (tramp-file-name-host v)
 		    port (tramp-file-name-port v)))))
 	(when (member method tramp-gvfs-methods)
-          (let ((v (make-tramp-file-name
-	            :method method :user user :domain domain
-	            :host host :port port)))
+	  (let ((v (make-tramp-file-name
+		    :method method :user user :domain domain
+		    :host host :port port)))
 	    (tramp-message
 	     v 6 "%s %s"
 	     signal-name (tramp-gvfs-stringify-dbus-message mount-info))
@@ -2134,9 +2123,6 @@ connection if a previous connection has died for some reason."
       (process-put p 'vector vec)
       (set-process-query-on-exit-flag p nil)
 
-      ;; Mark process for filelock.
-      (tramp-set-connection-property p "lock-pid" (truncate (time-to-seconds)))
-
       ;; Set connection-local variables.
       (tramp-set-connection-local-variables vec)))
 
@@ -2256,13 +2242,7 @@ connection if a previous connection has died for some reason."
 COMMAND is a command from the gvfs-* utilities.  It is replaced
 by the corresponding gio tool call if available.  `call-process'
 is applied, and it returns t if the return code is zero."
-  (let* ((locale (tramp-get-local-locale vec))
-	 (process-environment
-	  (append
-	   `(,(format "LANG=%s" locale)
-	     ,(format "LANGUAGE=%s" locale)
-	     ,(format "LC_ALL=%s" locale))
-	   process-environment)))
+  (let ((locale (tramp-get-local-locale vec)))
     (when (tramp-gvfs-gio-tool-p vec)
       ;; Use gio tool.
       (setq args (cons (cdr (assoc command tramp-gvfs-gio-mapping))
@@ -2272,7 +2252,14 @@ is applied, and it returns t if the return code is zero."
     (with-current-buffer (tramp-get-connection-buffer vec)
       (tramp-gvfs-maybe-open-connection vec)
       (erase-buffer)
-      (or (zerop (apply #'tramp-call-process vec command nil t nil args))
+      (or (zerop
+	   (apply
+	    #'tramp-call-process vec "env" nil t nil
+	    (append `(,(format "LANG=%s" locale)
+		      ,(format "LANGUAGE=%s" locale)
+		      ,(format "LC_ALL=%s" locale)
+		      ,command)
+		    args)))
 	  ;; Remove information about mounted connection.
 	  (and (tramp-flush-file-properties vec "/") nil)))))
 

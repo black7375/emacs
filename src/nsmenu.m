@@ -101,6 +101,15 @@ popup_activated (void)
 static void
 ns_update_menubar (struct frame *f, bool deep_p)
 {
+#ifdef NS_IMPL_GNUSTEP
+  static int inside = 0;
+
+  if (inside)
+    return;
+
+  inside++;
+#endif
+
   BOOL needsSet = NO;
   id menu = [NSApp mainMenu];
   bool owfi;
@@ -120,7 +129,12 @@ ns_update_menubar (struct frame *f, bool deep_p)
   NSTRACE ("ns_update_menubar");
 
   if (f != SELECTED_FRAME () || FRAME_EXTERNAL_MENU_BAR (f) == 0)
+    {
+#ifdef NS_IMPL_GNUSTEP
+      inside--;
+#endif
       return;
+    }
   XSETFRAME (Vmenu_updating_frame, f);
 /*fprintf (stderr, "ns_update_menubar: frame: %p\tdeep: %d\tsub: %p\n", f, deep_p, submenu); */
 
@@ -142,10 +156,6 @@ ns_update_menubar (struct frame *f, bool deep_p)
 #if NSMENUPROFILE
   ftime (&tb);
   t = -(1000*tb.time+tb.millitm);
-#endif
-
-#ifdef NS_IMPL_GNUSTEP
-  deep_p = 1; /* See comment in menuNeedsUpdate.  */
 #endif
 
   if (deep_p)
@@ -275,6 +285,9 @@ ns_update_menubar (struct frame *f, bool deep_p)
 	  free_menubar_widget_value_tree (first_wv);
 	  discard_menu_items ();
 	  unbind_to (specpdl_count, Qnil);
+#ifdef NS_IMPL_GNUSTEP
+	  inside--;
+#endif
 	  return;
 	}
 
@@ -408,6 +421,10 @@ ns_update_menubar (struct frame *f, bool deep_p)
   if (needsSet)
     [NSApp setMainMenu: menu];
 
+#ifdef NS_IMPL_GNUSTEP
+  inside--;
+#endif
+
   unblock_input ();
 
 }
@@ -452,17 +469,34 @@ set_frame_menubar (struct frame *f, bool deep_p)
    call to ns_update_menubar.  */
 - (void)menuNeedsUpdate: (NSMenu *)menu
 {
+#ifdef NS_IMPL_GNUSTEP
+  static int inside = 0;
+#endif
+
   if (!FRAME_LIVE_P (SELECTED_FRAME ()))
     return;
 
-#ifdef NS_IMPL_COCOA
-/* TODO: GNUstep calls this method when the menu is still being built
-   which results in a recursive stack overflow.  One possible solution
-   is to use menuWillOpen instead, but the Apple docs explicitly warn
-   against changing the contents of the menu in it.  I don't know what
-   the right thing to do for GNUstep is.  */
+#ifdef NS_IMPL_GNUSTEP
+  /* GNUstep calls this method when the menu is still being built
+     which results in a recursive stack overflow, which this variable
+     prevents.  */
+
+  if (!inside)
+    ++inside;
+  else
+    return;
+#endif
+
   if (needsUpdate)
-    ns_update_menubar (SELECTED_FRAME (), true);
+    {
+#ifdef NS_IMPL_GNUSTEP
+      needsUpdate = NO;
+#endif
+      ns_update_menubar (SELECTED_FRAME (), true);
+    }
+
+#ifdef NS_IMPL_GNUSTEP
+  --inside;
 #endif
 }
 
@@ -725,6 +759,32 @@ prettify_key (const char *key)
 }
 
 #ifdef NS_IMPL_GNUSTEP
+/* The code below doesn't work on Mac OS X, because it runs a nested
+   Carbon-related event loop to track menu bar movement.
+
+   But it works fine aside from that, so it will work on GNUstep if
+   they start to call `willHighlightItem'.  */
+- (void) menu: (NSMenu *) menu willHighlightItem: (NSMenuItem *) item
+{
+  NSInteger idx = [item tag];
+  struct frame *f = SELECTED_FRAME ();
+  Lisp_Object vec = f->menu_bar_vector;
+  Lisp_Object help, frame;
+
+  if (idx >= ASIZE (vec))
+    return;
+
+  XSETFRAME (frame, f);
+  help = AREF (vec, idx + MENU_ITEMS_ITEM_HELP);
+
+  if (STRINGP (help) || NILP (help))
+    kbd_buffer_store_help_event (frame, help);
+
+  raise (SIGIO);
+}
+#endif
+
+#ifdef NS_IMPL_GNUSTEP
 - (void) close
 {
     /* Close all the submenus.  This has the unfortunate side-effect of
@@ -743,6 +803,25 @@ prettify_key (const char *key)
 /* GNUstep seems to have a number of required methods in
    NSMenuDelegate that are optional in Cocoa.  */
 
+- (BOOL) menu: (NSMenu*) menu updateItem: (NSMenuItem*) item
+      atIndex: (NSInteger) index shouldCancel: (BOOL) shouldCancel
+{
+  return YES;
+}
+
+- (BOOL) menuHasKeyEquivalent: (NSMenu*) menu
+		     forEvent: (NSEvent*) event
+		       target: (id*) target
+		       action: (SEL*) action
+{
+  return NO;
+}
+
+- (NSInteger) numberOfItemsInMenu: (NSMenu*) menu
+{
+  return [super numberOfItemsInMenu: menu];
+}
+
 - (void) menuWillOpen:(NSMenu *)menu
 {
 }
@@ -755,10 +834,6 @@ prettify_key (const char *key)
                         onScreen:(NSScreen *)screen
 {
   return NSZeroRect;
-}
-
-- (void)menu:(NSMenu *)menu willHighlightItem:(NSMenuItem *)item
-{
 }
 #endif
 
@@ -788,6 +863,9 @@ ns_menu_show (struct frame *f, int x, int y, int menuflags,
   block_input ();
 
   p.x = x; p.y = y;
+
+  /* Don't GC due to a mysterious bug.  */
+  inhibit_garbage_collection ();
 
   /* now parse stage 2 as in ns_update_menubar */
   wv = make_widget_value ("contextmenu", NULL, true, Qnil);
@@ -960,15 +1038,17 @@ ns_menu_show (struct frame *f, int x, int y, int menuflags,
 
   pmenu = [[EmacsMenu alloc] initWithTitle:
                    NILP (title) ? @"" : [NSString stringWithLispString: title]];
+  /* On GNUstep, this call makes menu_items nil for whatever reason
+     when displaying a context menu from `context-menu-mode'.  */
+  Lisp_Object items = menu_items;
   [pmenu fillWithWidgetValue: first_wv->contents];
+  menu_items = items;
   free_menubar_widget_value_tree (first_wv);
-  unbind_to (specpdl_count, Qnil);
-
   popup_activated_flag = 1;
   tem = [pmenu runMenuAt: p forFrame: f keymaps: keymaps];
   popup_activated_flag = 0;
   [[FRAME_NS_VIEW (SELECTED_FRAME ()) window] makeKeyWindow];
-
+  unbind_to (specpdl_count, Qnil);
   unblock_input ();
   return tem;
 }
@@ -1019,6 +1099,15 @@ update_frame_tool_bar_1 (struct frame *f, EmacsToolbar *toolbar)
   [toolbar clearActive];
 #else
   [toolbar clearAll];
+  /* It takes at least 3 such adjustments to fix an issue where the
+     tool bar is 2x too tall when a frame's tool bar is first shown.
+     This is ugly, but I have no other solution for this problem.  */
+  if (FRAME_OUTPUT_DATA (f)->tool_bar_adjusted < 3)
+    {
+      [toolbar setVisible: NO];
+      FRAME_OUTPUT_DATA (f)->tool_bar_adjusted++;
+      [toolbar setVisible: YES];
+    }
 #endif
 
   /* Update EmacsToolbar as in GtkUtils, build items list.  */
@@ -1033,9 +1122,7 @@ update_frame_tool_bar_1 (struct frame *f, EmacsToolbar *toolbar)
       struct image *img;
       Lisp_Object image;
       Lisp_Object labelObj;
-      const char *labelText;
       Lisp_Object helpObj;
-      const char *helpText;
 
       /* Check if this is a separator.  */
       if (EQ (TOOLPROP (TOOL_BAR_ITEM_TYPE), Qt))
@@ -1061,11 +1148,9 @@ update_frame_tool_bar_1 (struct frame *f, EmacsToolbar *toolbar)
           idx = -1;
         }
       labelObj = TOOLPROP (TOOL_BAR_ITEM_LABEL);
-      labelText = NILP (labelObj) ? "" : SSDATA (labelObj);
       helpObj = TOOLPROP (TOOL_BAR_ITEM_HELP);
       if (NILP (helpObj))
         helpObj = TOOLPROP (TOOL_BAR_ITEM_CAPTION);
-      helpText = NILP (helpObj) ? "" : SSDATA (helpObj);
 
       /* Ignore invalid image specifications.  */
       if (!valid_image_p (image))
@@ -1087,8 +1172,8 @@ update_frame_tool_bar_1 (struct frame *f, EmacsToolbar *toolbar)
       [toolbar addDisplayItemWithImage: img->pixmap
                                    idx: k++
                                    tag: i
-                             labelText: labelText
-                              helpText: helpText
+                             labelText: [NSString stringWithLispString:labelObj]
+                              helpText: [NSString stringWithLispString:helpObj]
                                enabled: enabled_p];
 #undef TOOLPROP
     }
@@ -1204,15 +1289,15 @@ update_frame_tool_bar (struct frame *f)
 - (void) addDisplayItemWithImage: (EmacsImage *)img
                              idx: (int)idx
                              tag: (int)tag
-                       labelText: (const char *)label
-                        helpText: (const char *)help
+                       labelText: (NSString *)label
+                        helpText: (NSString *)help
                          enabled: (BOOL)enabled
 {
   NSTRACE ("[EmacsToolbar addDisplayItemWithImage: ...]");
 
   /* 1) come up w/identifier */
-  NSString *identifier
-    = [NSString stringWithFormat: @"%lu", (unsigned long)[img hash]];
+  NSString *identifier = [NSString stringWithFormat: @"%lu%@",
+                                   (unsigned long)[img hash], label];
   [activeIdentifiers addObject: identifier];
 
   /* 2) create / reuse item */
@@ -1222,8 +1307,8 @@ update_frame_tool_bar (struct frame *f)
       item = [[[NSToolbarItem alloc] initWithItemIdentifier: identifier]
                autorelease];
       [item setImage: img];
-      [item setLabel: [NSString stringWithUTF8String: label]];
-      [item setToolTip: [NSString stringWithUTF8String: help]];
+      [item setLabel: label];
+      [item setToolTip: help];
       [item setTarget: emacsView];
       [item setAction: @selector (toolbarClicked:)];
       [identifierToItem setObject: item forKey: identifier];

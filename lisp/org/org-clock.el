@@ -219,8 +219,7 @@ Emacs initialization file."
 	  (const :tag "Clock and history" t)
 	  (const :tag "No persistence" nil)))
 
-(defcustom org-clock-persist-file (convert-standard-filename
-				   (concat user-emacs-directory "org-clock-save.el"))
+(defcustom org-clock-persist-file (locate-user-emacs-file "org-clock-save.el")
   "File to save clock data to."
   :group 'org-clock
   :type 'string)
@@ -1909,11 +1908,11 @@ PROPNAME lets you set a custom text property instead of :org-clock-minutes."
 	   ((match-end 2)
 	    ;; Two time stamps.
 	    (let* ((ts (float-time
-			(apply #'encode-time
+			(encode-time
 			       (save-match-data
 				 (org-parse-time-string (match-string 2))))))
 		   (te (float-time
-			(apply #'encode-time
+			(encode-time
 			       (org-parse-time-string (match-string 3)))))
 		   (dt (- (if tend (min te tend) te)
 			  (if tstart (max ts tstart) ts))))
@@ -2510,7 +2509,7 @@ the currently selected interval size."
       (when step
 	;; Write many tables, in steps
 	(unless (or block (and ts te))
-	  (user-error "Clocktable `:step' can only be used with `:block' or `:tstart, :end'"))
+	  (user-error "Clocktable `:step' can only be used with `:block' or `:tstart', `:tend'"))
 	(org-clocktable-steps params)
 	(throw 'exit nil))
 
@@ -2842,7 +2841,7 @@ a number of clock tables."
           (pcase (if range (car range) (plist-get params :tstart))
             ((and (pred numberp) n)
              (pcase-let ((`(,m ,d ,y) (calendar-gregorian-from-absolute n)))
-               (apply #'encode-time (list 0 0 org-extend-today-until d m y))))
+	       (encode-time 0 0 org-extend-today-until d m y)))
             (timestamp
 	     (seconds-to-time
 	      (org-matcher-time (or timestamp
@@ -2852,7 +2851,7 @@ a number of clock tables."
           (pcase (if range (nth 1 range) (plist-get params :tend))
             ((and (pred numberp) n)
              (pcase-let ((`(,m ,d ,y) (calendar-gregorian-from-absolute n)))
-               (apply #'encode-time (list 0 0 org-extend-today-until d m y))))
+	       (encode-time 0 0 org-extend-today-until d m y)))
             (timestamp (seconds-to-time (org-matcher-time timestamp))))))
     (while (time-less-p start end)
       (unless (bolp) (insert "\n"))
@@ -3047,9 +3046,9 @@ Otherwise, return nil."
 	  (setq ts (match-string 1)
 		te (match-string 3))
 	  (setq s (- (float-time
-		      (apply #'encode-time (org-parse-time-string te)))
+		      (encode-time (org-parse-time-string te)))
 		     (float-time
-		      (apply #'encode-time (org-parse-time-string ts))))
+		      (encode-time (org-parse-time-string ts))))
 		neg (< s 0)
 		s (abs s)
 		h (floor (/ s 3600))

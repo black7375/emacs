@@ -48,6 +48,8 @@
 (require 'puny)
 (require 'rmc)                          ; read-multiple-choice
 (require 'subr-x)
+(require 'yank-media)
+(require 'mailcap)
 
 (autoload 'mailclient-send-it "mailclient")
 
@@ -2051,7 +2053,7 @@ You must have the \"hashcash\" binary installed, see `hashcash-path'."
 (autoload 'gnus-groups-from-server "gnus")
 (autoload 'gnus-open-server "gnus-int")
 (autoload 'gnus-output-to-mail "gnus-util")
-(autoload 'gnus-output-to-rmail "gnus-util")
+(autoload 'gnus-output-to-rmail "gnus-rmail")
 (autoload 'gnus-request-post "gnus-int")
 (autoload 'gnus-server-string "gnus")
 (autoload 'message-setup-toolbar "messagexmas")
@@ -2870,84 +2872,78 @@ Consider adding this function to `message-header-setup-hook'"
 
 ;;; Set up keymap.
 
-(defvar message-mode-map nil)
+(defvar-keymap message-mode-map
+  :full t :parent text-mode-map
+  :doc "Message Mode keymap."
+  "C-c ?" #'describe-mode
 
-(unless message-mode-map
-  (setq message-mode-map (make-keymap))
-  (set-keymap-parent message-mode-map text-mode-map)
-  (define-key message-mode-map "\C-c?" #'describe-mode)
-
-  (define-key message-mode-map "\C-c\C-f\C-t" #'message-goto-to)
-  (define-key message-mode-map "\C-c\C-f\C-o" #'message-goto-from)
-  (define-key message-mode-map "\C-c\C-f\C-b" #'message-goto-bcc)
-  (define-key message-mode-map "\C-c\C-f\C-w" #'message-goto-fcc)
-  (define-key message-mode-map "\C-c\C-f\C-c" #'message-goto-cc)
-  (define-key message-mode-map "\C-c\C-f\C-s" #'message-goto-subject)
-  (define-key message-mode-map "\C-c\C-f\C-r" #'message-goto-reply-to)
-  (define-key message-mode-map "\C-c\C-f\C-n" #'message-goto-newsgroups)
-  (define-key message-mode-map "\C-c\C-f\C-d" #'message-goto-distribution)
-  (define-key message-mode-map "\C-c\C-f\C-f" #'message-goto-followup-to)
-  (define-key message-mode-map "\C-c\C-f\C-m" #'message-goto-mail-followup-to)
-  (define-key message-mode-map "\C-c\C-f\C-k" #'message-goto-keywords)
-  (define-key message-mode-map "\C-c\C-f\C-u" #'message-goto-summary)
-  (define-key message-mode-map "\C-c\C-f\C-i"
-    #'message-insert-or-toggle-importance)
-  (define-key message-mode-map "\C-c\C-f\C-a"
-    #'message-generate-unsubscribed-mail-followup-to)
+  "C-c C-f C-t" #'message-goto-to
+  "C-c C-f C-o" #'message-goto-from
+  "C-c C-f C-b" #'message-goto-bcc
+  "C-c C-f C-w" #'message-goto-fcc
+  "C-c C-f C-c" #'message-goto-cc
+  "C-c C-f C-s" #'message-goto-subject
+  "C-c C-f C-r" #'message-goto-reply-to
+  "C-c C-f C-n" #'message-goto-newsgroups
+  "C-c C-f C-d" #'message-goto-distribution
+  "C-c C-f C-f" #'message-goto-followup-to
+  "C-c C-f C-m" #'message-goto-mail-followup-to
+  "C-c C-f C-k" #'message-goto-keywords
+  "C-c C-f C-u" #'message-goto-summary
+  "C-c C-f C-i" #'message-insert-or-toggle-importance
+  "C-c C-f C-a" #'message-generate-unsubscribed-mail-followup-to
 
   ;; modify headers (and insert notes in body)
-  (define-key message-mode-map "\C-c\C-fs"    #'message-change-subject)
+  "C-c C-f s"    #'message-change-subject
   ;;
-  (define-key message-mode-map "\C-c\C-fx"    #'message-cross-post-followup-to)
+  "C-c C-f x"    #'message-cross-post-followup-to
   ;; prefix+message-cross-post-followup-to = same w/o cross-post
-  (define-key message-mode-map "\C-c\C-ft"    #'message-reduce-to-to-cc)
-  (define-key message-mode-map "\C-c\C-fa"    #'message-add-archive-header)
+  "C-c C-f t"    #'message-reduce-to-to-cc
+  "C-c C-f a"    #'message-add-archive-header
   ;; mark inserted text
-  (define-key message-mode-map "\C-c\M-m" #'message-mark-inserted-region)
-  (define-key message-mode-map "\C-c\M-f" #'message-mark-insert-file)
+  "C-c M-m" #'message-mark-inserted-region
+  "C-c M-f" #'message-mark-insert-file
 
-  (define-key message-mode-map "\C-c\C-b" #'message-goto-body)
-  (define-key message-mode-map "\C-c\C-i" #'message-goto-signature)
+  "C-c C-b" #'message-goto-body
+  "C-c C-i" #'message-goto-signature
 
-  (define-key message-mode-map "\C-c\C-t" #'message-insert-to)
-  (define-key message-mode-map "\C-c\C-fw" #'message-insert-wide-reply)
-  (define-key message-mode-map "\C-c\C-n" #'message-insert-newsgroups)
-  (define-key message-mode-map "\C-c\C-l" #'message-to-list-only)
-  (define-key message-mode-map "\C-c\C-f\C-e" #'message-insert-expires)
+  "C-c C-t" #'message-insert-to
+  "C-c C-f w" #'message-insert-wide-reply
+  "C-c C-n" #'message-insert-newsgroups
+  "C-c C-l" #'message-to-list-only
+  "C-c C-f C-e" #'message-insert-expires
+  "C-c C-u" #'message-insert-or-toggle-importance
+  "C-c M-n" #'message-insert-disposition-notification-to
 
-  (define-key message-mode-map "\C-c\C-u" #'message-insert-or-toggle-importance)
-  (define-key message-mode-map "\C-c\M-n"
-    #'message-insert-disposition-notification-to)
+  "C-c C-y" #'message-yank-original
+  "C-c C-M-y" #'message-yank-buffer
+  "C-c C-q" #'message-fill-yanked-message
+  "C-c C-w" #'message-insert-signature
+  "C-c M-h" #'message-insert-headers
+  "C-c C-r" #'message-caesar-buffer-body
+  "C-c C-o" #'message-sort-headers
+  "C-c M-r" #'message-rename-buffer
 
-  (define-key message-mode-map "\C-c\C-y" #'message-yank-original)
-  (define-key message-mode-map "\C-c\M-\C-y" #'message-yank-buffer)
-  (define-key message-mode-map "\C-c\C-q" #'message-fill-yanked-message)
-  (define-key message-mode-map "\C-c\C-w" #'message-insert-signature)
-  (define-key message-mode-map "\C-c\M-h" #'message-insert-headers)
-  (define-key message-mode-map "\C-c\C-r" #'message-caesar-buffer-body)
-  (define-key message-mode-map "\C-c\C-o" #'message-sort-headers)
-  (define-key message-mode-map "\C-c\M-r" #'message-rename-buffer)
+  "C-c C-c" #'message-send-and-exit
+  "C-c C-s" #'message-send
+  "C-c C-k" #'message-kill-buffer
+  "C-c C-d" #'message-dont-send
+  "C-c C-j" #'gnus-delay-article
 
-  (define-key message-mode-map "\C-c\C-c" #'message-send-and-exit)
-  (define-key message-mode-map "\C-c\C-s" #'message-send)
-  (define-key message-mode-map "\C-c\C-k" #'message-kill-buffer)
-  (define-key message-mode-map "\C-c\C-d" #'message-dont-send)
-  (define-key message-mode-map "\C-c\n" #'gnus-delay-article)
+  "C-c M-k" #'message-kill-address
+  "C-c C-e" #'message-elide-region
+  "C-c C-v" #'message-delete-not-region
+  "C-c C-z" #'message-kill-to-signature
+  "M-RET" #'message-newline-and-reformat
+  "<remap> <split-line>"  #'message-split-line
 
-  (define-key message-mode-map "\C-c\M-k" #'message-kill-address)
-  (define-key message-mode-map "\C-c\C-e" #'message-elide-region)
-  (define-key message-mode-map "\C-c\C-v" #'message-delete-not-region)
-  (define-key message-mode-map "\C-c\C-z" #'message-kill-to-signature)
-  (define-key message-mode-map "\M-\r" #'message-newline-and-reformat)
-  (define-key message-mode-map [remap split-line]  #'message-split-line)
+  "C-c C-a" #'mml-attach-file
+  "C-c C-p" #'message-insert-screenshot
 
-  (define-key message-mode-map "\C-c\C-a" #'mml-attach-file)
-  (define-key message-mode-map "\C-c\C-p" #'message-insert-screenshot)
+  "C-a" #'message-beginning-of-line
+  "TAB" #'message-tab
 
-  (define-key message-mode-map "\C-a" #'message-beginning-of-line)
-  (define-key message-mode-map "\t" #'message-tab)
-
-  (define-key message-mode-map "\M-n" #'message-display-abbrev))
+  "M-n" #'message-display-abbrev)
 
 (easy-menu-define
   message-mode-menu message-mode-map "Message Menu."
@@ -3161,6 +3157,7 @@ Like `text-mode', but with these additional commands:
   (setq-local message-checksum nil)
   (setq-local message-mime-part 0)
   (message-setup-fill-variables)
+  (yank-media-handler "image/.*" #'message--yank-media-image-handler)
   (when message-fill-column
     (setq fill-column message-fill-column)
     (turn-on-auto-fill))
@@ -4338,6 +4335,48 @@ Instead, just auto-save the buffer and then bury it."
 
 (autoload 'mml-secure-bcc-is-safe "mml-sec")
 
+(defcustom message-server-alist nil
+  "Alist of rules to generate \"X-Message-SMTP-Method\" header.
+The header will be inserted just before the message is sent.
+Elements should be of the form (COND . METHOD).
+If COND is a string, METHOD will be inserted if the \"From\"
+address compares equal with COND.
+If COND is a function, METHOD will be inserted if COND returns
+a non-nil value when called in the message buffer without any
+arguments.  If METHOD is nil in this case, the return value of
+the function will be inserted instead.
+If the buffer already has a\"X-Message-SMTP-Method\" header,
+it is left unchanged."
+  :type '(alist :key-type '(choice
+                            (string :tag "From Address")
+                            (function :tag "Predicate"))
+                :value-type 'string)
+  :version "29.1"
+  :group 'message-sending)
+
+(defun message-update-smtp-method-header ()
+  "Insert an X-Message-SMTP-Method header according to `message-server-alist'."
+  (unless (message-fetch-field "X-Message-SMTP-Method")
+    (let ((from (cadr (mail-extract-address-components
+                       (save-restriction
+                         (widen)
+                         (message-narrow-to-headers-or-head)
+                         (message-fetch-field "From")))))
+          method)
+      (catch 'exit
+        (dolist (server message-server-alist)
+          (cond ((functionp (car server))
+                 (let ((res (funcall (car server))))
+                   (when res
+                     (setq method (or (cdr server) res))
+                     (throw 'exit nil))))
+                ((and (stringp (car server))
+                      (string= (car server) from))
+                 (setq method (cdr server))
+                 (throw 'exit nil)))))
+      (when method
+        (message-add-header (concat "X-Message-SMTP-Method: " method))))))
+
 (defun message-send (&optional arg)
   "Send the message in the current buffer.
 If `message-interactive' is non-nil, wait for success indication or
@@ -4351,6 +4390,7 @@ It should typically alter the sending method in some way or other."
   (undo-boundary)
   (let ((inhibit-read-only t))
     (put-text-property (point-min) (point-max) 'read-only nil))
+  (message-update-smtp-method-header)
   (message-fix-before-sending)
   (run-hooks 'message-send-hook)
   (mml-secure-bcc-is-safe)
@@ -4766,23 +4806,25 @@ Valid types are `send', `return', `exit', `kill' and `postpone'."
                 t
                 "\
 The message size, "
-                (/ (buffer-size) 1000) "KB, is too large.
+                (/ (buffer-size) 1000)
+                (substitute-command-keys "KB, is too large.
 
 Some mail gateways (MTA's) bounce large messages.  To avoid the
-problem, answer `y', and the message will be split into several
-smaller pieces, the size of each is about "
+problem, answer \\`y', and the message will be split into several
+smaller pieces, the size of each is about ")
                 (/ message-send-mail-partially-limit 1000)
-                "KB except the last
+                (substitute-command-keys
+                 "KB except the last
 one.
 
 However, some mail readers (MUA's) can't read split messages, i.e.,
-mails in message/partially format.  Answer `n', and the message
+mails in message/partially format.  Answer \\`n', and the message
 will be sent in one piece.
 
 The size limit is controlled by `message-send-mail-partially-limit'.
 If you always want Gnus to send messages in one piece, set
 `message-send-mail-partially-limit' to nil.
-")))
+"))))
       (progn
         (message "Sending via mail...")
         (if message-send-mail-real-function
@@ -4863,7 +4905,18 @@ If you always want Gnus to send messages in one piece, set
 	      (message-generate-headers '(Lines)))
 	    ;; Remove some headers.
 	    (message-remove-header message-ignored-mail-headers t)
-            (mail-encode-encoded-word-buffer))
+            (mail-encode-encoded-word-buffer)
+	    ;; Then check for suspicious addresses.
+            (dolist (hdr '("To" "Cc" "Bcc"))
+              (let ((addr (message-fetch-field hdr)))
+	        (when (stringp addr)
+	          (dolist (address (mail-header-parse-addresses addr t))
+	            (when-let ((warning (textsec-suspicious-p
+                                         address 'email-address-header)))
+	              (unless (y-or-n-p
+		               (format "Suspicious address: %s; send anyway?"
+                                       warning))
+		        (user-error "Suspicious address %s" address))))))))
 	  (goto-char (point-max))
 	  ;; require one newline at the end.
 	  (or (= (preceding-char) ?\n)
@@ -5358,7 +5411,7 @@ Otherwise, generate and save a value for `canlock-password' first."
 		   (zerop
 		    (length
 		     (setq to (completing-read
-			       "Followups to (default no Followup-To header): "
+                               (format-prompt "Followups to" "no Followup-To header")
 			       (mapcar #'list
 				       (cons "poster"
 					     (message-tokenize-header
@@ -5829,15 +5882,15 @@ In posting styles use `(\"Expires\" (make-expires-date 30))'."
 ;; You might for example insert a "." somewhere (not next to another dot
 ;; or string boundary), or modify the "fsf" string.
 (defun message-unique-id ()
-  ;; Don't use microseconds from (current-time), they may be unsupported.
+  ;; Don't use fractional seconds from timestamp; they may be unsupported.
   ;; Instead we use this randomly inited counter.
   (setq message-unique-id-char
-	(% (1+ (or message-unique-id-char
-		   (random (ash 1 20))))
-	   ;; (current-time) returns 16-bit ints,
-	   ;; and 2^16*25 just fits into 4 digits i base 36.
-	   (* 25 25)))
-  (let ((tm (current-time)))
+	;; 2^16 * 25 just fits into 4 digits i base 36.
+	(let ((base (* 25 25)))
+	  (if message-unique-id-char
+	      (% (1+ message-unique-id-char) base)
+	    (random base))))
+  (let ((tm (time-convert nil 'integer)))
     (concat
      (if (or (eq system-type 'ms-dos)
 	     ;; message-number-base36 doesn't handle bigints.
@@ -5847,10 +5900,12 @@ In posting styles use `(\"Expires\" (make-expires-date 30))'."
 	     (aset user (match-beginning 0) ?_))
 	   user)
        (message-number-base36 (user-uid) -1))
-     (message-number-base36 (+ (car tm)
-			       (ash (% message-unique-id-char 25) 16)) 4)
-     (message-number-base36 (+ (nth 1 tm)
-			       (ash (/ message-unique-id-char 25) 16)) 4)
+     (message-number-base36 (+ (ash tm -16)
+			       (ash (% message-unique-id-char 25) 16))
+			    4)
+     (message-number-base36 (+ (logand tm #xffff)
+			       (ash (/ message-unique-id-char 25) 16))
+			    4)
      ;; Append a given name, because while the generated ID is unique
      ;; to this newsreader, other newsreaders might otherwise generate
      ;; the same ID via another algorithm.
@@ -5947,12 +6002,9 @@ In posting styles use `(\"Expires\" (make-expires-date 30))'."
 
 (defun message-make-expires ()
   "Return an Expires header based on `message-expires'."
-  (let ((current (current-time))
-	(future (* 1.0 message-expires 60 60 24)))
+  (let ((future (* 60 60 24 message-expires)))
     ;; Add the future to current.
-    (setcar current (+ (car current) (round (/ future (expt 2 16)))))
-    (setcar (cdr current) (+ (nth 1 current) (% (round future) (expt 2 16))))
-    (message-make-date current)))
+    (message-make-date (time-add nil future))))
 
 (defun message-make-path ()
   "Return uucp path."
@@ -8879,23 +8931,28 @@ used to take the screenshot."
 		  (car message-screenshot-command) nil (current-buffer) nil
 		  (cdr message-screenshot-command))
 	   (buffer-string))))
-    (set-mark (point))
-    (insert-image
-     (create-image image 'png t
-		   :max-width (truncate (* (frame-pixel-width) 0.8))
-		   :max-height (truncate (* (frame-pixel-height) 0.8))
-		   :scale 1)
-     (format "<#part type=\"image/png\" disposition=inline data-encoding=base64 raw=t>\n%s\n<#/part>"
-	     ;; Get a base64 version of the image -- this avoids later
-	     ;; complications if we're auto-saving the buffer and
-	     ;; restoring from a file.
-	     (with-temp-buffer
-	       (set-buffer-multibyte nil)
-	       (insert image)
-	       (base64-encode-region (point-min) (point-max) t)
-	       (buffer-string))))
-    (insert "\n\n")
+    (message--yank-media-image-handler 'image/png image)
     (message "")))
+
+(defun message--yank-media-image-handler (type image)
+  (set-mark (point))
+  (insert-image
+   (create-image image (mailcap-mime-type-to-extension type) t
+		 :max-width (truncate (* (frame-pixel-width) 0.8))
+		 :max-height (truncate (* (frame-pixel-height) 0.8))
+		 :scale 1)
+   (format "<#part type=\"%s\" disposition=inline data-encoding=base64 raw=t>\n%s\n<#/part>"
+           type
+	   ;; Get a base64 version of the image -- this avoids later
+	   ;; complications if we're auto-saving the buffer and
+	   ;; restoring from a file.
+	   (with-temp-buffer
+	     (set-buffer-multibyte nil)
+	     (insert image)
+	     (base64-encode-region (point-min) (point-max) t)
+	     (buffer-string)))
+   nil nil t)
+  (insert "\n\n"))
 
 (declare-function gnus-url-unhex-string "gnus-util")
 

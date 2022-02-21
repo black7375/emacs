@@ -1,7 +1,7 @@
 ;;; xref.el --- Cross-referencing commands              -*-lexical-binding:t-*-
 
 ;; Copyright (C) 2014-2022 Free Software Foundation, Inc.
-;; Version: 1.3.0
+;; Version: 1.3.2
 ;; Package-Requires: ((emacs "26.1"))
 
 ;; This is a GNU ELPA :core package.  Avoid functionality that is not
@@ -75,7 +75,7 @@
 (require 'project)
 
 (eval-and-compile
-  (when (version< emacs-version "28")
+  (when (version< emacs-version "28.0.60")
     ;; etags.el in Emacs 26 and 27 uses EIEIO, and its location type
     ;; inherits from `xref-location'.
     (require 'eieio)
@@ -118,16 +118,16 @@ When it is a file name, it should be the \"expanded\" version.")
 (defcustom xref-file-name-display 'project-relative
   "Style of file name display in *xref* buffers.
 
-If the value is the symbol `abs', the default, show the file names
-in their full absolute form.
+If the value is the symbol `abs', show the file names in their
+full absolute form.
 
 If `nondirectory', show only the nondirectory (a.k.a. \"base name\")
 part of the file name.
 
-If `project-relative', show only the file name relative to the
-current project root.  If there is no current project, or if the
-file resides outside of its root, show that particular file name
-in its full absolute form."
+If `project-relative', the default, show only the file name
+relative to the current project root.  If there is no current
+project, or if the file resides outside of its root, show that
+particular file name in its full absolute form."
   :type '(choice (const :tag "absolute file name" abs)
                  (const :tag "nondirectory file name" nondirectory)
                  (const :tag "relative to project root" project-relative))
@@ -195,9 +195,16 @@ is not known."
 
 ;;; Cross-reference
 
-(cl-defstruct (xref-item
-               (:constructor xref-make (summary location))
-               (:noinline t))
+(defmacro xref--defstruct (name &rest fields)
+  (declare (indent 1))
+  `(cl-defstruct ,(if (>= emacs-major-version 27)
+                      name
+                    (remq (assq :noinline name) name))
+     ,@fields))
+
+(xref--defstruct (xref-item
+                  (:constructor xref-make (summary location))
+                  (:noinline t))
   "An xref item describes a reference to a location somewhere."
   (summary nil :documentation "String which describes the location.
 
@@ -213,10 +220,10 @@ locations point to the same line.
 This behavior is new in Emacs 28.")
   location)
 
-(cl-defstruct (xref-match-item
-               (:include xref-item)
-               (:constructor xref-make-match (summary location length))
-               (:noinline t))
+(xref--defstruct (xref-match-item
+                  (:include xref-item)
+                  (:constructor xref-make-match (summary location length))
+                  (:noinline t))
   "A match xref item describes a search result."
   length)
 
@@ -346,15 +353,9 @@ backward."
           (t (goto-char start) nil))))
 
 
-;;; Marker stack  (M-. pushes, M-, pops)
-
-(defcustom xref-marker-ring-length 16
-  "Length of the xref marker ring.
-If this variable is not set through Customize, you must call
-`xref-set-marker-ring-length' for changes to take effect."
-  :type 'integer
-  :initialize #'custom-initialize-default
-  :set #'xref-set-marker-ring-length)
+;; Dummy variable retained for compatibility.
+(defvar xref-marker-ring-length 16)
+(make-obsolete-variable 'xref-marker-ring-length nil "29.1")
 
 (defcustom xref-prompt-for-identifier '(not xref-find-definitions
                                             xref-find-definitions-other-window
@@ -425,29 +426,59 @@ or earlier: it can break `dired-do-find-regexp-and-replace'."
   :version "28.1"
   :package-version '(xref . "1.2.0"))
 
-(defvar xref--marker-ring (make-ring xref-marker-ring-length)
-  "Ring of markers to implement the marker stack.")
+(make-obsolete-variable 'xref-marker-ring nil "29.1")
 
-(defun xref-set-marker-ring-length (var val)
-  "Set `xref-marker-ring-length'.
-VAR is the symbol `xref-marker-ring-length' and VAL is the new
-value."
-  (set-default var val)
-  (if (ring-p xref--marker-ring)
-      (ring-resize xref--marker-ring val)))
+(defun xref-set-marker-ring-length (_var _val)
+  (declare (obsolete nil "29.1"))
+  nil)
+
+(defvar xref--history (cons nil nil)
+  "(BACKWARD-STACK . FORWARD-STACK) of markers to visited Xref locations.")
+
+(defun xref--push-backward (m)
+  "Push marker M onto the backward history stack."
+  (unless (equal m (caar xref--history))
+    (push m (car xref--history))))
+
+(defun xref--push-forward (m)
+  "Push marker M onto the forward history stack."
+  (unless (equal m (cadr xref--history))
+    (push m (cdr xref--history))))
 
 (defun xref-push-marker-stack (&optional m)
-  "Add point M (defaults to `point-marker') to the marker stack."
-  (ring-insert xref--marker-ring (or m (point-marker))))
+  "Add point M (defaults to `point-marker') to the marker stack.
+The future stack is erased."
+  (xref--push-backward (or m (point-marker)))
+  (dolist (mk (cdr xref--history))
+    (set-marker mk nil nil))
+  (setcdr xref--history nil))
 
 ;;;###autoload
-(defun xref-pop-marker-stack ()
-  "Pop back to where \\[xref-find-definitions] was last invoked."
+(define-obsolete-function-alias 'xref-pop-marker-stack #'xref-go-back "29.1")
+
+;;;###autoload
+(defun xref-go-back ()
+  "Go back to the previous position in xref history.
+To undo, use \\[xref-go-forward]."
   (interactive)
-  (let ((ring xref--marker-ring))
-    (when (ring-empty-p ring)
-      (user-error "Marker stack is empty"))
-    (let ((marker (ring-remove ring 0)))
+  (if (null (car xref--history))
+      (user-error "At start of xref history")
+    (let ((marker (pop (car xref--history))))
+      (xref--push-forward (point-marker))
+      (switch-to-buffer (or (marker-buffer marker)
+                            (user-error "The marked buffer has been deleted")))
+      (goto-char (marker-position marker))
+      (set-marker marker nil nil)
+      (run-hooks 'xref-after-return-hook))))
+
+;;;###autoload
+(defun xref-go-forward ()
+  "Got to the point where a previous \\[xref-go-back] was invoked."
+  (interactive)
+  (if (null (cdr xref--history))
+      (user-error "At end of xref history")
+    (let ((marker (pop (cdr xref--history))))
+      (xref--push-backward (point-marker))
       (switch-to-buffer (or (marker-buffer marker)
                             (user-error "The marked buffer has been deleted")))
       (goto-char (marker-position marker))
@@ -470,17 +501,23 @@ value."
 
 ;; etags.el needs this
 (defun xref-clear-marker-stack ()
-  "Discard all markers from the marker stack."
-  (let ((ring xref--marker-ring))
-    (while (not (ring-empty-p ring))
-      (let ((marker (ring-remove ring)))
-        (set-marker marker nil nil)))))
+  "Discard all markers from the xref history."
+  (dolist (l (list (car xref--history) (cdr xref--history)))
+    (dolist (m l)
+      (set-marker m nil nil)))
+  (setq xref--history (cons nil nil))
+  nil)
 
 ;;;###autoload
 (defun xref-marker-stack-empty-p ()
-  "Return t if the marker stack is empty; nil otherwise."
-  (ring-empty-p xref--marker-ring))
+  "Whether the xref back-history is empty."
+  (null (car xref--history)))
+;; FIXME: rename this to `xref-back-history-empty-p'.
 
+;;;###autoload
+(defun xref-forward-history-empty-p ()
+  "Whether the xref forward-history is empty."
+  (null (cdr xref--history)))
 
 
 (defun xref--goto-char (pos)
@@ -695,17 +732,26 @@ quit the *xref* buffer."
   "Quit *xref* buffer, then pop the xref marker stack."
   (interactive)
   (quit-window)
-  (xref-pop-marker-stack))
+  (xref-go-back))
 
 (defun xref-query-replace-in-results (from to)
   "Perform interactive replacement of FROM with TO in all displayed xrefs.
 
 This command interactively replaces FROM with TO in the names of the
-references displayed in the current *xref* buffer."
+references displayed in the current *xref* buffer.
+
+When called interactively, it uses '.*' as FROM, which means
+replace the whole name.  Unless called with prefix argument, in
+which case the user is prompted for both FROM and TO."
   (interactive
-   (let ((fr (read-regexp "Xref query-replace (regexp)" ".*")))
-     (list fr
-           (read-regexp (format "Xref query-replace (regexp) %s with: " fr)))))
+   (let* ((fr
+           (if current-prefix-arg
+               (read-regexp "Query-replace (regexp)" ".*")
+             ".*"))
+          (prompt (if current-prefix-arg
+                      (format "Query-replace (regexp) %s with: " fr)
+                    "Query-replace all matches with: ")))
+     (list fr (read-regexp prompt))))
   (let* (item xrefs iter)
     (save-excursion
       (while (setq item (xref--search-property 'xref-item))
@@ -1334,12 +1380,17 @@ definitions."
                (xref--prompt-p this-command))
            (let ((id
                   (completing-read
-                   (if def
-                       (format "%s (default %s): "
-                               (substring prompt 0 (string-match
-                                                    "[ :]+\\'" prompt))
-                               def)
-                     prompt)
+                   ;; `format-prompt' is new in Emacs 28.1
+                   (if (fboundp 'format-prompt)
+                       (format-prompt (substring prompt 0 (string-match
+                                                           "[ :]+\\'" prompt))
+                                      def)
+                     (if def
+                         (format "%s (default %s): "
+                                 (substring prompt 0 (string-match
+                                                      "[ :]+\\'" prompt))
+                                 def)
+                       prompt))
                    (xref-backend-identifier-completion-table backend)
                    nil nil nil
                    'xref--read-identifier-history def)))
@@ -1400,7 +1451,7 @@ definition for IDENTIFIER, display it in the selected window.
 Otherwise, display the list of the possible definitions in a
 buffer where the user can select from the list.
 
-Use \\[xref-pop-marker-stack] to return back to where you invoked this command."
+Use \\[xref-go-back] to return back to where you invoked this command."
   (interactive (list (xref--read-identifier "Find definitions of: ")))
   (xref--find-definitions identifier nil))
 
@@ -1426,6 +1477,23 @@ always prompt for the identifier.  If `xref-prompt-for-identifier'
 is nil, prompt only if there's no usable symbol at point."
   (interactive (list (xref--read-identifier "Find references of: ")))
   (xref--find-xrefs identifier 'references identifier nil))
+
+(defun xref-find-references-and-replace (from to)
+  "Replace all references to identifier FROM with TO."
+  (interactive
+   (let* ((query-replace-read-from-default 'find-tag-default)
+          (common
+           (query-replace-read-args "Query replace identifier" nil)))
+     (list (nth 0 common) (nth 1 common))))
+  (require 'xref)
+  (with-current-buffer
+      (let ((xref-show-xrefs-function
+             ;; Some future-proofing (bug#44905).
+             (custom--standard-value 'xref-show-xrefs-function))
+            ;; Disable auto-jumping, it will mess up replacement logic.
+            xref-auto-jump-to-first-xref)
+        (xref-find-references from))
+    (xref-query-replace-in-results ".*" to)))
 
 ;;;###autoload
 (defun xref-find-definitions-at-mouse (event)
@@ -1491,7 +1559,8 @@ output of this command when the backend is etags."
 ;;; Key bindings
 
 ;;;###autoload (define-key esc-map "." #'xref-find-definitions)
-;;;###autoload (define-key esc-map "," #'xref-pop-marker-stack)
+;;;###autoload (define-key esc-map "," #'xref-go-back)
+;;;###autoload (define-key esc-map [?\C-,] #'xref-go-forward)
 ;;;###autoload (define-key esc-map "?" #'xref-find-references)
 ;;;###autoload (define-key esc-map [?\C-.] #'xref-find-apropos)
 ;;;###autoload (define-key ctl-x-4-map "." #'xref-find-definitions-other-window)

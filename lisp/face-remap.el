@@ -70,6 +70,13 @@
    :foreground :background :stipple :overline :strike-through :box
    :font :inherit :fontset :distant-foreground :extend :vector])
 
+(defun face-attrs--make-indirect-safe ()
+  "Deep-copy the buffer's `face-remapping-alist' upon cloning the buffer."
+  (setq-local face-remapping-alist
+              (mapcar #'copy-sequence face-remapping-alist)))
+
+(add-hook 'clone-indirect-buffer-hook #'face-attrs--make-indirect-safe)
+
 (defun face-attrs-more-relative-p (attrs1 attrs2)
   "Return true if ATTRS1 contains a greater number of relative
 face-attributes than ATTRS2.  A face attribute is considered
@@ -389,6 +396,31 @@ a top-level keymap, `text-scale-increase' or
              (define-key map (vector (append mods (list key)))
                (lambda () (interactive) (text-scale-adjust (abs inc))))))
          map))))) ;; )
+
+(defvar-local text-scale--pinch-start-scale 0
+  "The text scale at the start of a pinch sequence.")
+
+;;;###autoload (define-key global-map [pinch] 'text-scale-pinch)
+;;;###autoload
+(defun text-scale-pinch (event)
+  "Adjust the height of the default face by the scale in the pinch event EVENT."
+  (interactive "e")
+  (when (not (eq (event-basic-type event) 'pinch))
+    (error "`text-scale-pinch' bound to bad event type"))
+  (let ((window (posn-window (nth 1 event)))
+        (scale (nth 4 event))
+        (dx (nth 2 event))
+        (dy (nth 3 event))
+        (angle (nth 5 event)))
+    (with-selected-window window
+      (when (and (zerop dx)
+                 (zerop dy)
+                 (zerop angle))
+        (setq text-scale--pinch-start-scale
+              (if text-scale-mode text-scale-mode-amount 0)))
+      (text-scale-set
+       (+ text-scale--pinch-start-scale
+          (round (log scale text-scale-mode-step)))))))
 
 
 ;; ----------------------------------------------------------------

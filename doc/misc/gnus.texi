@@ -1004,7 +1004,7 @@ The fundamental building blocks of Gnus are @dfn{servers},
 @dfn{groups}, and @dfn{articles}.  Servers can be local or remote.
 Each server maintains a list of groups, and those groups contain
 articles.  Because Gnus presents a unified interface to a wide variety
-of servers, the vocabulary doesn't always quite line up (see @ref{FAQ
+of servers, the vocabulary doesn't always quite line up (@pxref{FAQ
 - Glossary}, for a more complete glossary).  Thus a local maildir is
 referred to as a ``server'' (@pxref{Finding the News}) the same as a
 Usenet or IMAP server is; ``groups'' (@pxref{Group Buffer}) might mean
@@ -4499,7 +4499,7 @@ command or better use it as a prefix key.  For example:
     (gnus-group-jump-to-group "nndraft:drafts")))
 @end lisp
 
-On keys reserved for users in Emacs and on keybindings in general
+On keys reserved for users in Emacs and on key bindings in general
 @xref{Keymaps, Keymaps, , emacs, The Emacs Editor}.
 
 @item ^
@@ -9843,6 +9843,13 @@ Gravatarify the @code{From} header (@code{gnus-treat-from-gravatar}).
 Gravatarify all mail headers (i.e., @code{Cc}, @code{To})
 (@code{gnus-treat-from-gravatar}).
 
+@item W D e
+@kindex W D e @r{(Summary)}
+@findex gnus-article-emojize-symbols
+Some symbols have both a non-emoji presentation and an emoji
+presentation.  This command will make Gnus choose the emoji presentation
+(@code{gnus-article-emojize-symbols}).
+
 @item W D D
 @kindex W D D @r{(Summary)}
 @findex gnus-article-remove-images
@@ -12185,6 +12192,7 @@ controlling variable is a predicate list, as described above.
 @vindex gnus-treat-capitalize-sentences
 @vindex gnus-treat-overstrike
 @vindex gnus-treat-strip-cr
+@vindex gnus-treat-emojize-symbols
 @vindex gnus-treat-strip-headers-in-body
 @vindex gnus-treat-strip-leading-blank-lines
 @vindex gnus-treat-strip-multiple-blank-lines
@@ -12215,7 +12223,6 @@ controlling variable is a predicate list, as described above.
 @vindex gnus-treat-highlight-citation
 @vindex gnus-treat-highlight-headers
 @vindex gnus-treat-highlight-signature
-@vindex gnus-treat-play-sounds
 @vindex gnus-treat-x-pgp-sig
 @vindex gnus-treat-unfold-headers
 @vindex gnus-treat-fold-headers
@@ -12237,6 +12244,7 @@ possible but those listed are probably sufficient for most people.
 @item gnus-treat-capitalize-sentences (t, integer)
 @item gnus-treat-overstrike (t, integer)
 @item gnus-treat-strip-cr (t, integer)
+@item gnus-treat-emojize-symbols (t, integer)
 @item gnus-treat-strip-headers-in-body (t, integer)
 @item gnus-treat-strip-leading-blank-lines (t, first, integer)
 @item gnus-treat-strip-multiple-blank-lines (t, integer)
@@ -12350,8 +12358,6 @@ is controlled by @code{gnus-body-boundary-delimiter}.
 
 @xref{Article Highlighting}.
 
-@vindex gnus-treat-play-sounds
-@item gnus-treat-play-sounds
 @item gnus-treat-ansi-sequences (t)
 @vindex gnus-treat-x-pgp-sig
 @item gnus-treat-x-pgp-sig (head)
@@ -13468,7 +13474,7 @@ Also @pxref{Formatting Variables}.
 @subsection Server Commands
 @cindex server commands
 
-The following keybinding are available in the server buffer.  Be aware
+The following key bindings are available in the server buffer.  Be aware
 that some of the commands will only work on servers that you've added
 through this interface (with @kbd{a}), not with servers you've defined
 in your init files.
@@ -14832,12 +14838,17 @@ mail belongs in that group.
 The last of these groups should always be a general one, and the regular
 expression should @emph{always} be @samp{""} so that it matches any mails
 that haven't been matched by any of the other regexps.  (These rules are
-processed from the beginning of the alist toward the end.  The first rule
-to make a match will ``win'', unless you have crossposting enabled.  In
-that case, all matching rules will ``win''.)  If no rule matched, the mail
-will end up in the @samp{bogus} group.  When new groups are created by
-splitting mail, you may want to run @code{gnus-group-find-new-groups} to
-see the new groups.  This also applies to the @samp{bogus} group.
+processed from the beginning of the alist toward the end.
+
+If multiple rules match (excluding the general @samp{""} group), mail
+is crossposted to all these groups.  However, if
+@code{nnmail-crosspost} is set to @code{nil}, the first rule to make a
+match will ``win''.
+
+If no rule matched, the mail will end up in the @samp{bogus} group.
+When new groups are created by splitting mail, you may want to run
+@code{gnus-group-find-new-groups} to see the new groups.  This also
+applies to the @samp{bogus} group.
 
 If you like to tinker with this yourself, you can set this variable to a
 function of your choice.  This function will be called without any
@@ -15437,10 +15448,6 @@ and @code{2} in released Gnusae.  @xref{Gnus Development}.
 If non-@code{nil}, ask for confirmation before deleting old incoming
 files.  This variable only applies when
 @code{mail-source-delete-incoming} is a positive number.
-
-@item mail-source-ignore-errors
-@vindex mail-source-ignore-errors
-If non-@code{nil}, ignore errors when reading mail from a mail source.
 
 @item mail-source-directory
 @vindex mail-source-directory
@@ -18043,7 +18050,7 @@ find all messages that have been received recently from certain groups:
          (list
           (cons 'query
                 (format-time-string "SENTSINCE %d-%b-%Y"
-                                    (time-subtract (current-time)
+                                    (time-subtract nil
                                                    (days-to-time (car args)))))
           (cons 'criteria "")))
         (group-spec (cadr args)))
@@ -28881,7 +28888,7 @@ gnus-agent-cache nil)} reverts to the old behavior.
 @item
 Dired integration
 
-@code{gnus-dired-minor-mode} (see @ref{Other modes}) installs key
+@code{gnus-dired-minor-mode} (@pxref{Other modes}) installs key
 bindings in dired buffers to send a file as an attachment, open a file
 using the appropriate mailcap entry, and print a file using the mailcap
 entry.

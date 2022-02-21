@@ -235,10 +235,12 @@ by cycling through the faces in `hi-lock-face-defaults'."
   "Human-readable lighters for `hi-lock-interactive-patterns'.")
 (put 'hi-lock-interactive-lighters 'permanent-local t)
 
-(defvar hi-lock-face-defaults
+(defcustom hi-lock-face-defaults
   '("hi-yellow" "hi-pink" "hi-green" "hi-blue" "hi-salmon" "hi-aquamarine"
     "hi-black-b" "hi-blue-b" "hi-red-b" "hi-green-b" "hi-black-hb")
-  "Default faces for hi-lock interactive functions.")
+  "Default face names for hi-lock interactive functions."
+  :type '(repeat string)
+  :version "29.1")
 
 (defvar hi-lock-file-patterns-prefix "Hi-lock"
   "String used to identify hi-lock patterns at the start of files.")
@@ -723,20 +725,31 @@ with completion and history."
 	  (when hi-lock-interactive-patterns
 	    (face-name (hi-lock-keyword->face
                         (car hi-lock-interactive-patterns)))))
-	 (defaults (append hi-lock--unused-faces
-			   (cdr (member last-used-face hi-lock-face-defaults))
-			   hi-lock-face-defaults))
+	 (defaults (seq-uniq
+                    (append hi-lock--unused-faces
+			    (cdr (member last-used-face hi-lock-face-defaults))
+			    hi-lock-face-defaults)
+                    #'equal))
 	 face)
-          (if (and hi-lock-auto-select-face (not current-prefix-arg))
+    (if (and hi-lock-auto-select-face (not current-prefix-arg))
 	(setq face (or (pop hi-lock--unused-faces) (car defaults)))
-      (setq face (completing-read
-		  (format-prompt "Highlight using face" (car defaults))
-		  obarray 'facep t nil 'face-name-history defaults))
+      (setq face (symbol-name (read-face-name "Highlight using face" defaults)))
       ;; Update list of un-used faces.
       (setq hi-lock--unused-faces (remove face hi-lock--unused-faces))
       ;; Grow the list of defaults.
       (add-to-list 'hi-lock-face-defaults face t))
     (intern face)))
+
+(defvar hi-lock-use-overlays nil
+  "Whether to always use overlays instead of font-lock rules.
+When font-lock-mode is enabled and the buffer specifies font-lock rules,
+highlighting is performed by adding new font-lock rules to the existing ones,
+so when new matching strings are added, they are highlighted by font-lock.
+Otherwise, overlays are used, but new highlighting overlays are not added
+when new matching strings are inserted to the buffer.
+However, sometimes overlays are still preferable even in buffers
+where font-lock is enabled, when hi-lock overlays take precedence
+over other overlays in the same buffer.")
 
 (defun hi-lock-set-pattern (regexp face &optional subexp lighter case-fold spaces-regexp)
   "Highlight SUBEXP of REGEXP with face FACE.
@@ -759,7 +772,8 @@ SPACES-REGEXP is a regexp to substitute spaces in font-lock search."
         (add-to-list 'hi-lock--unused-faces (face-name face))
       (push pattern hi-lock-interactive-patterns)
       (push (cons (or lighter regexp) pattern) hi-lock-interactive-lighters)
-      (if (and font-lock-mode (font-lock-specified-p major-mode))
+      (if (and font-lock-mode (font-lock-specified-p major-mode)
+               (not hi-lock-use-overlays))
 	  (progn
 	    (font-lock-add-keywords nil (list pattern) t)
 	    (font-lock-flush))
@@ -781,6 +795,8 @@ SPACES-REGEXP is a regexp to substitute spaces in font-lock search."
                                            (match-end subexp))))
                 (overlay-put overlay 'hi-lock-overlay t)
                 (overlay-put overlay 'hi-lock-overlay-regexp (or lighter regexp))
+                ;; Use priority higher than default used by e.g. diff-refine.
+                (overlay-put overlay 'priority 1)
                 (overlay-put overlay 'face face))
               (goto-char (match-end 0)))
             (when no-matches
@@ -853,6 +869,27 @@ SPACES-REGEXP is a regexp to substitute spaces in font-lock search."
   (global-hi-lock-mode -1)
   ;; continue standard unloading
   nil)
+
+;;; Mouse support
+(defalias 'highlight-symbol-at-mouse 'hi-lock-face-symbol-at-mouse)
+(defun hi-lock-face-symbol-at-mouse (event)
+  "Highlight symbol at mouse click EVENT."
+  (interactive "e")
+  (save-excursion
+    (mouse-set-point event)
+    (highlight-symbol-at-point)))
+
+;;;###autoload
+(defun hi-lock-context-menu (menu click)
+  "Populate MENU with a menu item to highlight symbol at CLICK."
+  (when (thing-at-mouse click 'symbol)
+    (define-key-after menu [highlight-search-separator] menu-bar-separator
+      'middle-separator)
+    (define-key-after menu [highlight-search-mouse]
+      '(menu-item "Highlight Symbol" highlight-symbol-at-mouse
+                  :help "Highlight symbol at point")
+      'highlight-search-separator))
+  menu)
 
 (provide 'hi-lock)
 

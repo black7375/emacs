@@ -261,7 +261,7 @@ static bool process_output_skip;
 
 static void start_process_unwind (Lisp_Object);
 static void create_process (Lisp_Object, char **, Lisp_Object);
-#ifdef USABLE_SIGIO
+#if defined (USABLE_SIGIO) || defined (USABLE_SIGPOLL)
 static bool keyboard_bit_set (fd_set *);
 #endif
 static void deactivate_process (Lisp_Object);
@@ -2169,7 +2169,8 @@ create_process (Lisp_Object process, char **new_argv, Lisp_Object current_dir)
   p->pty_flag = pty_flag;
   pset_status (p, Qrun);
 
-  if (!EQ (p->command, Qt))
+  if (!EQ (p->command, Qt)
+      && !EQ (p->filter, Qt))
     add_process_read_fd (inchannel);
 
   ptrdiff_t count = SPECPDL_INDEX ();
@@ -2287,7 +2288,8 @@ create_pty (Lisp_Object process)
       pset_status (p, Qrun);
       setup_process_coding_systems (process);
 
-      add_process_read_fd (pty_fd);
+      if (!EQ (p->filter, Qt))
+	add_process_read_fd (pty_fd);
 
       pset_tty_name (p, build_string (pty_name));
     }
@@ -2396,7 +2398,8 @@ usage:  (make-pipe-process &rest ARGS)  */)
     pset_command (p, Qt);
   eassert (! p->pty_flag);
 
-  if (!EQ (p->command, Qt))
+  if (!EQ (p->command, Qt)
+      && !EQ (p->filter, Qt))
     add_process_read_fd (inchannel);
   p->adaptive_read_buffering
     = (NILP (Vprocess_adaptive_read_buffering) ? 0
@@ -3131,7 +3134,8 @@ usage:  (make-serial-process &rest ARGS)  */)
     pset_command (p, Qt);
   eassert (! p->pty_flag);
 
-  if (!EQ (p->command, Qt))
+  if (!EQ (p->command, Qt)
+      && !EQ (p->filter, Qt))
     add_process_read_fd (fd);
 
   update_process_mark (p);
@@ -3595,7 +3599,7 @@ connect_network_socket (Lisp_Object proc, Lisp_Object addrinfos,
 	{
 	  Lisp_Object data = get_file_errno_data (err, contact, xerrno);
 
-	  pset_status (p, list2 (Fcar (data), Fcdr (data)));
+	  pset_status (p, list2 (Qfailed, data));
 	  unbind_to (count, Qnil);
 	  return;
 	}
@@ -4669,7 +4673,7 @@ error displays the error message.  */)
   struct addrinfo hints;
 
   memset (&hints, 0, sizeof hints);
-  if (EQ (family, Qnil))
+  if (NILP (family))
     hints.ai_family = AF_UNSPEC;
   else if (EQ (family, Qipv4))
     hints.ai_family = AF_INET;
@@ -5621,6 +5625,15 @@ wait_reading_process_output (intmax_t time_limit, int nsecs, int read_kbd,
 	    timeout = make_timespec (0, 0);
 #endif
 
+#if !defined USABLE_SIGIO && !defined WINDOWSNT
+	  /* If we're polling for input, don't get stuck in select for
+	     more than 25 msec. */
+	  struct timespec short_timeout = make_timespec (0, 25000000);
+	  if ((read_kbd || !NILP (wait_for_cell))
+	      && timespec_cmp (short_timeout, timeout) < 0)
+	    timeout = short_timeout;
+#endif
+
 	  /* Non-macOS HAVE_GLIB builds call thread_select in xgselect.c.  */
 #if defined HAVE_GLIB && !defined HAVE_NS
 	  nfds = xg_select (max_desc + 1,
@@ -5758,7 +5771,7 @@ wait_reading_process_output (intmax_t time_limit, int nsecs, int read_kbd,
       if (! NILP (wait_for_cell) && ! NILP (XCAR (wait_for_cell)))
 	break;
 
-#ifdef USABLE_SIGIO
+#if defined (USABLE_SIGIO) || defined (USABLE_SIGPOLL)
       /* If we think we have keyboard input waiting, but didn't get SIGIO,
 	 go read it.  This can happen with X on BSD after logging out.
 	 In that case, there really is no input and no SIGIO,
@@ -5766,7 +5779,11 @@ wait_reading_process_output (intmax_t time_limit, int nsecs, int read_kbd,
 
       if (read_kbd && interrupt_input
 	  && keyboard_bit_set (&Available) && ! noninteractive)
+#ifdef USABLE_SIGIO
 	handle_input_available_signal (SIGIO);
+#else
+	handle_input_available_signal (SIGPOLL);
+#endif
 #endif
 
       /* If checking input just got us a size-change event from X,
@@ -6018,7 +6035,8 @@ read_process_output_error_handler (Lisp_Object error_val)
   cmd_error_internal (error_val, "error in process filter: ");
   Vinhibit_quit = Qt;
   update_echo_area ();
-  Fsleep_for (make_fixnum (2), Qnil);
+  if (process_error_pause_time > 0)
+    Fsleep_for (make_fixnum (process_error_pause_time), Qnil);
   return Qt;
 }
 
@@ -6955,7 +6973,8 @@ the order of the list, until one of them returns non-nil.  */)
 		process, current_group);
 }
 
-DEFUN ("kill-process", Fkill_process, Skill_process, 0, 2, 0,
+DEFUN ("kill-process", Fkill_process, Skill_process, 0, 2,
+       "(list (read-process-name \"Kill process\"))",
        doc: /* Kill process PROCESS.  May be process or name of one.
 See function `interrupt-process' for more details on usage.  */)
   (Lisp_Object process, Lisp_Object current_group)
@@ -7448,7 +7467,8 @@ exec_sentinel_error_handler (Lisp_Object error_val)
   cmd_error_internal (error_val, "error in process sentinel: ");
   Vinhibit_quit = Qt;
   update_echo_area ();
-  Fsleep_for (make_fixnum (2), Qnil);
+  if (process_error_pause_time > 0)
+    Fsleep_for (make_fixnum (process_error_pause_time), Qnil);
   return Qt;
 }
 
@@ -7763,7 +7783,7 @@ delete_gpm_wait_descriptor (int desc)
 
 # endif
 
-# ifdef USABLE_SIGIO
+#if defined (USABLE_SIGIO) || defined (USABLE_SIGPOLL)
 
 /* Return true if *MASK has a bit set
    that corresponds to one of the keyboard input descriptors.  */
@@ -8612,6 +8632,12 @@ returns non-nil.  */);
 Enlarge the value only if the subprocess generates very large (megabytes)
 amounts of data in one go.  */);
   read_process_output_max = 4096;
+
+  DEFVAR_INT ("process-error-pause-time", process_error_pause_time,
+	      doc: /* The number of seconds to pause after handling process errors.
+This isn't used for all process-related errors, but is used when a
+sentinel or a process filter function has an error.  */);
+  process_error_pause_time = 1;
 
   DEFSYM (Qinternal_default_interrupt_process,
 	  "internal-default-interrupt-process");

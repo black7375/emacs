@@ -312,14 +312,15 @@ dump_reloc_set_offset (struct dump_reloc *reloc, dump_off offset)
     error ("dump relocation out of range");
 }
 
-static void
-dump_fingerprint (char const *label,
+void
+dump_fingerprint (FILE *output, char const *label,
 		  unsigned char const xfingerprint[sizeof fingerprint])
 {
   enum { hexbuf_size = 2 * sizeof fingerprint };
   char hexbuf[hexbuf_size];
   hexbuf_digest (hexbuf, xfingerprint, sizeof fingerprint);
-  fprintf (stderr, "%s: %.*s\n", label, hexbuf_size, hexbuf);
+  fprintf (output, "%s%s%.*s\n", label, *label ? ": " : "",
+	   hexbuf_size, hexbuf);
 }
 
 /* To be used if some order in the relocation process has to be enforced. */
@@ -2067,7 +2068,7 @@ dump_interval_tree (struct dump_context *ctx,
 static dump_off
 dump_string (struct dump_context *ctx, const struct Lisp_String *string)
 {
-#if CHECK_STRUCTS && !defined (HASH_Lisp_String_348C2B2FDB)
+#if CHECK_STRUCTS && !defined (HASH_Lisp_String_C2CAF90352)
 # error "Lisp_String changed. See CHECK_STRUCTS comment in config.h."
 #endif
   /* If we have text properties, write them _after_ the string so that
@@ -2078,7 +2079,7 @@ dump_string (struct dump_context *ctx, const struct Lisp_String *string)
      we seldom write to string data and never relocate it, so lumping
      it together at the end of the dump saves on COW faults.
 
-     If, however, the string's size_byte field is -1, the string data
+     If, however, the string's size_byte field is -2, the string data
      is actually a pointer to Emacs data segment, so we can do even
      better by emitting a relocation instead of bothering to copy the
      string data.  */
@@ -2947,7 +2948,7 @@ dump_vectorlike (struct dump_context *ctx,
                  Lisp_Object lv,
                  dump_off offset)
 {
-#if CHECK_STRUCTS && !defined HASH_pvec_type_F5BA506141
+#if CHECK_STRUCTS && !defined HASH_pvec_type_AFF6FED5BD
 # error "pvec_type changed. See CHECK_STRUCTS comment in config.h."
 #endif
   const struct Lisp_Vector *v = XVECTOR (lv);
@@ -3027,8 +3028,12 @@ dump_vectorlike (struct dump_context *ctx,
       error_unsupported_dump_object (ctx, lv, "mutex");
     case PVEC_CONDVAR:
       error_unsupported_dump_object (ctx, lv, "condvar");
+    case PVEC_SQLITE:
+      error_unsupported_dump_object (ctx, lv, "sqlite");
     case PVEC_MODULE_FUNCTION:
       error_unsupported_dump_object (ctx, lv, "module function");
+    case PVEC_SYMBOL_WITH_POS:
+      error_unsupported_dump_object (ctx, lv, "symbol with pos");
     default:
       error_unsupported_dump_object(ctx, lv, "weird pseudovector");
     }
@@ -4129,7 +4134,7 @@ types.  */)
     ctx->header.fingerprint[i] = fingerprint[i];
 
   const dump_off header_start = ctx->offset;
-  dump_fingerprint ("Dumping fingerprint", ctx->header.fingerprint);
+  dump_fingerprint (stderr, "Dumping fingerprint", ctx->header.fingerprint);
   dump_write (ctx, &ctx->header, sizeof (ctx->header));
   const dump_off header_end = ctx->offset;
 
@@ -5350,7 +5355,7 @@ dump_do_dump_relocation (const uintptr_t dump_base,
 	   their file names through expand-file-name and
 	   decode-coding-string.  */
 	comp_u->file = eln_fname;
-	comp_u->handle = dynlib_open (SSDATA (eln_fname));
+	comp_u->handle = dynlib_open_for_eln (SSDATA (eln_fname));
 	if (!comp_u->handle)
 	  {
 	    fprintf (stderr, "Error using execdir %s:\n",
@@ -5597,8 +5602,8 @@ pdumper_load (const char *dump_filename, char *argv0)
     desired[i] = fingerprint[i];
   if (memcmp (header->fingerprint, desired, sizeof desired) != 0)
     {
-      dump_fingerprint ("desired fingerprint", desired);
-      dump_fingerprint ("found fingerprint", header->fingerprint);
+      dump_fingerprint (stderr, "desired fingerprint", desired);
+      dump_fingerprint (stderr, "found fingerprint", header->fingerprint);
       goto out;
     }
 
@@ -5706,6 +5711,7 @@ pdumper_load (const char *dump_filename, char *argv0)
     dump_mmap_release (&sections[i]);
   if (dump_fd >= 0)
     emacs_close (dump_fd);
+
   return err;
 }
 
@@ -5790,6 +5796,7 @@ syms_of_pdumper (void)
   DEFSYM (Qdumped_with_pdumper, "dumped-with-pdumper");
   DEFSYM (Qload_time, "load-time");
   DEFSYM (Qdump_file_name, "dump-file-name");
+  DEFSYM (Qafter_pdump_load_hook, "after-pdump-load-hook");
   defsubr (&Spdumper_stats);
 #endif /* HAVE_PDUMPER */
 }

@@ -63,11 +63,11 @@ has no effect."
 Setting this to nil is offered as an aid to debugging only."
   :type 'boolean)
 
-(defcustom eshell-private-file-modes 384 ; umask 177
+(defcustom eshell-private-file-modes #o600 ; umask 177
   "The file-modes value to use for creating \"private\" files."
   :type 'integer)
 
-(defcustom eshell-private-directory-modes 448 ; umask 077
+(defcustom eshell-private-directory-modes #o700 ; umask 077
   "The file-modes value to use for creating \"private\" directories."
   :type 'integer)
 
@@ -608,6 +608,20 @@ gid format.  Valid values are `string' and `integer', defaulting to
 (defsubst eshell-processp (proc)
   "If the `processp' function does not exist, PROC is not a process."
   (and (fboundp 'processp) (processp proc)))
+
+(defun eshell-process-pair-p (procs)
+  "Return non-nil if PROCS is a pair of process objects."
+  (and (consp procs)
+       (eshell-processp (car procs))
+       (eshell-processp (cdr procs))))
+
+(defun eshell-make-process-pair (procs)
+  "Make a pair of process objects from PROCS if possible.
+This represents the head and tail of a pipeline of processes,
+where the head and tail may be the same process."
+  (pcase procs
+    ((pred eshell-processp) (cons procs procs))
+    ((pred eshell-process-pair-p) procs)))
 
 ;; (defun eshell-copy-file
 ;;   (file newname &optional ok-if-already-exists keep-date)

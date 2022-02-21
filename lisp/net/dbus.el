@@ -36,6 +36,7 @@
 ;; Declare used subroutines and variables.
 (declare-function dbus-message-internal "dbusbind.c")
 (declare-function dbus--init-bus "dbusbind.c")
+(declare-function libxml-parse-xml-region "xml.c")
 (defvar dbus-message-type-invalid)
 (defvar dbus-message-type-method-call)
 (defvar dbus-message-type-method-return)
@@ -2102,7 +2103,7 @@ has been handled by this function."
 	   (interface (dbus-event-interface-name event))
 	   (member (dbus-event-member-name event))
            (arguments (dbus-event-arguments event))
-           (time (time-to-seconds (current-time))))
+	   (time (float-time)))
       (save-excursion
         ;; Check for matching method-call.
         (goto-char (point-max))
@@ -2252,15 +2253,19 @@ keywords `:system-private' or `:session-private', respectively."
      bus nil dbus-path-local dbus-interface-local
      "Disconnected" #'dbus-handle-bus-disconnect)))
 
- 
-;; Initialize `:system' and `:session' buses.  This adds their file
-;; descriptors to input_wait_mask, in order to detect incoming
-;; messages immediately.
-(when (featurep 'dbusbind)
-  (dbus-ignore-errors
-    (dbus-init-bus :system))
-  (dbus-ignore-errors
-    (dbus-init-bus :session)))
+
+(defun dbus--init ()
+  ;; Initialize `:system' and `:session' buses.  This adds their file
+  ;; descriptors to input_wait_mask, in order to detect incoming
+  ;; messages immediately.
+  (when (featurep 'dbusbind)
+    (dbus-ignore-errors
+      (dbus-init-bus :system))
+    (dbus-ignore-errors
+      (dbus-init-bus :session))))
+
+(add-hook 'after-pdump-load-hook #'dbus--init)
+(dbus--init)
 
 (provide 'dbus)
 

@@ -109,6 +109,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "getpagesize.h"
 #include "gnutls.h"
 
+#ifdef HAVE_HAIKU
+#include <kernel/OS.h>
+#endif
+
 #ifdef PROFILING
 # include <sys/gmon.h>
 extern void moncontrol (int mode);
@@ -133,6 +137,7 @@ extern char etext;
 #endif
 
 #include "pdumper.h"
+#include "fingerprint.h"
 #include "epaths.h"
 
 static const char emacs_version[] = PACKAGE_VERSION;
@@ -185,8 +190,11 @@ static uintmax_t heap_bss_diff;
 
    We mark being in the exec'd process by a daemon name argument of
    form "--daemon=\nFD0,FD1\nNAME" where FD are the pipe file descriptors,
-   NAME is the original daemon name, if any. */
-#if defined NS_IMPL_COCOA || defined CYGWIN || defined HAVE_MACGUI
+   NAME is the original daemon name, if any.
+
+   On Haiku, the table of semaphores used for looper locks doesn't
+   persist across forked processes.  */
+#if defined NS_IMPL_COCOA || defined CYGWIN || defined HAVE_MACGUI || defined HAVE_HAIKU
 # define DAEMON_MUST_EXEC
 #endif
 
@@ -255,11 +263,12 @@ Initialization options:\n\
 #ifdef HAVE_PDUMPER
     "\
 --dump-file FILE            read dumped state from FILE\n\
+--fingerprint               output fingerprint and exit\n\
 ",
 #endif
 #if SECCOMP_USABLE
     "\
---sandbox=FILE              read Seccomp BPF filter from FILE\n\
+--seccomp=FILE              read Seccomp BPF filter from FILE\n\
 "
 #endif
     "\
@@ -846,6 +855,8 @@ load_pdump (int argc, char **argv)
   const char *const suffix = ".pdmp";
   int result;
   char *emacs_executable = argv[0];
+  ptrdiff_t hexbuf_size;
+  char *hexbuf;
   const char *strip_suffix =
 #if defined DOS_NT || defined CYGWIN
     ".exe"
@@ -883,9 +894,14 @@ load_pdump (int argc, char **argv)
     }
 
   /* Where's our executable?  */
-  ptrdiff_t bufsize, exec_bufsize;
+  ptrdiff_t bufsize;
+#ifndef NS_SELF_CONTAINED
+  ptrdiff_t exec_bufsize;
+#endif
   emacs_executable = load_pdump_find_executable (argv[0], &bufsize);
+#ifndef NS_SELF_CONTAINED
   exec_bufsize = bufsize;
+#endif
 
   /* If we couldn't find our executable, go straight to looking for
      the dump in the hardcoded location.  */
@@ -942,12 +958,18 @@ load_pdump (int argc, char **argv)
   path_exec = ns_relocate (path_exec);
 #endif
 
-  /* Look for "emacs.pdmp" in PATH_EXEC.  We hardcode "emacs" in
-     "emacs.pdmp" so that the Emacs binary still works if the user
-     copies and renames it.  */
+  /* Look for "emacs-FINGERPRINT.pdmp" in PATH_EXEC.  We hardcode
+     "emacs" in "emacs-FINGERPRINT.pdmp" so that the Emacs binary
+     still works if the user copies and renames it.  */
+  hexbuf_size = 2 * sizeof fingerprint;
+  hexbuf = xmalloc (hexbuf_size + 1);
+  hexbuf_digest (hexbuf, (char *) fingerprint, sizeof fingerprint);
+  hexbuf[hexbuf_size] = '\0';
   needed = (strlen (path_exec)
 	    + 1
 	    + strlen (argv0_base)
+	    + 1
+	    + strlen (hexbuf)
 	    + strlen (suffix)
 	    + 1);
   if (bufsize < needed)
@@ -955,8 +977,8 @@ load_pdump (int argc, char **argv)
       xfree (dump_file);
       dump_file = xpalloc (NULL, &bufsize, needed - bufsize, -1, 1);
     }
-  sprintf (dump_file, "%s%c%s%s",
-           path_exec, DIRECTORY_SEP, argv0_base, suffix);
+  sprintf (dump_file, "%s%c%s-%s%s",
+           path_exec, DIRECTORY_SEP, argv0_base, hexbuf, suffix);
 #if !defined MAC_SELF_CONTAINED && !defined NS_SELF_CONTAINED
   /* Assume the Emacs binary lives in a sibling directory as set up by
      the default installation configuration.  */
@@ -1442,6 +1464,24 @@ emacs_main (int argc, char **argv)
       exit (0);
     }
 
+#ifdef HAVE_PDUMPER
+  if (argmatch (argv, argc, "-fingerprint", "--fingerprint", 4,
+		NULL, &skip_args))
+    {
+      if (initialized)
+        {
+          dump_fingerprint (stdout, "",
+			    (unsigned char *) fingerprint);
+          exit (0);
+        }
+      else
+        {
+          fputs ("Not initialized\n", stderr);
+          exit (1);
+        }
+    }
+#endif
+
   emacs_wd = emacs_get_current_dir_name ();
 #ifdef HAVE_PDUMPER
   if (dumped_with_pdumper_p ())
@@ -1899,7 +1939,9 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
   init_bignum ();
   init_threads ();
   init_eval ();
-  init_atimer ();
+#ifdef HAVE_PGTK
+  init_pgtkterm ();   /* before init_atimer(). */
+#endif
   running_asynch_code = 0;
   init_random ();
 
@@ -2080,6 +2122,9 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
   if (!will_dump_p ())
     set_initial_environment ();
 
+  /* Has to run after the environment is set up. */
+  init_atimer ();
+
 #ifdef WINDOWSNT
   globals_of_w32 ();
 #ifdef HAVE_W32NOTIFY
@@ -2190,6 +2235,7 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #endif
       syms_of_window ();
       syms_of_xdisp ();
+      syms_of_sqlite ();
       syms_of_font ();
 #ifdef HAVE_WINDOW_SYSTEM
       syms_of_fringe ();
@@ -2260,6 +2306,27 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
       syms_of_fontset ();
 #endif /* HAVE_NS */
 
+#ifdef HAVE_PGTK
+      syms_of_pgtkterm ();
+      syms_of_pgtkfns ();
+      syms_of_pgtkselect ();
+      syms_of_pgtkmenu ();
+      syms_of_pgtkim ();
+      syms_of_fontset ();
+      syms_of_xsettings ();
+#endif /* HAVE_PGTK */
+#ifdef HAVE_HAIKU
+      syms_of_haikuterm ();
+      syms_of_haikufns ();
+      syms_of_haikumenu ();
+      syms_of_haikufont ();
+      syms_of_haikuselect ();
+#ifdef HAVE_NATIVE_IMAGE_API
+      syms_of_haikuimage ();
+#endif
+      syms_of_fontset ();
+#endif /* HAVE_HAIKU */
+
       syms_of_gnutls ();
 
 #ifdef HAVE_INOTIFY
@@ -2314,6 +2381,10 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #if defined WINDOWSNT || defined HAVE_NTGUI
       globals_of_w32select ();
 #endif
+
+#ifdef HAVE_HAIKU
+      init_haiku_select ();
+#endif
     }
 
   init_charset ();
@@ -2327,7 +2398,7 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
 #ifdef HAVE_DBUS
   init_dbusbind ();
 #endif
-#ifdef USE_GTK
+#if defined(USE_GTK) && !defined(HAVE_PGTK)
   init_xterm ();
 #endif
 
@@ -2399,6 +2470,11 @@ Using an Emacs configured with --with-x-toolkit=lucid does not have this problem
   if (dump_mode)
     Vdump_mode = build_string (dump_mode);
 
+#ifdef HAVE_PDUMPER
+  /* Allow code to be run (mostly useful after redumping). */
+  safe_run_hooks (Qafter_pdump_load_hook);
+#endif
+
   /* Enter editor command loop.  This never returns.  */
   set_initial_minibuffer_mode ();
   Frecursive_edit ();
@@ -2421,6 +2497,9 @@ struct standard_args
 static const struct standard_args standard_args[] =
 {
   { "-version", "--version", 150, 0 },
+#ifdef HAVE_PDUMPER
+  { "-fingerprint", "--fingerprint", 140, 0 },
+#endif
   { "-chdir", "--chdir", 130, 1 },
   { "-t", "--terminal", 120, 1 },
   { "-nw", "--no-window-system", 110, 0 },
@@ -2446,6 +2525,7 @@ static const struct standard_args standard_args[] =
   { "-quick", 0, 55, 0 },
   { "-q", "--no-init-file", 50, 0 },
   { "-no-init-file", 0, 50, 0 },
+  { "-init-directory", "--init-directory", 30, 1 },
   { "-no-x-resources", "--no-x-resources", 40, 0 },
   { "-no-site-file", "--no-site-file", 40, 0 },
   { "-u", "--user", 30, 1 },
@@ -2784,6 +2864,9 @@ shut_down_emacs (int sig, Lisp_Object stuff)
   /* Don't update display from now on.  */
   Vinhibit_redisplay = Qt;
 
+#ifdef HAVE_HAIKU
+  be_app_quit ();
+#endif
   /* If we are controlling the terminal, reset terminal modes.  */
 #ifndef DOS_NT
   pid_t tpgrp = tcgetpgrp (STDIN_FILENO);
@@ -2793,6 +2876,10 @@ shut_down_emacs (int sig, Lisp_Object stuff)
       if (sig && sig != SIGTERM)
 	{
 	  static char const fmt[] = "Fatal error %d: %n%s\n";
+#ifdef HAVE_HAIKU
+	  if (haiku_debug_on_fatal_error)
+	    debugger ("Fatal error in Emacs");
+#endif
 	  char buf[max ((sizeof fmt - sizeof "%d%n%s\n"
 			 + INT_STRLEN_BOUND (int) + 1),
 			min (PIPE_BUF, MAX_ALLOCA))];
@@ -3287,6 +3374,7 @@ Special values:
   `ms-dos'       compiled as an MS-DOS application.
   `windows-nt'   compiled as a native W32 application.
   `cygwin'       compiled using the Cygwin library.
+  `haiku'        compiled for a Haiku system.
 Anything else (in Emacs 26, the possibilities are: aix, berkeley-unix,
 hpux, usg-unix-v) indicates some sort of Unix system.  */);
   Vsystem_type = intern_c_string (SYSTEM_TYPE);

@@ -140,24 +140,27 @@ MS-Windows does not have a \"primary\" selection."
 (defcustom x-select-request-type nil
   "Data type request for X selection.
 The value is one of the following data types, a list of them, or nil:
-  `COMPOUND_TEXT', `UTF8_STRING', `STRING', `TEXT'
+  `COMPOUND_TEXT', `UTF8_STRING', `STRING', `TEXT', `text/plain\\;charset=utf-8'
 
 If the value is one of the above symbols, try only the specified type.
 
 If the value is a list of them, try each of them in the specified
 order until succeed.
 
-The value nil is the same as the list (UTF8_STRING COMPOUND_TEXT STRING)."
+The value nil is the same as the list (UTF8_STRING COMPOUND_TEXT STRING
+text/plain\\;charset=utf-8)."
   :type '(choice (const :tag "Default" nil)
 		 (const COMPOUND_TEXT)
 		 (const UTF8_STRING)
 		 (const STRING)
 		 (const TEXT)
+                 (const text/plain\;charset=utf-8)
 		 (set :tag "List of values"
 		      (const COMPOUND_TEXT)
 		      (const UTF8_STRING)
 		      (const STRING)
-		      (const TEXT)))
+		      (const TEXT)
+                      (const text/plain\;charset=utf-8)))
   :group 'killing)
 
 (declare-function mac-selection-value-internal "term/mac-win" (type))
@@ -169,22 +172,30 @@ The value nil is the same as the list (UTF8_STRING COMPOUND_TEXT STRING)."
 Call `gui-get-selection' with an appropriate DATA-TYPE argument
 decided by `x-select-request-type'.  The return value is already
 decoded.  If `gui-get-selection' signals an error, return nil."
+  ;; The doc string of `interprogram-paste-function' says to return
+  ;; nil if no other program has provided text to paste.
   (if (eq window-system 'mac)
       (mac-selection-value-internal type)
-    (let ((request-type (if (eq window-system 'x)
-                            (or x-select-request-type
-                                '(UTF8_STRING COMPOUND_TEXT STRING))
-                          'STRING))
-          text)
-      (with-demoted-errors "gui-get-selection: %S"
-        (if (consp request-type)
-            (while (and request-type (not text))
-              (setq text (gui-get-selection type (car request-type)))
-              (setq request-type (cdr request-type)))
-          (setq text (gui-get-selection type request-type))))
-      (if text
-          (remove-text-properties 0 (length text) '(foreign-selection nil) text))
-      text)))
+    (unless (and
+             ;; `gui-backend-selection-owner-p' might be unreliable on
+             ;; some other window systems.
+             (memq window-system '(x haiku))
+             (eq type 'CLIPBOARD)
+             (gui-backend-selection-owner-p type))
+      (let ((request-type (if (memq window-system '(x pgtk))
+                              (or x-select-request-type
+                                  '(UTF8_STRING COMPOUND_TEXT STRING text/plain\;charset=utf-8))
+                            'STRING))
+	    text)
+        (with-demoted-errors "gui-get-selection: %S"
+          (if (consp request-type)
+              (while (and request-type (not text))
+                (setq text (gui-get-selection type (car request-type)))
+                (setq request-type (cdr request-type)))
+            (setq text (gui-get-selection type request-type))))
+        (if text
+	    (remove-text-properties 0 (length text) '(foreign-selection nil) text))
+        text))))
 
 (defun gui-selection-value ()
   (let ((clip-text
@@ -315,7 +326,10 @@ the formats available in the clipboard if TYPE is `CLIPBOARD'."
   (let ((data (gui-backend-get-selection (or type 'PRIMARY)
                                          (or data-type 'STRING))))
     (when (and (stringp data)
-	       (setq data-type (get-text-property 0 'foreign-selection data)))
+               ;; If this text property is set, then the data needs to
+               ;; be decoded -- otherwise it has already been decoded
+               ;; by the lower level functions.
+               (get-text-property 0 'foreign-selection data))
       (if (eq window-system 'mac)
           (let ((coding (or next-selection-coding-system
                             selection-coding-system)))
@@ -325,17 +339,25 @@ the formats available in the clipboard if TYPE is `CLIPBOARD'."
                           selection-coding-system
                           (pcase data-type
                             ('UTF8_STRING 'utf-8)
+                            ('text/plain\;charset=utf-8 'utf-8)
                             ('COMPOUND_TEXT 'compound-text-with-extensions)
                             ('C_STRING nil)
-                            ('STRING 'iso-8859-1)
-                            (_ (error "Unknown selection data type: %S"
-                                      type))))))
-          (setq data (if coding (decode-coding-string data coding)
-                       ;; This is for C_STRING case.
-                       ;; We want to convert each non-ASCII byte to the
-                       ;; corresponding eight-bit character, which has
-                       ;; a codepoint >= #x3FFF00.
-                       (string-to-multibyte data)))))
+                            ('STRING 'iso-8859-1)))))
+          (setq data
+                (cond (coding (decode-coding-string data coding))
+                      ;; We want to convert each non-ASCII byte to the
+                      ;; corresponding eight-bit character, which has
+                      ;; a codepoint >= #x3FFF00.
+                      ((eq data-type 'C_STRING)
+                       (string-to-multibyte data))
+                      ;; Guess at the charset for types like text/html
+                      ;; -- it can be anything, and different
+                      ;; applications use different encodings.
+                      ((string-match-p "\\`text/" (symbol-name data-type))
+                       (decode-coding-string
+                        data (car (detect-coding-string data))))
+                      ;; Do nothing.
+                      (t data)))))
       (setq next-selection-coding-system nil)
       (put-text-property 0 (length data) 'foreign-selection data-type data))
     data))
@@ -456,13 +478,13 @@ two markers or an overlay.  Otherwise, it is nil."
 	      (setq type 'C_STRING))
 	     (t
 	      (let (non-latin-1 non-unicode eight-bit)
-		(mapc #'(lambda (x)
-			  (if (>= x #x100)
-			      (if (< x #x110000)
-				  (setq non-latin-1 t)
-				(if (< x #x3FFF80)
-				    (setq non-unicode t)
-				  (setq eight-bit t)))))
+                (mapc (lambda (x)
+                        (if (>= x #x100)
+                            (if (< x #x110000)
+                                (setq non-latin-1 t)
+                              (if (< x #x3FFF80)
+                                  (setq non-unicode t)
+                                (setq eight-bit t)))))
 		      str)
 		(setq type (if (or non-unicode
 				   (and

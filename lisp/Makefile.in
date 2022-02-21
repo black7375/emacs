@@ -60,7 +60,7 @@ BYTE_COMPILE_EXTRA_FLAGS =
 # The example above is just for developers, it should not be used by default.
 
 # Those automatically generated autoload files that need special rules
-# to build; ie not including things created via generated-autoload-file
+# to build; i.e. not including things created via generated-autoload-file
 # (eg calc/calc-loaddefs.el).
 LOADDEFS = $(lisp)/calendar/cal-loaddefs.el \
 	$(lisp)/calendar/diary-loaddefs.el \
@@ -77,6 +77,8 @@ AUTOGENEL = ${loaddefs} ${srcdir}/cus-load.el ${srcdir}/finder-inf.el \
 # Set load-prefer-newer for the benefit of the non-bootstrappers.
 BYTE_COMPILE_FLAGS = \
   --eval '(setq load-prefer-newer t)' $(BYTE_COMPILE_EXTRA_FLAGS)
+# ... but we must prefer .elc files for those in the early bootstrap.
+compile-first: BYTE_COMPILE_FLAGS = $(BYTE_COMPILE_EXTRA_FLAGS)
 
 # Files to compile before others during a bootstrap.  This is done to
 # speed up the bootstrap process.  They're ordered by size, so we use
@@ -91,32 +93,20 @@ COMPILE_FIRST = \
 	$(lisp)/emacs-lisp/byte-opt.elc \
 	$(lisp)/emacs-lisp/bytecomp.elc
 ifeq ($(HAVE_NATIVE_COMP),yes)
-COMPILE_FIRST += \
-	$(lisp)/emacs-lisp/comp.elc \
-	$(lisp)/emacs-lisp/comp-cstr.elc \
-	$(lisp)/emacs-lisp/cl-macs.elc \
-	$(lisp)/emacs-lisp/rx.elc \
-	$(lisp)/emacs-lisp/cl-seq.elc \
-	$(lisp)/help-mode.elc \
-	$(lisp)/emacs-lisp/cl-extra.elc \
-	$(lisp)/emacs-lisp/gv.elc \
-	$(lisp)/emacs-lisp/seq.elc \
-	$(lisp)/emacs-lisp/cl-lib.elc \
-	$(lisp)/emacs-lisp/warnings.elc \
-	$(lisp)/emacs-lisp/subr-x.elc
+COMPILE_FIRST += $(lisp)/emacs-lisp/comp.elc
+COMPILE_FIRST += $(lisp)/emacs-lisp/comp-cstr.elc
 endif
 COMPILE_FIRST += $(lisp)/emacs-lisp/autoload.elc
 
 # Files to compile early in compile-main.  Works around bug#25556.
 MAIN_FIRST = ./emacs-lisp/eieio.el ./emacs-lisp/eieio-base.el \
-  ./cedet/semantic/db.el
+  ./cedet/semantic/db.el ./emacs-lisp/cconv.el
 
 # Prevent any settings in the user environment causing problems.
-unexport EMACSDATA EMACSDOC EMACSPATH
+unexport EMACSDATA EMACSDOC EMACSLOADPATH EMACSPATH
 
 # The actual Emacs command run in the targets below.
-# Prevent any setting of EMACSLOADPATH in user environment causing problems.
-emacs = EMACSLOADPATH= '$(EMACS)' $(EMACSOPT)
+emacs = '$(EMACS)' $(EMACSOPT)
 
 ## Subdirectories, relative to builddir.
 SUBDIRS = $(sort $(shell find ${srcdir} -type d -print))
@@ -216,6 +206,9 @@ autoloads-force:
 	rm -f $(lisp)/loaddefs.el
 	$(MAKE) autoloads
 
+ldefs-boot.el: autoloads-force
+	cp  $(lisp)/loaddefs.el $(lisp)/ldefs-boot.el
+
 # This is required by the bootstrap-emacs target in ../src/Makefile, so
 # we know that if we have an emacs executable, we also have a subdirs.el.
 $(lisp)/subdirs.el:
@@ -263,9 +256,9 @@ ${ETAGS}: FORCE
 ## compile-main.  But maybe this is not even necessary any more now
 ## that this uses relative filenames.
 TAGS: ${ETAGS} ${tagsfiles}
-	$(AM_V_at)rm -f $@
+	$(AM_V_GEN)rm -f $@
 	$(AM_V_at)touch $@
-	$(AM_V_GEN)ls ${tagsfiles} | xargs $(XARGS_LIMIT) "${ETAGS}" -a -o $@
+	$(AM_V_at)ls ${tagsfiles} | xargs $(XARGS_LIMIT) "${ETAGS}" -a -o $@
 
 
 # The src/Makefile.in has its own set of dependencies and when they decide
@@ -312,9 +305,23 @@ endif
 # An old-fashioned suffix rule, which, according to the GNU Make manual,
 # cannot have prerequisites.
 ifeq ($(HAVE_NATIVE_COMP),yes)
+ifeq ($(ANCIENT),yes)
+# The first compilation of compile-first, using an interpreted compiler:
+# The resulting .elc files get given a date of 1971-01-01 so that their
+# date stamp is earlier than the source files, causing these to be compiled
+# into native code at the second recursive invocation of this $(MAKE),
+# using these .elc's.  This is faster than just compiling the native code
+# directly using the interpreted compile-first files.  (Note: 1970-01-01
+# fails on some systems.)
+.el.elc:
+	$(AM_V_ELC)$(emacs) $(BYTE_COMPILE_FLAGS) \
+	-l comp -f batch-byte-compile $<
+	touch -t 197101010000 $@
+else
 .el.elc:
 	$(AM_V_ELC)$(emacs) $(BYTE_COMPILE_FLAGS) \
 	-l comp -f batch-byte+native-compile $<
+endif
 else
 .el.elc:
 	$(AM_V_ELC)$(emacs) $(BYTE_COMPILE_FLAGS) -f batch-byte-compile $<
@@ -346,14 +353,26 @@ endif
 
 # Compile all the Elisp files that need it.  Beware: it approximates
 # 'no-byte-compile', so watch out for false-positives!
-compile-main: gen-lisp compile-clean
+compile-main: gen-lisp compile-clean main-first
 	@(cd $(lisp) && 			     \
 	els=`echo "${SUBDIRS_REL} " | sed -e 's|/\./|/|g' -e 's|/\. | |g' -e 's| |/*.el |g'`; \
-	for el in ${MAIN_FIRST} $$els; do            \
+	for el in $$els; do            \
 	  test -f $$el || continue; 		     \
 	  test ! -f $${el}c && 			     \
 	      GREP_OPTIONS= grep '^;.*[^a-zA-Z]no-byte-compile: *t' $$el > /dev/null && \
 	      continue; 			     \
+	  echo "$${el}c";                            \
+	done | xargs $(XARGS_LIMIT) echo) |	     \
+	while read chunk; do			     \
+	  $(MAKE) compile-targets		     \
+		  NATIVE_DISABLED=$(NATIVE_SKIP_NONDUMP) \
+		  TARGETS="$$chunk";		     \
+	done
+
+# Compile some important files first.
+main-first:
+	@(cd $(lisp) && 			     \
+	for el in ${MAIN_FIRST}; do                  \
 	  echo "$${el}c";                            \
 	done | xargs $(XARGS_LIMIT) echo) |	     \
 	while read chunk; do			     \

@@ -116,6 +116,9 @@ static bool eval;
 /* True means open a new frame.  --create-frame etc.  */
 static bool create_frame;
 
+/* True means reuse a frame if it already exists.  */
+static bool reuse_frame;
+
 /* The display on which Emacs should work.  --display.  */
 static char const *display;
 
@@ -165,6 +168,7 @@ static struct option const longopts[] =
   { "tty",	no_argument,       NULL, 't' },
   { "nw",	no_argument,       NULL, 't' },
   { "create-frame", no_argument,   NULL, 'c' },
+  { "reuse-frame", no_argument,   NULL, 'r' },
   { "alternate-editor", required_argument, NULL, 'a' },
   { "frame-parameters", required_argument, NULL, 'F' },
 #ifdef SOCKETS_IN_FILE_SYSTEM
@@ -551,6 +555,11 @@ decode_options (int argc, char **argv)
 	  create_frame = true;
           break;
 
+	case 'r':
+	  create_frame = true;
+	  reuse_frame = true;
+	  break;
+
 	case 'p':
 	  parent_id = optarg;
 	  create_frame = true;
@@ -596,9 +605,16 @@ decode_options (int argc, char **argv)
       alt_display = "w32";
 #elif defined (HAVE_MACGUI)
       alt_display = "Mac";
+#elif defined (HAVE_HAIKU)
+      alt_display = "be";
 #endif
 
+#ifdef HAVE_PGTK
+      display = egetenv ("WAYLAND_DISPLAY");
+      alt_display = egetenv ("DISPLAY");
+#else
       display = egetenv ("DISPLAY");
+#endif
     }
 
   if (!display)
@@ -648,6 +664,8 @@ The following OPTIONS are accepted:\n\
 -H, --help    		Print this usage information message\n\
 -nw, -t, --tty 		Open a new Emacs frame on the current terminal\n\
 -c, --create-frame    	Create a new frame instead of trying to\n\
+			use the current Emacs frame\n\
+-r, --reuse-frame	Create a new frame if none exists, otherwise\n\
 			use the current Emacs frame\n\
 ", "\
 -F ALIST, --frame-parameters=ALIST\n\
@@ -1746,8 +1764,9 @@ start_daemon_and_retry_set_socket (void)
 	}
 
       /* Try connecting, the daemon should have started by now.  */
-      message (true,
-	       "Emacs daemon should have started, trying to connect again\n");
+      if (!quiet)
+        message (true,
+                 "Emacs daemon should have started, trying to connect again\n");
     }
   else if (dpid < 0)
     {
@@ -1838,7 +1857,7 @@ start_daemon_and_retry_set_socket (void)
   /* Try connecting, the daemon should have started by now.  */
   /* It's just a progress message, so don't pop a dialog if this is
      emacsclientw.  */
-  if (!w32_window_app ())
+  if (!quiet && !w32_window_app ())
     message (true,
 	     "Emacs daemon should have started, trying to connect again\n");
 #endif /* WINDOWSNT */
@@ -1942,7 +1961,7 @@ main (int argc, char **argv)
   if (nowait)
     send_to_emacs (emacs_socket, "-nowait ");
 
-  if (!create_frame)
+  if (!create_frame || reuse_frame)
     send_to_emacs (emacs_socket, "-current-frame ");
 
   if (display)

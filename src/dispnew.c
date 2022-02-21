@@ -3850,6 +3850,9 @@ gui_update_window_end (struct window *w, bool cursor_on_p,
 				w->output_cursor.hpos, w->output_cursor.vpos,
 				w->output_cursor.x, w->output_cursor.y);
 
+      if (cursor_in_mouse_face_p (w) && cursor_on_p)
+	mouse_face_overwritten_p = 1;
+
       if (draw_window_fringes (w, true))
 	{
 	  if (WINDOW_RIGHT_DIVIDER_WIDTH (w))
@@ -4445,16 +4448,6 @@ scrolling_window (struct window *w, int tab_line_p)
       else
 	break;
     }
-
-#ifdef HAVE_XWIDGETS
-  /* Currently this seems needed to detect xwidget movement reliably.
-     This is most probably because an xwidget glyph is represented in
-     struct glyph's 'union u' by a pointer to a struct, which takes 8
-     bytes in 64-bit builds, and thus the comparison of u.val values
-     done by GLYPH_EQUAL_P doesn't work reliably, since it assumes the
-     size of the union is 4 bytes.  FIXME.  */
-    return 0;
-#endif
 
   /* Can't scroll the display of w32 GUI frames when position of point
      is indicated by the system caret, because scrolling the display
@@ -6153,7 +6146,7 @@ sit_for (Lisp_Object timeout, bool reading, int display_option)
     wrong_type_argument (Qnumberp, timeout);
 
 
-#ifdef USABLE_SIGIO
+#if defined (USABLE_SIGIO) || defined (USABLE_SIGPOLL)
   gobble_input ();
 #endif
 
@@ -6469,6 +6462,24 @@ init_display_interactive (void)
     }
 #endif
 
+#ifdef HAVE_PGTK
+  if (!inhibit_window_system && !will_dump_p ())
+    {
+      Vinitial_window_system = Qpgtk;
+      Vwindow_system_version = make_fixnum (3);
+      return;
+    }
+#endif
+
+#ifdef HAVE_HAIKU
+  if (!inhibit_window_system && !will_dump_p ())
+    {
+      Vinitial_window_system = Qhaiku;
+      Vwindow_system_version = make_fixnum (1);
+      return;
+    }
+#endif
+
   /* If no window system has been specified, try to use the terminal.  */
   if (! isatty (STDIN_FILENO))
     fatal ("standard input is not a tty");
@@ -6661,6 +6672,8 @@ The value is a symbol:
  `mac' for an Emacs frame on a Mac display,
  `ns' for an Emacs frame on a GNUstep or Macintosh Cocoa display,
  `pc' for a direct-write MS-DOS frame.
+ `pgtk' for an Emacs frame using pure GTK facilities.
+ `haiku' for an Emacs frame running in Haiku.
 
 Use of this variable as a boolean is deprecated.  Instead,
 use `display-graphic-p' or any of the other `display-*-p'
@@ -6675,6 +6688,8 @@ The value is a symbol:
  `mac' for an Emacs frame on a Mac display,
  `ns' for an Emacs frame on a GNUstep or Macintosh Cocoa display,
  `pc' for a direct-write MS-DOS frame.
+ `pgtk' for an Emacs frame using pure GTK facilities.
+ `haiku' for an Emacs frame running in Haiku.
 
 Use of this variable as a boolean is deprecated.  Instead,
 use `display-graphic-p' or any of the other `display-*-p'

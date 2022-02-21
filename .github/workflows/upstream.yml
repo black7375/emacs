@@ -32,9 +32,6 @@ jobs:
       - name: Merge workflow
         run: |
           git pull --no-edit origin workflow
-      - name: Merge feature/native-comp
-        run: |
-          git pull --no-edit upstream feature/native-comp
       - name: Merge master
         run: |
           git pull --no-edit upstream master
@@ -44,7 +41,6 @@ jobs:
       - name: Push Changes
         uses: ad-m/github-push-action@master
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: master
 
   upstream-linux:
@@ -70,6 +66,7 @@ jobs:
           git remote add upstream https://github.com/emacs-mirror/emacs
           git fetch upstream
 
+      ## Upstream
       - name: Merge Master
         run: |
           git pull --no-edit origin master
@@ -81,7 +78,6 @@ jobs:
       - name: Push Changes
         uses: ad-m/github-push-action@master
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: target/linux-pgtk
 
   upstream-mac:
@@ -122,5 +118,4 @@ jobs:
       - name: Push Changes
         uses: ad-m/github-push-action@master
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
           branch: target/mac-cocoa

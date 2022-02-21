@@ -147,9 +147,8 @@ not be added to this variable."
 		function
 		(choice (const :tag "Func returns output-func" t)
 			(const :tag "Func is output-func" nil))))
+  :risky t
   :group 'eshell-io)
-
-(put 'eshell-virtual-targets 'risky-local-variable t)
 
 ;;; Internal Variables:
 
@@ -486,7 +485,7 @@ Returns what was actually sent, or nil if nothing was sent."
    ((eshell-processp target)
     (when (eq (process-status target) 'run)
       (unless (stringp object)
-	(setq object (eshell-stringify object)))
+       (setq object (eshell-stringify object)))
       (process-send-string target object)))
 
    ((consp target)

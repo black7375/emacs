@@ -338,7 +338,8 @@ Example:
 (defvar artist-pointer-shape (if (eq window-system 'x) x-pointer-crosshair nil)
   "If in X Windows, use this pointer shape while drawing with the mouse.")
 
-(defvaralias 'artist-text-renderer 'artist-text-renderer-function)
+(define-obsolete-variable-alias 'artist-text-renderer
+  'artist-text-renderer-function "29.1")
 
 (defcustom artist-text-renderer-function 'artist-figlet
   "Function for doing text rendering."
@@ -2840,9 +2841,8 @@ Returns a list of strings."
           (if (memq system-type '(windows-nt ms-dos))
               (artist-figlet-get-font-list-windows)
             (artist-figlet-get-font-list)))
-	 (font (completing-read (concat "Select font (default "
-					artist-figlet-default-font
-					"): ")
+         (font (completing-read (format-prompt "Select font"
+                                               artist-figlet-default-font)
 				(mapcar
 				 (lambda (font) (cons font font))
 				 avail-fonts))))

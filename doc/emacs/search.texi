@@ -436,14 +436,6 @@ incremental search adds the @samp{control-S} character to the search
 string.
 
 @item
-@findex isearch-char-by-name
-@kindex C-x 8 RET @r{(Incremental Search)}
-Type @kbd{C-x 8 @key{RET}} (@code{isearch-char-by-name}), followed by
-a Unicode name or code-point in hex.  This adds the specified
-character into the search string, similar to the usual
-@code{insert-char} command (@pxref{Inserting Text}).
-
-@item
 @kindex C-^ @r{(Incremental Search)}
 @findex isearch-toggle-input-method
 @findex isearch-toggle-specified-input-method
@@ -471,7 +463,25 @@ transient input method (@pxref{transient input method}) with
 @kbd{C-x \} (@code{isearch-transient-input-method}) to insert a single
 character to the search string using an input method, and
 automatically disable the input method afterwards.
+
+@item
+@findex isearch-char-by-name
+@kindex C-x 8 RET @r{(Incremental Search)}
+Type @kbd{C-x 8 @key{RET}} (@code{isearch-char-by-name}), followed by
+a Unicode name or code-point in hex.  This adds the specified
+character into the search string, similar to the usual
+@code{insert-char} command (@pxref{Inserting Text}).
 @end itemize
+
+@findex isearch-emoji-by-name
+@kindex C-x 8 e RET @r{(Incremental Search)}
+  You can also include Emoji sequences in the search string.  Type
+@w{@kbd{C-x 8 e @key{RET}}} (@code{isearch-emoji-by-name}), followed
+by the Unicode name of an Emoji (for example, @kbd{smiling face} or
+@kbd{heart with arrow}).  This adds the specified Emoji to the search
+string.  If you don't know the name of the Emoji you want to search
+for, you can use @kbd{C-x 8 e l} (@code{emoji-list}) and @kbd{C-x 8 e
+d} (@code{emoji-describe}) (@pxref{Input Methods}).
 
 @kindex M-s o @r{(Incremental Search)}
 @findex isearch-occur
@@ -1448,9 +1458,13 @@ letter @code{a} as well as all the other variants like @code{@'a}.
 
 @vindex char-fold-include
 @vindex char-fold-exclude
+@vindex char-fold-override
   You can add new foldings using the customizable variable
 @code{char-fold-include}, or remove the existing ones using the
-customizable variable @code{char-fold-exclude}.
+customizable variable @code{char-fold-exclude}.  You can also
+customize @code{char-fold-override} to @code{t} to disable all the
+character equivalences except those you add yourself using
+@code{char-fold-include}.
 
 @node Replace
 @section Replacement Commands
@@ -1860,12 +1874,12 @@ replacing regexp matches in file names.
 @node Other Repeating Search
 @section Other Search-and-Loop Commands
 
-  Here are some other commands that find matches for a regular
-expression.  They all ignore case in matching, if the pattern contains
+  Here are some other commands that find matches for regular
+expressions.  They all ignore case in matching, if the pattern contains
 no upper-case letters and @code{case-fold-search} is non-@code{nil}.
 Aside from @code{multi-occur} and @code{multi-occur-in-matching-buffers},
-which always search the whole buffer, all operate on the text from point
-to the end of the buffer, or on the region if it is active.
+which always search the whole buffer, all of the commands operate on the
+text from point to the end of the buffer, or on the region if it is active.
 
 @table @kbd
 @findex multi-isearch-buffers
@@ -1939,19 +1953,27 @@ is not considered a match.
 @kindex RET @r{(Occur mode)}
 @kindex o @r{(Occur mode)}
 @kindex C-o @r{(Occur mode)}
-In the @file{*Occur*} buffer, you can click on each entry, or move
-point there and type @key{RET}, to visit the corresponding position in
-the buffer that was searched.  @kbd{o} and @kbd{C-o} display the match
-in another window; @kbd{C-o} does not select it.  Alternatively, you
-can use the @kbd{M-g M-n} (@code{next-error}) command to visit the
-occurrences one by one (@pxref{Compilation Mode}).
+The @file{*Occur*} buffer uses the Occur mode as its major mode.  You
+can use the @kbd{n} and @kbd{p} keys to move to the next or previous
+match; with prefix numeric argument, these commands move that many
+matches.  Digit keys are bound to @code{digit-argument}, so @kbd{5 n}
+moves to the fifth next match (you don't have to type @kbd{C-u}).
+@key{SPC} and @key{DEL} scroll the @file{*Occur*} buffer up and down.
+Clicking on a match or moving point there and typing @key{RET} visits
+the corresponding position in the original buffer that was searched.
+@kbd{o} and @kbd{C-o} display the match in another window; @kbd{C-o}
+does not select that window.  Alternatively, you can use the @kbd{M-g
+M-n} (@code{next-error}) command to visit the occurrences one by one
+(@pxref{Compilation Mode}).  Finally, @kbd{q} quits the window showing
+the @file{*Occur*} buffer and buries the buffer.
 
 @cindex Occur Edit mode
 @cindex mode, Occur Edit
-Typing @kbd{e} in the @file{*Occur*} buffer switches to Occur Edit
-mode, in which edits made to the entries are also applied to the text
-in the originating buffer.  Type @kbd{C-c C-c} to return to Occur
-mode.
+Typing @kbd{e} in the @file{*Occur*} buffer makes the buffer writable
+and enters the Occur Edit mode, in which you can edit the matching
+lines and have those edits reflected in the text in the originating
+buffer.  Type @kbd{C-c C-c} to leave the Occur Edit mode and return to
+the Occur mode.
 
 @findex list-matching-lines
 The command @kbd{M-x list-matching-lines} is a synonym for @kbd{M-x

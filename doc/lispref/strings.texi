@@ -430,8 +430,8 @@ middle of a character representation.
 This function measures the string length in characters or bytes, and
 thus is generally inappropriate if you need to shorten strings for
 display purposes; use @code{truncate-string-to-width} or
-@code{window-text-pixel-size} instead (@pxref{Size of Displayed
-Text}).
+@code{window-text-pixel-size} or @code{string-glyph-split} instead
+(@pxref{Size of Displayed Text}).
 @end defun
 
 @defun string-lines string &optional omit-nulls

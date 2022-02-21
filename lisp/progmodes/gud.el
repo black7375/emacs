@@ -90,8 +90,10 @@ pdb (Python), and jdb."
   "Prefix of all GUD commands valid in C buffers."
   :type 'key-sequence)
 
-(global-set-key (vconcat gud-key-prefix "\C-l") #'gud-refresh)
-;; (define-key ctl-x-map " " 'gud-break); backward compatibility hack
+(defvar-keymap gud-global-map
+  "C-l" #'gud-refresh)
+
+(global-set-key gud-key-prefix gud-global-map)
 
 (defvar gud-marker-filter nil)
 (put 'gud-marker-filter 'permanent-local t)
@@ -433,7 +435,7 @@ we're in the GUD buffer)."
 	    ;; Unused lexical warning if cmd does not use "arg".
 	    cmd))))
      ,(if key `(local-set-key ,(concat "\C-c" key) #',func))
-     ,(if key `(global-set-key (vconcat gud-key-prefix ,key) #',func))))
+     ,(if key `(define-key gud-global-map ,key #',func))))
 
 ;; Where gud-display-frame should put the debugging arrow; a cons of
 ;; (filename . line-number).  This is set by the marker-filter, which scans
@@ -742,10 +744,10 @@ The option \"--fullname\" must be included in this value."
 
     output))
 
-(easy-mmode-defmap gud-minibuffer-local-map
-  '(("\C-i" . comint-dynamic-complete-filename))
-  "Keymap for minibuffer prompting of gud startup command."
-  :inherit minibuffer-local-map)
+(defvar-keymap gud-minibuffer-local-map
+  :doc "Keymap for minibuffer prompting of gud startup command."
+  :parent minibuffer-local-map
+  "C-i" #'comint-dynamic-complete-filename)
 
 (defun gud-query-cmdline (minor-mode &optional init)
   (let* ((hist-sym (gud-symbol 'history nil minor-mode))
@@ -757,13 +759,18 @@ The option \"--fullname\" must be included in this value."
 	 (concat (or cmd-name (symbol-name minor-mode))
 		 " "
 		 (or init
-		     (let ((file nil))
-		       (dolist (f (directory-files default-directory) file)
-			 (if (and (file-executable-p f)
-				  (not (file-directory-p f))
-				  (or (not file)
-				      (file-newer-than-file-p f file)))
-			     (setq file f)))))))
+		     (let ((file nil)
+                           (files (directory-files default-directory)))
+                       ;; On remote systems, this may be slow, so avoid it.
+                       (when (or (not (file-remote-p default-directory))
+                                 (length< files 50))
+		         (dolist (f files)
+			   (if (and (file-executable-p f)
+				    (not (file-directory-p f))
+				    (or (not file)
+				        (file-newer-than-file-p f file)))
+			       (setq file f)))
+                            file)))))
      gud-minibuffer-local-map nil
      hist-sym)))
 
@@ -867,7 +874,8 @@ the buffer in which this command was invoked."
 COMMAND is the prefix for which we seek completion.
 CONTEXT is the text before COMMAND on the line."
   (let* ((complete-list
-	  (gud-gdb-run-command-fetch-lines (concat "complete " context command)
+	  (gud-gdb-run-command-fetch-lines (concat "server complete "
+                                                   context command)
 					   (current-buffer)
 					   ;; From string-match above.
 					   (length context))))
@@ -3539,8 +3547,8 @@ Treats actions as defuns."
               #'gdb-script-end-of-defun)
   (setq-local font-lock-defaults
               '(gdb-script-font-lock-keywords nil nil ((?_ . "w")) nil
-                (font-lock-syntactic-face-function
-                 . gdb-script-font-lock-syntactic-face)))
+                                              (font-lock-syntactic-face-function
+                                               . gdb-script-font-lock-syntactic-face)))
   ;; Recognize docstrings.
   (setq-local syntax-propertize-function
               gdb-script-syntax-propertize-function)

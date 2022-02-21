@@ -1140,7 +1140,7 @@ for the MODE to customize."
 
 (defun customize-read-group ()
   (let ((completion-ignore-case t))
-    (completing-read "Customize group (default emacs): "
+    (completing-read (format-prompt "Customize group" "emacs")
                      obarray
                      (lambda (symbol)
                        (or (and (get symbol 'custom-loads)
@@ -1212,7 +1212,7 @@ Show the buffer in another window, but don't select it."
     (unless (eq symbol basevar)
       (message "`%s' is an alias for `%s'" symbol basevar))))
 
-(defvar customize-changed-options-previous-release "27.2"
+(defvar customize-changed-options-previous-release "28.1"
   "Version for `customize-changed' to refer back to by default.")
 
 ;; Packages will update this variable, so make it available.
@@ -2183,7 +2183,7 @@ and `face'."
 ;;; The `custom' Widget.
 
 (defface custom-button
-  '((((type x w32 mac ns) (class color))	; Like default mode line
+  '((((type x w32 mac ns haiku pgtk) (class color))	; Like default mode line
      :box (:line-width 2 :style released-button)
      :background "lightgrey" :foreground "black"))
   "Face for custom buffer buttons if `custom-raised-buttons' is non-nil."
@@ -2191,7 +2191,7 @@ and `face'."
   :group 'custom-faces)
 
 (defface custom-button-mouse
-  '((((type x w32 mac ns) (class color))
+  '((((type x w32 mac ns haiku pgtk) (class color))
      :box (:line-width 2 :style released-button)
      :background "grey90" :foreground "black")
     (t
@@ -2216,7 +2216,7 @@ and `face'."
       (if custom-raised-buttons 'custom-button-mouse 'highlight))
 
 (defface custom-button-pressed
-  '((((type x w32 mac ns) (class color))
+  '((((type x w32 mac ns haiku pgtk) (class color))
      :box (:line-width 2 :style pressed-button)
      :background "lightgrey" :foreground "black")
     (t :inverse-video t))
@@ -3469,6 +3469,10 @@ Mac OS.")
 					   :sibling-args (:help-echo "\
 GNUstep or Macintosh OS Cocoa interface.")
 					   ns)
+				    (const :format "PGTK "
+					   :sibling-args (:help-echo "\
+Pure-GTK interface.")
+					   ns)
 				    (const :format "DOS "
 					   :sibling-args (:help-echo "\
 Plain MS-DOS.")
@@ -3983,6 +3987,18 @@ Optional EVENT is the location for the menu."
       (setq comment nil)
       ;; Make the comment invisible by hand if it's empty
       (custom-comment-hide comment-widget))
+    ;; When modifying the default face, we need to save the standard or themed
+    ;; attrs, in case the user asks to revert to them in the future.
+    ;; In GUIs, when resetting the attributes of the default face, the frame
+    ;; parameters associated with this face won't change, unless explicitly
+    ;; passed a value.  Storing this known attrs allows us to tell faces.el to
+    ;; set those attributes to specified values, making the relevant frame
+    ;; parameters stay in sync with the default face.
+    (when (and (eq symbol 'default)
+               (not (get symbol 'custom-face-default-attrs))
+               (memq (custom-face-state symbol) '(standard themed)))
+      (put symbol 'custom-face-default-attrs
+           (custom-face-get-current-spec symbol)))
     (custom-push-theme 'theme-face symbol 'user 'set value)
     (face-spec-set symbol value 'customized-face)
     (put symbol 'face-comment comment)
@@ -4001,6 +4017,12 @@ Optional EVENT is the location for the menu."
       (setq comment nil)
       ;; Make the comment invisible by hand if it's empty
       (custom-comment-hide comment-widget))
+    ;; See the comments in `custom-face-set'.
+    (when (and (eq symbol 'default)
+               (not (get symbol 'custom-face-default-attrs))
+               (memq (custom-face-state symbol) '(standard themed)))
+      (put symbol 'custom-face-default-attrs
+           (custom-face-get-current-spec symbol)))
     (custom-push-theme 'theme-face symbol 'user 'set value)
     (face-spec-set symbol value (if standard 'reset 'saved-face))
     (put symbol 'face-comment comment)
@@ -4014,7 +4036,14 @@ Optional EVENT is the location for the menu."
 
 (defun custom-face-save (widget)
   "Save the face edited by WIDGET."
-  (let ((form (widget-get widget :custom-form)))
+  (let ((form (widget-get widget :custom-form))
+        (symbol (widget-value widget)))
+    ;; See the comments in `custom-face-set'.
+    (when (and (eq symbol 'default)
+               (not (get symbol 'custom-face-default-attrs))
+               (memq (custom-face-state symbol) '(standard themed)))
+      (put symbol 'custom-face-default-attrs
+           (custom-face-get-current-spec symbol)))
     (if (memq form '(all lisp))
         (custom-face-mark-to-save widget)
       ;; The user is working on only a selected terminal type;
@@ -4042,10 +4071,20 @@ uncustomized (themed or standard) face."
 	 (saved-face (get face 'saved-face))
 	 (comment (get face 'saved-face-comment))
 	 (comment-widget (widget-get widget :comment-widget)))
+    ;; If resetting the default face and there isn't a saved value,
+    ;; push a fake user setting, so that reverting to the default
+    ;; attributes works.
     (custom-push-theme 'theme-face face 'user
-		       (if saved-face 'set 'reset)
-		       saved-face)
+                       (if (or saved-face (eq face 'default)) 'set 'reset)
+                       (or saved-face
+                           ;; If this is t, then MODE is 'reset,
+                           ;; and `custom-push-theme' ignores this argument.
+                           (not (eq face 'default))
+                           (get face 'custom-face-default-attrs)))
     (face-spec-set face saved-face 'saved-face)
+    (when (and (not saved-face) (eq face 'default))
+      ;; Remove the fake user setting.
+      (custom-push-theme 'theme-face face 'user 'reset))
     (put face 'face-comment comment)
     (put face 'customized-face-comment nil)
     (widget-value-set child saved-face)
@@ -4067,8 +4106,15 @@ redraw the widget immediately."
 	 (comment-widget (widget-get widget :comment-widget)))
     (unless value
       (user-error "No standard setting for this face"))
-    (custom-push-theme 'theme-face symbol 'user 'reset)
+    ;; If erasing customizations for the default face, push a fake user setting,
+    ;; so that reverting to the default attributes works.
+    (custom-push-theme 'theme-face symbol 'user
+                       (if (eq symbol 'default) 'set 'reset)
+                       (or (not (eq symbol 'default))
+                           (get symbol 'custom-face-default-attrs)))
     (face-spec-set symbol value 'reset)
+    ;; Remove the fake user setting.
+    (custom-push-theme 'theme-face symbol 'user 'reset)
     (put symbol 'face-comment nil)
     (put symbol 'customized-face-comment nil)
     (if (and custom-reset-standard-faces-list

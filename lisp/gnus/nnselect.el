@@ -79,30 +79,33 @@
 ;;; Helper routines.
 (defun nnselect-compress-artlist (artlist)
   "Compress ARTLIST."
-  (let (selection)
-    (pcase-dolist (`(,artgroup . ,arts)
-                   (nnselect-categorize artlist #'nnselect-artitem-group))
-      (let (list)
-        (pcase-dolist (`(,rsv . ,articles)
-                       (nnselect-categorize
-                        arts #'nnselect-artitem-rsv #'nnselect-artitem-number))
-          (push (cons rsv (gnus-compress-sequence (sort articles #'<)))
-                list))
-        (push (cons artgroup list) selection)))
-    selection))
+  (if (consp artlist)
+      artlist
+    (let (selection)
+      (pcase-dolist (`(,artgroup . ,arts)
+                     (nnselect-categorize artlist #'nnselect-artitem-group))
+	(let (list)
+          (pcase-dolist (`(,rsv . ,articles)
+			 (nnselect-categorize
+                          arts #'nnselect-artitem-rsv #'nnselect-artitem-number))
+            (push (cons rsv (gnus-compress-sequence (sort articles #'<)))
+                  list))
+          (push (cons artgroup list) selection)))
+      selection)))
 
 (defun nnselect-uncompress-artlist (artlist)
   "Uncompress ARTLIST."
   (if (vectorp artlist)
       artlist
     (let (selection)
-      (pcase-dolist (`(,artgroup (,artrsv . ,artseq)) artlist)
-	(setq selection
-	      (vconcat
-	       (cl-map 'vector
-                       (lambda (art)
-                         (vector artgroup art artrsv))
-		    (gnus-uncompress-sequence artseq)) selection)))
+      (pcase-dolist (`(,artgroup . ,list) artlist)
+	(pcase-dolist (`(,artrsv . ,artseq) list)
+	  (setq selection
+		(vconcat
+		 (cl-map 'vector
+			 (lambda (art)
+                           (vector artgroup art artrsv))
+			 (gnus-uncompress-sequence artseq)) selection))))
       selection)))
 
 (make-obsolete 'nnselect-group-server 'gnus-group-server "28.1")
@@ -207,7 +210,7 @@ as `(keyfunc member)' and the corresponding element is just
   (inline-quote
    (cond
     ((eq ,type 'range)
-     (nnselect-categorize (gnus-uncompress-range ,articles)
+     (nnselect-categorize (range-uncompress ,articles)
 			  #'nnselect-article-group #'nnselect-article-number))
     ((eq ,type 'tuple)
      (nnselect-categorize ,articles
@@ -395,8 +398,7 @@ If this variable is nil, or if the provided function returns nil,
 	    (gnus-search-run-query
 	     (list
 	      (cons 'search-query-spec
-		    (list (cons 'query `((id . ,article)))
-			  (cons 'criteria "")  (cons 'shortcut t)))
+		    (list (cons 'query (format "id:%s" article))))
 	      (cons 'search-group-spec servers))))
       (unless (zerop (nnselect-artlist-length artlist))
 	(setq
@@ -543,10 +545,10 @@ If this variable is nil, or if the provided function returns nil,
 	     (group-info (gnus-get-info artgroup))
 	     (marks (gnus-info-marks group-info))
 	     (unread (gnus-uncompress-sequence
-		      (gnus-range-difference (gnus-active artgroup)
-					     (gnus-info-read group-info)))))
+		      (range-difference (gnus-active artgroup)
+					(gnus-info-read group-info)))))
 	(setf (gnus-info-read info)
-	      (gnus-add-to-range
+	      (range-add-list
 	       (gnus-info-read info)
 	       (delq nil (mapcar
                           (lambda (art)
@@ -568,7 +570,7 @@ If this variable is nil, or if the provided function returns nil,
 			       artids))
 			     (t
 			      (setq mark-list
-				    (gnus-uncompress-range mark-list))
+				    (range-uncompress mark-list))
 			      (mapcar
                                (lambda (id)
                                  (when (memq (cdr id) mark-list)
@@ -779,6 +781,10 @@ Return an article list."
 	(args (alist-get 'nnselect-args specs)))
     (condition-case-unless-debug err
 	(funcall func args)
+      ;; Don't swallow gnus-search errors; the user should be made
+      ;; aware of them.
+      (gnus-search-error
+       (signal (car err) (cdr err)))
       (error (gnus-error 3 "nnselect-run: %s on %s gave error %s" func args err)
 	     []))))
 
@@ -863,16 +869,16 @@ article came from is also searched."
 	      (when (and (gnus-check-backend-function
 			  'request-set-mark artgroup)
 			 (not (gnus-article-unpropagatable-p type)))
-		(let* ((old (gnus-list-range-intersection
+		(let* ((old (range-list-intersection
 			     artlist
 			     (alist-get type (gnus-info-marks group-info))))
-		       (del (gnus-remove-from-range (copy-tree old) list))
-		       (add (gnus-remove-from-range (copy-tree list) old)))
+		       (del (range-remove (copy-tree old) list))
+		       (add (range-remove (copy-tree list) old)))
 		  (when add (push (list add 'add (list type)) delta-marks))
 		  (when del
 		    ;; Don't delete marks from outside the active range.
 		    ;; This shouldn't happen, but is a sanity check.
-		    (setq del (gnus-sorted-range-intersection
+		    (setq del (range-intersection
 			       (gnus-active artgroup) del))
 		    (push (list del 'del (list type)) delta-marks))))
 
@@ -901,24 +907,24 @@ article came from is also searched."
 		;; make sure
 		(setq list
 		      (sort (map-merge
-			     'list list
+			     'alist list
 			     (alist-get type (gnus-info-marks group-info)))
 			    (lambda (elt1 elt2)
 			      (< (car elt1) (car elt2))))))
 	       (t
 		(setq list
-		      (gnus-compress-sequence
+		      (range-compress-list
 		       (gnus-sorted-union
 			(gnus-sorted-difference
 			 (gnus-uncompress-sequence
 			  (alist-get type (gnus-info-marks group-info)))
 			 artlist)
-			(sort list #'<)) t)))
+			(sort list #'<)))))
 
 	       ;; When exiting the group, everything that's previously been
 	       ;; unseen is now seen.
 	       (when (eq  type 'seen)
-		 (setq list (gnus-range-add
+		 (setq list (range-concat
 			     list (cdr (assoc artgroup select-unseen))))))
 
 	      (when (or list (eq  type 'unexist))
@@ -941,9 +947,9 @@ article came from is also searched."
 	    ;; update read and unread
 	    (gnus-update-read-articles
 	     artgroup
-	     (gnus-uncompress-range
-	      (gnus-add-to-range
-	       (gnus-remove-from-range
+	     (range-uncompress
+	      (range-add-list
+	       (range-remove
 		old-unread
 		(cdr (assoc artgroup select-reads)))
 	       (sort (cdr (assoc artgroup select-unreads)) #'<))))

@@ -86,6 +86,14 @@
 
 ;;; Code:
 
+;; We provide a mechanism to define new specializers.
+;; Related work can be found in:
+;; - http://www.p-cos.net/documents/filtered-dispatch.pdf
+;; - Generalizers: New metaobjects for generalized dispatch
+;;   http://research.gold.ac.uk/9924/1/els-specializers.pdf
+;; This second one is closely related to what we do here (and that's
+;; the name "generalizer" comes from).
+
 ;; The autoloads.el mechanism which adds package--builtin-versions
 ;; maintenance to loaddefs.el doesn't work for preloaded packages (such
 ;; as this one), so we have to do it by hand!
@@ -100,6 +108,7 @@
 (eval-when-compile (require 'cl-lib))
 (eval-when-compile (require 'cl-macs))  ;For cl--find-class.
 (eval-when-compile (require 'pcase))
+(eval-when-compile (require 'subr-x))
 
 (cl-defstruct (cl--generic-generalizer
                (:constructor nil)
@@ -277,7 +286,9 @@ DEFAULT-BODY, if present, is used as the body of a default method.
          (progn
            (defalias ',name
              (cl-generic-define ',name ',args ',(nreverse options))
-             ,(help-add-fundoc-usage doc args))
+             ,(if (consp doc)           ;An expression rather than a constant.
+                  `(help-add-fundoc-usage ,doc ',args)
+                (help-add-fundoc-usage doc args)))
            :autoload-end
            ,@(mapcar (lambda (method) `(cl-defmethod ,name ,@method))
                      (nreverse methods)))
@@ -370,9 +381,9 @@ the specializer used will be the one returned by BODY."
                                    . ,(lambda () spec-args))
                                  macroexpand-all-environment)))
       (require 'cl-lib)        ;Needed to expand `cl-flet' and `cl-function'.
-      (when (interactive-form (cadr fun))
-        (message "Interactive forms unsupported in generic functions: %S"
-                 (interactive-form (cadr fun))))
+      (when (assq 'interactive (cadr fun))
+        (message "Interactive forms not supported in generic functions: %S"
+                 (assq 'interactive (cadr fun))))
       ;; First macroexpand away the cl-function stuff (e.g. &key and
       ;; destructuring args, `declare' and whatnot).
       (pcase (macroexpand fun macroenv)
@@ -487,7 +498,8 @@ The set of acceptable TYPEs (also called \"specializers\") is defined
                     cl--generic-edebug-make-name nil]
              lambda-doc                 ; documentation string
              def-body)))                ; part to be debugged
-  (let ((qualifiers nil))
+  (let ((qualifiers nil)
+        (org-name name))
     (while (cl-generic--method-qualifier-p args)
       (push args qualifiers)
       (setq args (pop body)))
@@ -502,6 +514,7 @@ The set of acceptable TYPEs (also called \"specializers\") is defined
                    (byte-compile-warning-enabled-p 'obsolete name))
                (let* ((obsolete (get name 'byte-obsolete-info)))
                  (macroexp-warn-and-return
+                  org-name
                   (macroexp--obsolete-warning name obsolete "generic function")
                   nil)))
          ;; You could argue that `defmethod' modifies rather than defines the
@@ -589,20 +602,13 @@ The set of acceptable TYPEs (also called \"specializers\") is defined
         ;; e.g. for tracing/debug-on-entry.
         (defalias sym gfun)))))
 
-(defmacro cl--generic-with-memoization (place &rest code)
-  (declare (indent 1) (debug t))
-  (gv-letplace (getter setter) place
-    `(or ,getter
-         ,(macroexp-let2 nil val (macroexp-progn code)
-            `(progn
-               ,(funcall setter val)
-               ,val)))))
-
 (defvar cl--generic-dispatchers (make-hash-table :test #'equal))
 
 (defun cl--generic-get-dispatcher (dispatch)
-  (cl--generic-with-memoization
-      (gethash dispatch cl--generic-dispatchers)
+  (with-memoization
+      ;; We need `copy-sequence` here because this `dispatch' object might be
+      ;; modified by side-effect in `cl-generic-define-method' (bug#46722).
+      (gethash (copy-sequence dispatch) cl--generic-dispatchers)
     ;; (message "cl--generic-get-dispatcher (%S)" dispatch)
     (let* ((dispatch-arg (car dispatch))
            (generalizers (cdr dispatch))
@@ -644,10 +650,13 @@ The set of acceptable TYPEs (also called \"specializers\") is defined
       ;; overkill: better just use a `cl-typep' test.
       (byte-compile
        `(lambda (generic dispatches-left methods)
+          ;; FIXME: We should find a way to expand `with-memoize' once
+          ;; and forall so we don't need `subr-x' when we get here.
+          (eval-when-compile (require 'subr-x))
           (let ((method-cache (make-hash-table :test #'eql)))
             (lambda (,@fixedargs &rest args)
               (let ,bindings
-                (apply (cl--generic-with-memoization
+                (apply (with-memoization
                            (gethash ,tag-exp method-cache)
                          (cl--generic-cache-miss
                           generic ',dispatch-arg dispatches-left methods
@@ -684,14 +693,14 @@ This is particularly useful when many different tags select the same set
 of methods, since this table then allows us to share a single combined-method
 for all those different tags in the method-cache.")
 
-(define-error 'cl--generic-cyclic-definition "Cyclic definition: %S")
+(define-error 'cl--generic-cyclic-definition "Cyclic definition")
 
 (defun cl--generic-build-combined-method (generic methods)
   (if (null methods)
       ;; Special case needed to fix a circularity during bootstrap.
       (cl--generic-standard-method-combination generic methods)
     (let ((f
-           (cl--generic-with-memoization
+           (with-memoization
                ;; FIXME: Since the fields of `generic' are modified, this
                ;; hash-table won't work right, because the hashes will change!
                ;; It's not terribly serious, but reduces the effectiveness of
@@ -1143,7 +1152,7 @@ These match if the argument is a cons cell whose car is `eql' to VAL."
   ;; since we can't use the `head' specializer to implement itself.
   (if (not (eq (car-safe specializer) 'head))
       (cl-call-next-method)
-    (cl--generic-with-memoization
+    (with-memoization
         (gethash (cadr specializer) cl--generic-head-used)
       specializer)
     (list cl--generic-head-generalizer)))

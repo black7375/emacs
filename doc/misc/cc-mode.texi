@@ -283,6 +283,7 @@ Font Locking
 * Font Locking Preliminaries::
 * Faces::
 * Doc Comments::
+* Wrong Comment Style::
 * Misc Font Locking::
 * AWK Mode Font Locking::
 

@@ -35,15 +35,14 @@ EXEEXT = @EXEEXT@
 -include ${top_builddir}/src/verbose.mk
 
 # Prevent any settings in the user environment causing problems.
-unexport EMACSDATA EMACSDOC EMACSPATH
+unexport EMACSDATA EMACSDOC EMACSLOADPATH EMACSPATH
 
 # Which Emacs to use to convert TIT files to Emacs Lisp files,
 # and generate the file leim-list.el.
 EMACS = ../src/emacs${EXEEXT}
 
 # How to run Emacs.
-# Prevent any setting of EMACSLOADPATH in user environment causing problems.
-RUN_EMACS = EMACSLOADPATH= '$(EMACS)' -batch --no-site-file --no-site-lisp
+RUN_EMACS = '$(EMACS)' -batch --no-site-file --no-site-lisp
 
 MKDIR_P = @MKDIR_P@
 
@@ -123,6 +122,7 @@ leim-list.el: ${leimdir}/leim-list.el
 ${leimdir}/leim-list.el: ${srcdir}/leim-ext.el ${TIT_MISC}
 	$(AM_V_GEN)rm -f $@
 	$(AM_V_at)${RUN_EMACS} -l international/quail \
+	  --eval "(setq max-specpdl-size 5000)" \
 	  --eval "(update-leim-list-file (unmsys--file-name \"${leimdir}\"))"
 	$(AM_V_at)sed -n -e '/^[^;]/p' -e 's/^;\(;*\)inc /;\1 /p' < $< >> $@
 

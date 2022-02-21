@@ -494,7 +494,7 @@ This setting only applies to floats in normal display mode.")
 (defmacro defcalcmodevar (var defval &optional doc)
   "Declare VAR as a Calc variable, with default value DEFVAL and doc-string DOC.
 The variable VAR will be added to `calc-mode-var-list'."
-  (declare (doc-string 3))
+  (declare (doc-string 3) (indent defun))
   `(progn
      (defvar ,var ,defval ,doc)
      (add-to-list 'calc-mode-var-list (list (quote ,var) ,defval))))
@@ -1621,7 +1621,8 @@ See calc-keypad for details."
 		    (stringp (nth 1 err))
 		    (string-match "max-specpdl-size\\|max-lisp-eval-depth"
 				  (nth 1 err)))
-	       (error "Computation got stuck or ran too long.  Type `M' to increase the limit")
+               (error (substitute-command-keys
+                       "Computation got stuck or ran too long.  Type \\`M' to increase the limit"))
 	     (setq calc-aborted-prefix nil)
 	     (signal (car err) (cdr err)))))
       (when calc-aborted-prefix
@@ -3439,7 +3440,7 @@ The prefix `calcFunc-' is added to the specified name to get the
 actual Lisp function name.
 
 See Info node `(calc)Defining Functions'."
-  (declare (doc-string 3)) ;; FIXME: Edebug spec?
+  (declare (doc-string 3) (indent defun)) ;; FIXME: Edebug spec?
   (require 'calc-ext)
   (math-do-defmath func args body))
 

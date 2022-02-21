@@ -226,7 +226,9 @@ Value is:
  `w32' for an Emacs frame that is a window on MS-Windows display,
  `mac' for an Emacs frame on a Mac display,
  `ns' for an Emacs frame on a GNUstep or Macintosh Cocoa display,
- `pc' for a direct-write MS-DOS frame.
+ `pc' for a direct-write MS-DOS frame,
+ `pgtk' for an Emacs frame running on pure GTK.
+ `haiku' for an Emacs frame running in Haiku.
 See also `frame-live-p'.  */)
   (Lisp_Object object)
 {
@@ -247,6 +249,10 @@ See also `frame-live-p'.  */)
       return Qmac;
     case output_ns:
       return Qns;
+    case output_pgtk:
+      return Qpgtk;
+    case output_haiku:
+      return Qhaiku;
     default:
       emacs_abort ();
     }
@@ -275,6 +281,8 @@ The value is a symbol:
  `mac' for an Emacs frame on a Mac display,
  `ns' for an Emacs frame on a GNUstep or Macintosh Cocoa display,
  `pc' for a direct-write MS-DOS frame.
+ `pgtk' for an Emacs frame using pure GTK facilities.
+ `haiku' for an Emacs frame running in Haiku.
 
 FRAME defaults to the currently selected frame.
 
@@ -2224,7 +2232,8 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
     /* Since a similar behavior was observed on the Lucid and Motif
        builds (see Bug#5802, Bug#21509, Bug#23499, Bug#27816), we now
        don't delete the terminal for these builds either.  */
-    if (terminal->reference_count == 0 && terminal->type == output_x_window)
+    if (terminal->reference_count == 0 &&
+	(terminal->type == output_x_window || terminal->type == output_pgtk))
       terminal->reference_count = 1;
 #endif /* USE_X_TOOLKIT || USE_GTK */
     if (terminal->reference_count == 0)
@@ -2385,8 +2394,11 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
 }
 
 DEFUN ("delete-frame", Fdelete_frame, Sdelete_frame, 0, 2, "",
-       doc: /* Delete FRAME, permanently eliminating it from use.
+       doc: /* Delete FRAME, eliminating it from use.
 FRAME must be a live frame and defaults to the selected one.
+
+When `undelete-frame-mode' is enabled, the 16 most recently deleted
+frames can be undeleted with `undelete-frame', which see.
 
 A frame may not be deleted if its minibuffer serves as surrogate
 minibuffer for another frame.  Normally, you may not delete a frame if
@@ -3907,6 +3919,7 @@ static const struct frame_parm_table frame_parms[] =
   {"z-group",			SYMBOL_INDEX (Qz_group)},
   {"override-redirect",		SYMBOL_INDEX (Qoverride_redirect)},
   {"no-special-glyphs",		SYMBOL_INDEX (Qno_special_glyphs)},
+  {"alpha-background",          SYMBOL_INDEX (Qalpha_background)},
 #ifdef NS_IMPL_COCOA
   {"ns-appearance",		SYMBOL_INDEX (Qns_appearance)},
   {"ns-transparent-titlebar",	SYMBOL_INDEX (Qns_transparent_titlebar)},
@@ -5030,6 +5043,34 @@ gui_set_alpha (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
     }
 }
 
+void
+gui_set_alpha_background (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
+{
+  double alpha = 1.0;
+
+  if (NILP (arg))
+    alpha = 1.0;
+  else if (FLOATP (arg))
+    {
+      alpha = XFLOAT_DATA (arg);
+      if (! (0 <= alpha && alpha <= 1.0))
+	args_out_of_range (make_float (0.0), make_float (1.0));
+    }
+  else if (FIXNUMP (arg))
+    {
+      EMACS_INT ialpha = XFIXNUM (arg);
+      if (! (0 <= ialpha && ialpha <= 100))
+	args_out_of_range (make_fixnum (0), make_fixnum (100));
+      alpha = ialpha / 100.0;
+    }
+  else
+    wrong_type_argument (Qnumberp, arg);
+
+  f->alpha_background = alpha;
+
+  recompute_basic_faces (f);
+  SET_FRAME_GARBAGED (f);
+}
 
 /**
  * gui_set_no_special_glyphs:
@@ -5045,8 +5086,6 @@ gui_set_no_special_glyphs (struct frame *f, Lisp_Object new_value, Lisp_Object o
     FRAME_NO_SPECIAL_GLYPHS (f) = !NILP (new_value);
 }
 
-
-#ifndef HAVE_NS
 
 /* Non-zero if mouse is grabbed on DPYINFO
    and we know the frame where it is.  */
@@ -5918,7 +5957,7 @@ This function is for internal use only.  */)
 
 #ifdef HAVE_WINDOW_SYSTEM
 
-# if (defined USE_GTK || defined HAVE_NS || defined HAVE_XINERAMA \
+# if (defined USE_GTK || defined HAVE_PGTK || defined HAVE_NS || defined HAVE_XINERAMA \
       || defined HAVE_XRANDR)
 void
 free_monitors (struct MonitorInfo *monitors, int n_monitors)
@@ -5956,6 +5995,10 @@ make_monitor_attribute_list (struct MonitorInfo *monitors,
                           attributes);
       attributes = Fcons (Fcons (Qframes, AREF (monitor_frames, i)),
 			  attributes);
+#ifdef HAVE_PGTK
+      attributes = Fcons (Fcons (Qscale_factor, make_float (mi->scale_factor)),
+			  attributes);
+#endif
       attributes = Fcons (Fcons (Qmm_size,
                                  list2i (mi->mm_width, mi->mm_height)),
                           attributes);
@@ -6045,6 +6088,8 @@ syms_of_frame (void)
   DEFSYM (Qw32, "w32");
   DEFSYM (Qpc, "pc");
   DEFSYM (Qns, "ns");
+  DEFSYM (Qpgtk, "pgtk");
+  DEFSYM (Qhaiku, "haiku");
   DEFSYM (Qvisible, "visible");
   DEFSYM (Qbuffer_predicate, "buffer-predicate");
   DEFSYM (Qbuffer_list, "buffer-list");
@@ -6067,6 +6112,9 @@ syms_of_frame (void)
 
   DEFSYM (Qworkarea, "workarea");
   DEFSYM (Qmm_size, "mm-size");
+#ifdef HAVE_PGTK
+  DEFSYM (Qscale_factor, "scale-factor");
+#endif
   DEFSYM (Qframes, "frames");
   DEFSYM (Qsource, "source");
 
@@ -6104,6 +6152,7 @@ syms_of_frame (void)
 #endif
 
   DEFSYM (Qalpha, "alpha");
+  DEFSYM (Qalpha_background, "alpha-background");
   DEFSYM (Qauto_lower, "auto-lower");
   DEFSYM (Qauto_raise, "auto-raise");
   DEFSYM (Qborder_color, "border-color");
@@ -6476,6 +6525,14 @@ This variable is effective only with the X toolkit (and there only when
 Gtk+ tooltips are not used) and on Windows.  */);
   tooltip_reuse_hidden_frame = false;
 
+  DEFVAR_BOOL ("use-system-tooltips", use_system_tooltips,
+	       doc: /* Use the toolkit to display tooltips.
+This option is only meaningful when Emacs is built with GTK+ or Haiku
+windowing support, and results in tooltips that look like those
+displayed by other GTK+ or Haiku programs, but will not be able to
+display text properties inside tooltip text.  */);
+  use_system_tooltips = true;
+
   DEFVAR_LISP ("iconify-child-frame", iconify_child_frame,
 	       doc: /* How to handle iconification of child frames.
 This variable tells Emacs how to proceed when it is asked to iconify a
@@ -6490,6 +6547,14 @@ attempt is not honored by all window managers and may even lead to
 making the child frame unresponsive to user actions, the default is to
 iconify the top level frame instead.  */);
   iconify_child_frame = Qiconify_top_level;
+
+  DEFVAR_LISP ("frame-internal-parameters", frame_internal_parameters,
+	       doc: /* Frame parameters specific to every frame.  */);
+#ifdef HAVE_X_WINDOWS
+  frame_internal_parameters = list4 (Qname, Qparent_id, Qwindow_id, Qouter_window_id);
+#else
+  frame_internal_parameters = list3 (Qname, Qparent_id, Qwindow_id);
+#endif
 
   defsubr (&Sframep);
   defsubr (&Sframe_live_p);

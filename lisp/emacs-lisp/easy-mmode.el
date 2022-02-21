@@ -198,6 +198,7 @@ INIT-VALUE LIGHTER KEYMAP.
 
 \(fn MODE DOC [KEYWORD VAL ... &rest BODY])"
   (declare (doc-string 2)
+           (indent defun)
            (debug (&define name string-or-null-p
 			   [&optional [&not keywordp] sexp
 			    &optional [&not keywordp] sexp
@@ -229,6 +230,7 @@ INIT-VALUE LIGHTER KEYMAP.
          (warnwrap (if (or (null body) (keywordp (car body))) #'identity
                      (lambda (exp)
                        (macroexp-warn-and-return
+                        exp
                         "Use keywords rather than deprecated positional arguments to `define-minor-mode'"
                         exp))))
 	 keyw keymap-sym tmp)
@@ -450,7 +452,7 @@ after running the major mode's hook.  However, MODE is not turned
 on if the hook has explicitly disabled it.
 
 \(fn GLOBAL-MODE MODE TURN-ON [KEY VALUE]... BODY...)"
-  (declare (doc-string 2))
+  (declare (doc-string 2) (indent defun))
   (let* ((global-mode-name (symbol-name global-mode))
 	 (mode-name (symbol-name mode))
 	 (pretty-name (easy-mmode-pretty-mode-name mode))
@@ -695,8 +697,12 @@ Valid keywords and arguments are:
 (defmacro easy-mmode-defmap (m bs doc &rest args)
   "Define a constant M whose value is the result of `easy-mmode-define-keymap'.
 The M, BS, and ARGS arguments are as per that function.  DOC is
-the constant's documentation."
-  (declare (indent 1))
+the constant's documentation.
+
+This macro is deprecated; use `defvar-keymap' instead."
+  ;; FIXME: Declare obsolete in favor of `defvar-keymap'.  It is still
+  ;; used for `gud-menu-map' and `gud-minor-mode-map', so fix that first.
+  (declare (doc-string 3) (indent 1))
   `(defconst ,m
      (easy-mmode-define-keymap ,bs nil (if (boundp ',m) ,m) ,(cons 'list args))
      ,doc))
@@ -723,7 +729,7 @@ the constant's documentation."
 (defmacro easy-mmode-defsyntax (st css doc &rest args)
   "Define variable ST as a syntax-table.
 CSS contains a list of syntax specifications of the form (CHAR . SYNTAX)."
-  (declare (indent 1))
+  (declare (doc-string 3) (indent 1))
   `(progn
      (autoload 'easy-mmode-define-syntax "easy-mmode")
      (defconst ,st (easy-mmode-define-syntax ,css ,(cons 'list args)) ,doc)))

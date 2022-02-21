@@ -739,6 +739,7 @@
 (require 'cl-lib)
 
 (declare-function diff-setup-whitespace "diff-mode" ())
+(declare-function diff-setup-buffer-type "diff-mode" ())
 
 (eval-when-compile
   (require 'dired))
@@ -937,11 +938,20 @@ repository, prompting for the directory and the VC backend to
 use."
   (catch 'found
     ;; First try: find a responsible backend, it must be a backend
-    ;; under which FILE is not yet registered.
-    (dolist (backend vc-handled-backends)
-      (and (not (vc-call-backend backend 'registered file))
-	   (vc-call-backend backend 'responsible-p file)
-	   (throw 'found backend)))
+    ;; under which FILE is not yet registered and with the most
+    ;; specific path to FILE.
+    (let ((max 0)
+          bk)
+      (dolist (backend vc-handled-backends)
+        (when (not (vc-call-backend backend 'registered file))
+          (let* ((dir-name (vc-call-backend backend 'responsible-p file))
+                 (len (and dir-name
+                           (length (file-name-split
+                                    (expand-file-name dir-name))))))
+            (when (and len (> len max))
+              (setq max len bk backend)))))
+      (when bk
+        (throw 'found bk)))
     ;; no responsible backend
     (let* ((possible-backends
 	    (let (pos)
@@ -969,7 +979,7 @@ use."
 		 (message "arg %s" arg)
 		 (and (file-directory-p arg)
 		      (string-prefix-p (expand-file-name arg) def-dir)))))))
-	   (let ((default-directory repo-dir))
+      (let ((default-directory repo-dir))
 	(vc-call-backend bk 'create-repo))
       (throw 'found bk))))
 
@@ -994,13 +1004,14 @@ responsible for the given file."
       ;;
       ;; First try: find a responsible backend.  If this is for registration,
       ;; it must be a backend under which FILE is not yet registered.
-      (let ((dirs (delq nil
-                        (mapcar
-                         (lambda (backend)
-                           (when-let ((dir (vc-call-backend
-                                            backend 'responsible-p file)))
-                             (cons backend dir)))
-                         vc-handled-backends))))
+      (let* ((file (expand-file-name file))
+             (dirs (delq nil
+                         (mapcar
+                          (lambda (backend)
+                            (when-let ((dir (vc-call-backend
+                                             backend 'responsible-p file)))
+                              (cons backend dir)))
+                          vc-handled-backends))))
         ;; Just a single response (or none); use it.
         (if (< (length dirs) 2)
             (caar dirs)
@@ -1188,7 +1199,11 @@ For old-style locking-based version control systems, like RCS:
    *vc-log* buffer to check in the changes.  Leave a
    read-only copy of each changed file after checking in.
   If every file is locked by you and unchanged, unlock them.
-  If every file is locked by someone else, offer to steal the lock."
+  If every file is locked by someone else, offer to steal the lock.
+
+When using this command to register a new file (or files), it
+will automatically deduce which VC repository to register it
+with, using the most specific one."
   (interactive "P")
   (let* ((vc-fileset (vc-deduce-fileset nil t 'state-model-only-files))
          (backend (car vc-fileset))
@@ -1716,21 +1731,48 @@ to override the value of `vc-diff-switches' and `diff-switches'."
       ;; any switches in diff-switches.
       (when (listp switches) switches))))
 
-(defun vc-diff-finish (buffer messages)
+(defun vc-shrink-buffer-window (&optional buffer)
+  "Call `shrink-window-if-larger-than-buffer' only when BUFFER is visible.
+BUFFER defaults to the current buffer."
+  (let ((window (get-buffer-window buffer t)))
+    (when window
+      (shrink-window-if-larger-than-buffer window))))
+
+(defvar vc-diff-finish-functions '(vc-shrink-buffer-window)
+  "Functions run at the end of the diff command.
+Each function runs in the diff output buffer without args.")
+
+(defun vc-diff-restore-buffer (original new)
+  "Restore point in buffer NEW to where it was in ORIGINAL.
+
+This function works by updating buffer ORIGINAL with the contents
+of NEW (without destroying existing markers), swapping their text
+objects, and finally killing buffer ORIGINAL."
+  (with-current-buffer original
+    (let ((inhibit-read-only t))
+      (replace-buffer-contents new)))
+  (with-current-buffer new
+    (buffer-swap-text original))
+  (kill-buffer original))
+
+(defun vc-diff-finish (buffer messages &optional oldbuf)
   ;; The empty sync output case has already been handled, so the only
   ;; possibility of an empty output is for an async process.
   (when (buffer-live-p buffer)
-    (let ((window (get-buffer-window buffer t))
-	  (emptyp (zerop (buffer-size buffer))))
+    (let ((emptyp (zerop (buffer-size buffer))))
       (with-current-buffer buffer
 	(and messages emptyp
 	     (let ((inhibit-read-only t))
 	       (insert (cdr messages) ".\n")
 	       (message "%s" (cdr messages))))
 	(diff-setup-whitespace)
-	(goto-char (point-min))
-	(when window
-	  (shrink-window-if-larger-than-buffer window)))
+	(diff-setup-buffer-type)
+        ;; `oldbuf' is the buffer that used to show this diff.  Make
+        ;; sure that we restore point in it if it's given.
+	(if oldbuf
+            (vc-diff-restore-buffer oldbuf buffer)
+          (goto-char (point-min)))
+	(run-hooks 'vc-diff-finish-functions))
       (when (and messages (not emptyp))
 	(message "%sdone" (car messages))))))
 
@@ -1754,7 +1796,11 @@ Return t if the buffer had changes, nil otherwise."
 	 ;; but the only way to set it for each file included would
 	 ;; be to call the back end separately for each file.
 	 (coding-system-for-read
-	  (if files (vc-coding-system-for-diff (car files)) 'undecided)))
+	  (if files (vc-coding-system-for-diff (car files)) 'undecided))
+         (orig-diff-buffer-clone
+          (if revert-buffer-in-progress-p
+              (clone-buffer
+               (generate-new-buffer-name " *vc-diff-clone*") nil))))
     ;; On MS-Windows and MS-DOS, Diff is likely to produce DOS-style
     ;; EOLs, which will look ugly if (car files) happens to have Unix
     ;; EOLs.
@@ -1793,16 +1839,16 @@ Return t if the buffer had changes, nil otherwise."
         (setq files (nreverse filtered))))
     (vc-call-backend (car vc-fileset) 'diff files rev1 rev2 buffer async)
     (set-buffer buffer)
+    ;; Make the *vc-diff* buffer read only, the diff-mode key
+    ;; bindings are nicer for read only buffers. pcl-cvs does the
+    ;; same thing.
+    (setq buffer-read-only t)
     (diff-mode)
     (setq-local diff-vc-backend (car vc-fileset))
     (setq-local diff-vc-revisions (list rev1 rev2))
     (setq-local revert-buffer-function
                 (lambda (_ignore-auto _noconfirm)
                   (vc-diff-internal async vc-fileset rev1 rev2 verbose)))
-    ;; Make the *vc-diff* buffer read only, the diff-mode key
-    ;; bindings are nicer for read only buffers. pcl-cvs does the
-    ;; same thing.
-    (setq buffer-read-only t)
     (if (and (zerop (buffer-size))
              (not (get-buffer-process (current-buffer))))
         ;; Treat this case specially so as not to pop the buffer.
@@ -1815,7 +1861,8 @@ Return t if the buffer had changes, nil otherwise."
       ;; after `pop-to-buffer'; the former assumes the diff buffer is
       ;; shown in some window.
       (let ((buf (current-buffer)))
-        (vc-run-delayed (vc-diff-finish buf (when verbose messages))))
+        (vc-run-delayed (vc-diff-finish buf (when verbose messages)
+                                        orig-diff-buffer-clone)))
       ;; In the async case, we return t even if there are no differences
       ;; because we don't know that yet.
       t)))
@@ -1863,13 +1910,10 @@ Return t if the buffer had changes, nil otherwise."
                                             (vc-working-revision first))))
       (when (string= rev1-default "") (setq rev1-default nil))))
     ;; construct argument list
-    (let* ((rev1-prompt (if rev1-default
-                            (concat "Older revision (default "
-                                    rev1-default "): ")
-                          "Older revision: "))
-           (rev2-prompt (concat "Newer revision (default "
-                                ;; (or rev2-default
-                                "current source): "))
+    (let* ((rev1-prompt (format-prompt "Older revision" rev1-default))
+           (rev2-prompt (format-prompt "Newer revision"
+                                       ;; (or rev2-default
+                                       "current source"))
            (rev1 (vc-read-revision rev1-prompt files backend rev1-default))
            (rev2 (vc-read-revision rev2-prompt files backend nil))) ;; rev2-default
       (when (string= rev1 "") (setq rev1 nil))
@@ -2082,7 +2126,7 @@ If `F.~REV~' already exists, use it instead of checking it out again."
    (with-current-buffer (or (buffer-base-buffer) (current-buffer))
      (vc-ensure-vc-buffer)
      (list
-      (vc-read-revision "Revision to visit (default is working revision): "
+      (vc-read-revision (format-prompt "Revision to visit" "working revision")
                         (list buffer-file-name)))))
   (set-buffer (or (buffer-base-buffer) (current-buffer)))
   (vc-ensure-vc-buffer)
@@ -2378,7 +2422,7 @@ This function runs the hook `vc-retrieve-tag-hook' when finished."
              (read-directory-name "Directory: " default-directory nil t))))
      (list
       dir
-      (vc-read-revision "Tag name to retrieve (default latest revisions): "
+      (vc-read-revision (format-prompt "Tag name to retrieve" "latest revisions")
                         (list dir)
                         (vc-responsible-backend dir)))))
   (let* ((backend (vc-responsible-backend dir))
@@ -2486,6 +2530,10 @@ earlier revisions.  Show up to LIMIT entries (non-nil means unlimited)."
 (put 'vc-log-view-type 'permanent-local t)
 (defvar vc-sentinel-movepoint)
 
+(defvar vc-log-finish-functions '(vc-shrink-buffer-window)
+  "Functions run at the end of the log command.
+Each function runs in the log output buffer without args.")
+
 (defun vc-log-internal-common (backend
 			       buffer-name
 			       files
@@ -2517,11 +2565,11 @@ earlier revisions.  Show up to LIMIT entries (non-nil means unlimited)."
     (vc-run-delayed
      (let ((inhibit-read-only t))
        (funcall setup-buttons-func backend files retval)
-       (shrink-window-if-larger-than-buffer)
        (when goto-location-func
          (funcall goto-location-func backend)
          (setq vc-sentinel-movepoint (point)))
-       (set-buffer-modified-p nil)))))
+       (set-buffer-modified-p nil)
+       (run-hooks 'vc-log-finish-functions)))))
 
 (defun vc-incoming-outgoing-internal (backend remote-location buffer-name type)
   (vc-log-internal-common
@@ -2743,7 +2791,7 @@ to the working revision (except for keyword expansion)."
     (unwind-protect
 	(when (if vc-revert-show-diff
 		  (progn
-		    (setq diff-buffer (generate-new-buffer-name "*vc-diff*"))
+		    (setq diff-buffer (generate-new-buffer "*vc-diff*"))
 		    (vc-diff-internal vc-allow-async-revert vc-fileset
 				      nil nil nil diff-buffer))
 		;; Avoid querying the user again.

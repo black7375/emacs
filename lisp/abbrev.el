@@ -67,13 +67,11 @@ be replaced by its expansion."
 
 (define-obsolete-variable-alias 'edit-abbrevs-map
   'edit-abbrevs-mode-map "24.4")
-(defvar edit-abbrevs-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map "\C-x\C-s" 'abbrev-edit-save-buffer)
-    (define-key map "\C-x\C-w" 'abbrev-edit-save-to-file)
-    (define-key map "\C-c\C-c" 'edit-abbrevs-redefine)
-    map)
-  "Keymap used in `edit-abbrevs'.")
+(defvar-keymap edit-abbrevs-mode-map
+  :doc "Keymap used in `edit-abbrevs'."
+  "C-x C-s" #'abbrev-edit-save-buffer
+  "C-x C-w" #'abbrev-edit-save-to-file
+  "C-c C-c" #'edit-abbrevs-redefine)
 
 (defun kill-all-abbrevs ()
   "Undefine all defined abbrevs."
@@ -149,12 +147,18 @@ Otherwise display all abbrevs."
 Selects a buffer containing a list of abbrev definitions with
 point located in the abbrev table for the current buffer, and
 turns on `edit-abbrevs-mode' in that buffer.
-You can edit them and type \\<edit-abbrevs-map>\\[edit-abbrevs-redefine] to redefine abbrevs
+
+You can edit them and type \\<edit-abbrevs-mode-map>\\[edit-abbrevs-redefine] \
+to redefine abbrevs
 according to your editing.
+
 The abbrevs editing buffer contains a header line for each
 abbrev table, which is the abbrev table name in parentheses.
+
 This is followed by one line per abbrev in that table:
-NAME   USECOUNT   EXPANSION   HOOK
+
+    NAME   USECOUNT   EXPANSION   HOOK
+
 where NAME and EXPANSION are strings with quotes,
 USECOUNT is an integer, and HOOK is any valid function
 or may be omitted (it is usually omitted)."
@@ -168,7 +172,7 @@ or may be omitted (it is usually omitted)."
 
 (defun edit-abbrevs-redefine ()
   "Redefine abbrevs according to current buffer contents."
-  (interactive)
+  (interactive nil edit-abbrevs-mode)
   (save-restriction
     (widen)
     (define-abbrevs t)
@@ -269,7 +273,8 @@ have been saved."
    (list (read-file-name "Save abbrevs to file: "
 			 (file-name-directory
 			  (expand-file-name abbrev-file-name))
-			 abbrev-file-name)))
+                         abbrev-file-name))
+   edit-abbrevs-mode)
   (edit-abbrevs-redefine)
   (write-abbrev-file file t))
 
@@ -277,7 +282,7 @@ have been saved."
   "Save all user-level abbrev definitions in current buffer.
 The saved abbrevs are written to the file specified by
 `abbrev-file-name'."
-  (interactive)
+  (interactive nil edit-abbrevs-mode)
   (abbrev-edit-save-to-file abbrev-file-name))
 
 
@@ -403,7 +408,7 @@ argument."
 
 (defun expand-region-abbrevs (start end &optional noquery)
   "For abbrev occurrence in the region, offer to expand it.
-The user is asked to type `y' or `n' for each occurrence.
+The user is asked to type \\`y' or \\`n' for each occurrence.
 A prefix argument means don't query; expand all abbrevs."
   (interactive "r\nP")
   (save-excursion
@@ -583,6 +588,7 @@ PROPS is a property list.  The following properties are special:
 An obsolete but still supported calling form is:
 
 \(define-abbrev TABLE NAME EXPANSION &optional HOOK COUNT SYSTEM)."
+  (declare (indent defun))
   (when (and (consp props) (or (null (car props)) (numberp (car props))))
     ;; Old-style calling convention.
     (setq props `(:count ,(car props)
@@ -1139,7 +1145,7 @@ Properties with special meaning:
 - `:enable-function' can be set to a function of no argument which returns
   non-nil if and only if the abbrevs in this table should be used for this
   instance of `expand-abbrev'."
-  (declare (doc-string 3))
+  (declare (doc-string 3) (indent defun))
   ;; We used to manually add the docstring, but we also want to record this
   ;; location as the definition of the variable (in load-history), so we may
   ;; as well just use `defvar'.
@@ -1187,7 +1193,8 @@ SORTFUN is passed to `sort' to change the default ordering."
 (define-derived-mode edit-abbrevs-mode fundamental-mode "Edit-Abbrevs"
   "Major mode for editing the list of abbrev definitions.
 This mode is for editing abbrevs in a buffer prepared by `edit-abbrevs',
-which see.")
+which see."
+  :interactive nil)
 
 (provide 'abbrev)
 

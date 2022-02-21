@@ -303,6 +303,7 @@
   (require 'ange-ftp)
   (require 'cl-lib))
 (require 'comint) ; Password regexp.
+(require 'ansi-color)
 (require 'ehelp)
 (require 'ring)
 (require 'shell)
@@ -522,6 +523,16 @@ This means text can automatically reflow if the window is resized."
 (make-obsolete-variable 'term-suppress-hard-newline nil
                         "27.1")
 
+(defcustom term-clear-full-screen-programs t
+  "Whether to clear contents of full-screen terminal programs after exit.
+If non-nil, output of full-screen terminal programs is cleared after
+exiting them.  Note however that a minority of such programs
+don't send an appropriate escape sequence to the terminal before
+exiting so their output isn't cleared regardless of this option."
+  :version "29.1"
+  :type 'boolean
+  :group 'term)
+
 ;; Where gud-display-frame should put the debugging arrow.  This is
 ;; set by the marker-filter, which scans the debugger's output for
 ;; indications of the current pc.
@@ -710,12 +721,19 @@ Buffer local variable.")
 (defvar term-ansi-at-save-pwd nil)
 (defvar term-ansi-at-save-anon nil)
 (defvar term-ansi-current-bold nil)
+(defvar term-ansi-current-faint nil)
+(defvar term-ansi-current-italic nil)
+(defvar term-ansi-current-underline nil)
+(defvar term-ansi-current-slow-blink nil)
+(defvar term-ansi-current-fast-blink nil)
 (defvar term-ansi-current-color 0)
 (defvar term-ansi-face-already-done nil)
 (defvar term-ansi-current-bg-color 0)
-(defvar term-ansi-current-underline nil)
 (defvar term-ansi-current-reverse nil)
 (defvar term-ansi-current-invisible nil)
+
+(make-obsolete-variable 'term-ansi-face-already-done
+                        "it doesn't have any effect." "29.1")
 
 ;;; Faces
 (defvar ansi-term-color-vector
@@ -765,11 +783,35 @@ Buffer local variable.")
   :group 'term
   :version "28.1")
 
+(defface term-faint
+  '((t :inherit ansi-color-faint))
+  "Default face to use for faint text."
+  :group 'term
+  :version "29.1")
+
+(defface term-italic
+  '((t :inherit ansi-color-italic))
+  "Default face to use for italic text."
+  :group 'term
+  :version "29.1")
+
 (defface term-underline
   '((t :inherit ansi-color-underline))
   "Default face to use for underlined text."
   :group 'term
   :version "28.1")
+
+(defface term-slow-blink
+  '((t :inherit ansi-color-slow-blink))
+  "Default face to use for slowly blinking text."
+  :group 'term
+  :version "29.1")
+
+(defface term-fast-blink
+  '((t :inherit ansi-color-fast-blink))
+  "Default face to use for rapidly blinking text."
+  :group 'term
+  :version "29.1")
 
 (defface term-color-black
   '((t :inherit ansi-color-black))
@@ -1034,15 +1076,15 @@ is buffer-local."
 
 (defun term-ansi-reset ()
   (setq term-current-face 'term)
-  (setq term-ansi-current-underline nil)
   (setq term-ansi-current-bold nil)
+  (setq term-ansi-current-faint nil)
+  (setq term-ansi-current-italic nil)
+  (setq term-ansi-current-underline nil)
+  (setq term-ansi-current-slow-blink nil)
+  (setq term-ansi-current-fast-blink nil)
   (setq term-ansi-current-reverse nil)
   (setq term-ansi-current-color 0)
   (setq term-ansi-current-invisible nil)
-  ;; Stefan thought this should be t, but could not remember why.
-  ;; Setting it to t seems to cause bug#11785.  Setting it to nil
-  ;; again to see if there are other consequences...
-  (setq term-ansi-face-already-done nil)
   (setq term-ansi-current-bg-color 0))
 
 (define-derived-mode term-mode fundamental-mode "Term"
@@ -1238,7 +1280,8 @@ Entry to this mode runs the hooks on `term-mode-hook'."
     (when (/= width term-width)
       (save-excursion
         (term--remove-fake-newlines)))
-    (let ((point (point)))
+    (let ((point (point))
+          (home-marker (marker-position term-home-marker)))
       (setq term-height height)
       (setq term-width width)
       (setq term-start-line-column nil)
@@ -1247,11 +1290,20 @@ Entry to this mode runs the hooks on `term-mode-hook'."
       (term--reset-scroll-region)
       ;; `term-set-scroll-region' causes these to be set, we have to
       ;; clear them again since we're changing point (Bug#30544).
+      (term--unwrap-visible-long-lines width)
       (setq term-start-line-column nil)
       (setq term-current-row nil)
       (setq term-current-column nil)
-      (goto-char point))
-    (term--unwrap-visible-long-lines width)))
+      (goto-char point)
+
+      (when (term-using-alternate-sub-buffer)
+        (term-handle-deferred-scroll)
+        ;; When using an alternative sub-buffer, the home marker should
+        ;; not move forward.  Bring it back by deleting text in front of
+        ;; it.
+        (when (> term-home-marker home-marker)
+          (let ((inhibit-read-only t))
+            (delete-region home-marker term-home-marker)))))))
 
 ;; Recursive routine used to check if any string in term-kill-echo-list
 ;; matches part of the buffer before point.
@@ -1499,9 +1551,8 @@ commands to use in that buffer.
 					     (getenv "ESHELL")
 					     shell-file-name))))
   (set-buffer (make-term "terminal" program))
-  (term-mode)
   (term-char-mode)
-  (switch-to-buffer "*terminal*"))
+  (pop-to-buffer-same-window "*terminal*"))
 
 (defun term-exec (buffer name command startfile switches)
   "Start up a process in buffer for term modes.
@@ -1580,11 +1631,14 @@ Using \"emacs\" loses, because bash disables editing if $TERM == emacs.")
   "%s%s:li#%d:co#%d:cl=\\E[H\\E[J:cd=\\E[J:bs:am:xn:cm=\\E[%%i%%d;%%dH\
 :nd=\\E[C:up=\\E[A:ce=\\E[K:ho=\\E[H:pt\
 :al=\\E[L:dl=\\E[M:DL=\\E[%%dM:AL=\\E[%%dL:cs=\\E[%%i%%d;%%dr:sf=^J\
+:NR:te=\\E[47l:ti=\\E[47h\
 :dc=\\E[P:DC=\\E[%%dP:IC=\\E[%%d@:im=\\E[4h:ei=\\E[4l:mi:\
+:mb=\\E[5m:mh=\\E[2m:ZR=\\E[23m:ZH=\\E[3m\
 :so=\\E[7m:se=\\E[m:us=\\E[4m:ue=\\E[m:md=\\E[1m:mr=\\E[7m:me=\\E[m\
 :UP=\\E[%%dA:DO=\\E[%%dB:LE=\\E[%%dD:RI=\\E[%%dC\
 :kl=\\EOD:kd=\\EOB:kr=\\EOC:ku=\\EOA:kN=\\E[6~:kP=\\E[5~:@7=\\E[4~:kh=\\E[1~\
-:mk=\\E[8m:cb=\\E[1K:op=\\E[39;49m:Co#8:pa#64:AB=\\E[4%%dm:AF=\\E[3%%dm:cr=^M\
+:mk=\\E[8m:cb=\\E[1K:op=\\E[39;49m:Co#256:pa#32767\
+:AB=\\E[48;5;%%dm:AF=\\E[38;5;%%dm:cr=^M\
 :bl=^G:do=^J:le=^H:ta=^I:se=\\E[27m:ue=\\E[24m\
 :kb=^?:kD=^[[3~:sc=\\E7:rc=\\E8:r1=\\Ec:"
   ;; : -undefine ic
@@ -2375,7 +2429,14 @@ Checks if STRING contains a password prompt as defined by
   (when (term-in-line-mode)
     (when (let ((case-fold-search t))
             (string-match comint-password-prompt-regexp string))
-      (term-send-invisible (read-passwd string)))))
+      ;; Use `run-at-time' in order not to pause execution of the
+      ;; process filter with a minibuffer
+      (run-at-time
+       0 nil
+       (lambda (current-buf)
+         (with-current-buffer current-buf
+           (term-send-invisible (read-passwd string))))
+       (current-buffer)))))
 
 
 ;;; Low-level process communication
@@ -3104,30 +3165,34 @@ See `term-prompt-regexp'."
                                   (term-horizontal-column)
                                   term-ansi-current-bg-color
                                   term-ansi-current-bold
+                                  term-ansi-current-faint
+                                  term-ansi-current-italic
+                                  term-ansi-current-underline
+                                  term-ansi-current-slow-blink
+                                  term-ansi-current-fast-blink
                                   term-ansi-current-color
                                   term-ansi-current-invisible
                                   term-ansi-current-reverse
-                                  term-ansi-current-underline
                                   term-current-face)))
                      (?8 ;; Restore cursor (terminfo: rc, [ctlseqs]
                       ;; "DECRC").
                       (when term-saved-cursor
                         (term-goto (nth 0 term-saved-cursor)
                                    (nth 1 term-saved-cursor))
-                        (setq term-ansi-current-bg-color
-                              (nth 2 term-saved-cursor)
-                              term-ansi-current-bold
-                              (nth 3 term-saved-cursor)
-                              term-ansi-current-color
-                              (nth 4 term-saved-cursor)
-                              term-ansi-current-invisible
-                              (nth 5 term-saved-cursor)
-                              term-ansi-current-reverse
-                              (nth 6 term-saved-cursor)
-                              term-ansi-current-underline
-                              (nth 7 term-saved-cursor)
-                              term-current-face
-                              (nth 8 term-saved-cursor))))
+                        (pcase-setq
+                         `( ,_ ,_
+                            ,term-ansi-current-bg-color
+                            ,term-ansi-current-bold
+                            ,term-ansi-current-faint
+                            ,term-ansi-current-italic
+                            ,term-ansi-current-underline
+                            ,term-ansi-current-slow-blink
+                            ,term-ansi-current-fast-blink
+                            ,term-ansi-current-color
+                            ,term-ansi-current-invisible
+                            ,term-ansi-current-reverse
+                            ,term-current-face)
+                         term-saved-cursor)))
                      (?c ;; \Ec - Reset (terminfo: rs1, [ctlseqs] "RIS").
                       ;; This is used by the "clear" program.
                       (term-reset-terminal))
@@ -3256,13 +3321,16 @@ Called as a buffer-local `post-command-hook' function in
 `term-char-mode' to prevent commands from putting the buffer into
 an inconsistent state by unexpectedly moving point.
 
-Mouse events are ignored so that mouse selection is unimpeded.
+Mouse and wheel events are ignored so that mouse selection and
+mouse wheel scrolling are unimpeded.
 
 Only acts when the pre-command position of point was equal to the
 process mark, and the `term-char-mode-point-at-process-mark'
 option is enabled.  See `term-set-goto-process-mark'."
   (when term-goto-process-mark
-    (unless (mouse-event-p last-command-event)
+    (unless (or (mouse-event-p last-command-event)
+                (memq (event-basic-type last-command-event)
+                      '(wheel-down wheel-up)))
       (goto-char (term-process-mark)))))
 
 (defun term-process-mark ()
@@ -3285,133 +3353,141 @@ option is enabled.  See `term-set-goto-process-mark'."
   (setq term-current-row 0)
   (setq term-current-column 1)
   (term--reset-scroll-region)
-  (setq term-insert-mode nil)
-  ;; FIXME: No idea why this is here, it looks wrong.  --Stef
-  (setq term-ansi-face-already-done nil))
+  (setq term-insert-mode nil))
 
-(defun term--maybe-brighten-color (color bold)
-  "Possibly convert COLOR to its bright variant.
-COLOR is an index into `ansi-term-color-vector'.  If BOLD and
-`ansi-color-bold-is-bright' are non-nil and COLOR is a regular color,
-return the bright version of COLOR; otherwise, return COLOR."
-  (if (and ansi-color-bold-is-bright bold (<= 1 color 8))
-      (+ color 8)
-    color))
+(defun term--color-as-hex (for-foreground)
+  "Return the current ANSI color as a hexadecimal color string.
+Use the current background color if FOR-FOREGROUND is nil,
+otherwise use the current foreground color."
+  (let ((color (if for-foreground term-ansi-current-color
+                 term-ansi-current-bg-color)))
+    (or (ansi-color--code-as-hex (1- color))
+        (progn
+          (and ansi-color-bold-is-bright term-ansi-current-bold
+               (<= 1 color 8)
+               (setq color (+ color 8)))
+          (if for-foreground
+              (face-foreground (elt ansi-term-color-vector color)
+                               nil 'default)
+            (face-background (elt ansi-term-color-vector color)
+                             nil 'default))))))
 
 ;; New function to deal with ansi colorized output, as you can see you can
 ;; have any bold/underline/fg/bg/reverse combination. -mm
 
 (defun term-handle-colors-array (parameter)
-  (cond
+  (declare (obsolete term--handle-colors-list "29.1"))
+  (term--handle-colors-list (list parameter)))
 
-   ;; Bold  (terminfo: bold)
-   ((eq parameter 1)
-    (setq term-ansi-current-bold t))
+(defun term--handle-colors-list (parameters)
+  (while parameters
+    (pcase (pop parameters)
+      (1 (setq term-ansi-current-bold t))       ; (terminfo: bold)
+      (2 (setq term-ansi-current-faint t))      ; (terminfo: dim)
+      (3 (setq term-ansi-current-italic t))     ; (terminfo: sitm)
+      (4 (setq term-ansi-current-underline t))  ; (terminfo: smul)
+      (5 (setq term-ansi-current-slow-blink t)) ; (terminfo: blink)
+      (6 (setq term-ansi-current-fast-blink t))
+      (7 (setq term-ansi-current-reverse t))    ; (terminfo: smso, rev)
+      (8 (setq term-ansi-current-invisible t))  ; (terminfo: invis)
+      (21 (setq term-ansi-current-bold nil))
+      (22 (setq term-ansi-current-bold nil)
+          (setq term-ansi-current-faint nil))
+      (23 (setq term-ansi-current-italic nil))    ; (terminfo: ritm)
+      (24 (setq term-ansi-current-underline nil)) ; (terminfo: rmul)
+      (25 (setq term-ansi-current-slow-blink nil)
+          (setq term-ansi-current-fast-blink nil))
+      (27 (setq term-ansi-current-reverse nil)) ; (terminfo: rmso)
 
-   ;; Underline
-   ((eq parameter 4)
-    (setq term-ansi-current-underline t))
+      ;; Foreground (terminfo: setaf)
+      ((and param (guard (<= 30 param 37)))
+       (setq term-ansi-current-color (- param 29)))
 
-   ;; Blink (unsupported by Emacs), will be translated to bold.
-   ;; This may change in the future though.
-   ((eq parameter 5)
-    (setq term-ansi-current-bold t))
+      ;; Bright foreground (terminfo: setaf)
+      ((and param (guard (<= 90 param 97)))
+       (setq term-ansi-current-color (- param 81)))
 
-   ;; Reverse (terminfo: smso)
-   ((eq parameter 7)
-    (setq term-ansi-current-reverse t))
+      ;; Extended foreground (terminfo: setaf)
+      (38
+       (pcase (pop parameters)
+         ;; 256 color
+         (5 (if (setq term-ansi-current-color (pop parameters))
+                (cl-incf term-ansi-current-color)
+              (term-ansi-reset)))
+         ;; Full 24-bit color
+         (2 (cl-loop with color = (1+ 256) ; Base
+                     for i from 16 downto 0 by 8
+                     if (pop parameters)
+                     do (setq color (+ color (ash it i)))
+                     else return (term-ansi-reset)
+                     finally
+                     (if (> color (+ 1 256 #xFFFFFF))
+                         (term-ansi-reset)
+                       (setq term-ansi-current-color color))))
+         (_ (term-ansi-reset))))
 
-   ;; Invisible
-   ((eq parameter 8)
-    (setq term-ansi-current-invisible t))
+      ;; Reset foreground (terminfo: op)
+      (39 (setq term-ansi-current-color 0))
 
-   ;; Reset underline (terminfo: rmul)
-   ((eq parameter 24)
-    (setq term-ansi-current-underline nil))
+      ;; Background (terminfo: setab)
+      ((and param (guard (<= 40 param 47)))
+       (setq term-ansi-current-bg-color (- param 39)))
 
-   ;; Reset reverse (terminfo: rmso)
-   ((eq parameter 27)
-    (setq term-ansi-current-reverse nil))
+      ;; Bright background (terminfo: setab)
+      ((and param (guard (<= 100 param 107)))
+       (setq term-ansi-current-bg-color (- param 91)))
 
-   ;; Foreground
-   ((and (>= parameter 30) (<= parameter 37))
-    (setq term-ansi-current-color (- parameter 29)))
+      ;; Extended background (terminfo: setab)
+      (48
+       (pcase (pop parameters)
+         ;; 256 color
+         (5 (if (setq term-ansi-current-bg-color (pop parameters))
+                (cl-incf term-ansi-current-bg-color)
+              (term-ansi-reset)))
+         ;; Full 24-bit color
+         (2 (cl-loop with color = (1+ 256) ; Base
+                     for i from 16 downto 0 by 8
+                     if (pop parameters)
+                     do (setq color (+ color (ash it i)))
+                     else return (term-ansi-reset)
+                     finally
+                     (if (> color (+ 1 256 #xFFFFFF))
+                         (term-ansi-reset)
+                       (setq term-ansi-current-bg-color color))))
+         (_ (term-ansi-reset))))
 
-   ;; Bright foreground
-   ((and (>= parameter 90) (<= parameter 97))
-    (setq term-ansi-current-color (- parameter 81)))
+      ;; Reset background (terminfo: op)
+      (49 (setq term-ansi-current-bg-color 0))
 
-   ;; Reset foreground
-   ((eq parameter 39)
-    (setq term-ansi-current-color 0))
+      ;; 0 (Reset) (terminfo: sgr0) or unknown (reset anyway)
+      (_ (term-ansi-reset))))
 
-   ;; Background
-   ((and (>= parameter 40) (<= parameter 47))
-    (setq term-ansi-current-bg-color (- parameter 39)))
+  (let (fg bg)
+    (if term-ansi-current-invisible
+        (setq bg (term--color-as-hex term-ansi-current-reverse)
+              fg bg)
+      (setq fg (term--color-as-hex t)
+            bg (term--color-as-hex nil)))
+    (setq term-current-face
+          `( :foreground ,fg
+             :background ,bg
+             ,@(unless term-ansi-current-invisible
+                 (list :inverse-video term-ansi-current-reverse)))))
 
-   ;; Bright foreground
-   ((and (>= parameter 100) (<= parameter 107))
-    (setq term-ansi-current-bg-color (- parameter 91)))
-
-   ;; Reset background
-   ((eq parameter 49)
-    (setq term-ansi-current-bg-color 0))
-
-   ;; 0 (Reset) or unknown (reset anyway)
-   (t
-    (term-ansi-reset)))
-
-  ;; (message "Debug: U-%d R-%d B-%d I-%d D-%d F-%d B-%d"
-  ;;          term-ansi-current-underline
-  ;;          term-ansi-current-reverse
-  ;;          term-ansi-current-bold
-  ;;          term-ansi-current-invisible
-  ;;          term-ansi-face-already-done
-  ;;          term-ansi-current-color
-  ;;          term-ansi-current-bg-color)
-
-  (unless term-ansi-face-already-done
-    (let ((current-color (term--maybe-brighten-color
-                          term-ansi-current-color
-                          term-ansi-current-bold))
-          (current-bg-color (term--maybe-brighten-color
-                             term-ansi-current-bg-color
-                             term-ansi-current-bold)))
-      (if term-ansi-current-invisible
-          (let ((color
-                 (if term-ansi-current-reverse
-                     (face-foreground
-                      (elt ansi-term-color-vector current-color)
-                      nil 'default)
-                   (face-background
-                    (elt ansi-term-color-vector current-bg-color)
-                    nil 'default))))
-            (setq term-current-face
-                  (list :background color
-                        :foreground color))
-            ) ;; No need to bother with anything else if it's invisible.
-        (setq term-current-face
-              (list :foreground
-                    (face-foreground
-                     (elt ansi-term-color-vector current-color)
-                     nil 'default)
-                    :background
-                    (face-background
-                     (elt ansi-term-color-vector current-bg-color)
-                     nil 'default)
-                    :inverse-video term-ansi-current-reverse))
-
-        (when term-ansi-current-bold
-          (setq term-current-face
-                `(,term-current-face :inherit term-bold)))
-
-        (when term-ansi-current-underline
-          (setq term-current-face
-                `(,term-current-face :inherit term-underline))))))
-
-  ;;	(message "Debug %S" term-current-face)
-  ;; FIXME: shouldn't we set term-ansi-face-already-done to t here?  --Stef
-  (setq term-ansi-face-already-done nil))
+  (setq term-current-face
+        `(,term-current-face
+          ,@(when term-ansi-current-bold
+              '(term-bold))
+          ,@(when term-ansi-current-faint
+              '(term-faint))
+          ,@(when term-ansi-current-italic
+              '(term-italic))
+          ,@(when term-ansi-current-underline
+              '(term-underline))
+          ,@(when term-ansi-current-slow-blink
+              '(term-slow-blink))
+          ,@(when term-ansi-current-fast-blink
+              '(term-fast-blink)))))
 
 
 ;; Handle a character assuming (eq terminal-state 2) -
@@ -3484,22 +3560,20 @@ return the bright version of COLOR; otherwise, return COLOR."
    ((eq char ?h)
     (cond ((eq (car params) 4)  ;; (terminfo: smir)
 	   (setq term-insert-mode t))
-	  ;; ((eq (car params) 47) ;; (terminfo: smcup)
-	  ;; (term-switch-to-alternate-sub-buffer t))
-	  ))
+	  ((eq (car params) 47) ;; (terminfo: smcup)
+	   (term-switch-to-alternate-sub-buffer t))))
    ;; \E[?l - DEC Private Mode Reset
    ((eq char ?l)
     (cond ((eq (car params) 4)  ;; (terminfo: rmir)
 	   (setq term-insert-mode nil))
-          ;; ((eq (car params) 47) ;; (terminfo: rmcup)
-	  ;; (term-switch-to-alternate-sub-buffer nil))
-	  ))
+          ((eq (car params) 47) ;; (terminfo: rmcup)
+	   (term-switch-to-alternate-sub-buffer nil))))
 
    ;; Modified to allow ansi coloring -mm
    ;; \E[m - Set/reset modes, set bg/fg
-   ;;(terminfo: smso,rmso,smul,rmul,rev,bold,sgr0,invis,op,setab,setaf)
+   ;;(terminfo: smso,rmso,smul,rmul,rev,bold,dim,sitm,ritm,blink,sgr0,invis,op,setab,setaf)
    ((eq char ?m)
-    (mapc #'term-handle-colors-array params))
+    (term--handle-colors-list params))
 
    ;; \E[6n - Report cursor position (terminfo: u7)
    ((eq char ?n)
@@ -3540,32 +3614,35 @@ The top-most line is line 0."
   (term-move-columns (- (term-current-column)))
   (term-goto 0 0))
 
-;; (defun term-switch-to-alternate-sub-buffer (set)
-;;   ;; If asked to switch to (from) the alternate sub-buffer, and already (not)
-;;   ;; using it, do nothing.  This test is needed for some programs (including
-;;   ;; Emacs) that emit the ti termcap string twice, for unknown reason.
-;;   (term-handle-deferred-scroll)
-;;   (if (eq set (not (term-using-alternate-sub-buffer)))
-;;       (let ((row (term-current-row))
-;; 	    (col (term-horizontal-column)))
-;; 	(cond (set
-;; 	       (goto-char (point-max))
-;; 	       (if (not (eq (preceding-char) ?\n))
-;; 		   (term-insert-char ?\n 1))
-;; 	       (setq term-scroll-with-delete t)
-;; 	       (setq term-saved-home-marker (copy-marker term-home-marker))
-;; 	       (set-marker term-home-marker (point)))
-;; 	      (t
-;; 	       (setq term-scroll-with-delete
-;; 		     (not (and (= term-scroll-start 0)
-;; 			       (= term-scroll-end term-height))))
-;; 	       (set-marker term-home-marker term-saved-home-marker)
-;; 	       (set-marker term-saved-home-marker nil)
-;; 	       (setq term-saved-home-marker nil)
-;; 	       (goto-char term-home-marker)))
-;; 	(setq term-current-column nil)
-;; 	(setq term-current-row 0)
-;; 	(term-goto row col))))
+(defun term-switch-to-alternate-sub-buffer (set)
+  ;; If asked to switch to (from) the alternate sub-buffer, and already (not)
+  ;; using it, do nothing.  This test is needed for some programs (including
+  ;; Emacs) that emit the ti termcap string twice, for unknown reason.
+  (term-handle-deferred-scroll)
+  (when (eq set (not (term-using-alternate-sub-buffer)))
+    (cond
+     (set
+      (goto-char (point-max))
+      (if (not (eq (preceding-char) ?\n))
+          (term-insert-char ?\n 1))
+      (setq term-scroll-with-delete t)
+      (setq term-saved-home-marker (copy-marker term-home-marker))
+      (set-marker term-home-marker (point)))
+     (t
+      (setq term-scroll-with-delete
+            (not (and (= term-scroll-start 0)
+                      (= term-scroll-end (term--last-line)))))
+      (goto-char (point-max))
+      (when term-clear-full-screen-programs
+        (delete-region term-home-marker (point))
+        (set-marker term-home-marker term-saved-home-marker))
+      (set-marker term-saved-home-marker nil)
+      (setq term-saved-home-marker nil)))
+
+    (setq term-start-line-column nil)
+    (setq term-current-column nil)
+    (setq term-current-row nil)
+    (term-handle-deferred-scroll)))
 
 ;; Default value for the symbol term-command-function.
 

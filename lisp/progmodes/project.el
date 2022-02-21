@@ -322,7 +322,15 @@ to find the list of ignores for each directory."
              (process-file-shell-command command nil t))
             (pt (point-min)))
         (unless (zerop status)
-          (error "File listing failed: %s" (buffer-string)))
+          (goto-char (point-min))
+          (if (and
+               (not (eql status 127))
+               (search-forward "Permission denied\n" nil t))
+              (let ((end (1- (point))))
+                (re-search-backward "\\`\\|\0")
+                (error "File listing failed: %s"
+                       (buffer-substring (1+ (point)) end)))
+            (error "File listing failed: %s" (buffer-string))))
         (goto-char pt)
         (while (search-forward "\0" nil t)
           (push (buffer-substring-no-properties (1+ pt) (1- (point)))
@@ -842,28 +850,36 @@ pattern to search for."
                  project-regexp-history-variable)))
 
 ;;;###autoload
-(defun project-find-file ()
+(defun project-find-file (&optional include-all)
   "Visit a file (with completion) in the current project.
 
 The filename at point (determined by `thing-at-point'), if any,
-is available as part of \"future history\"."
-  (interactive)
+is available as part of \"future history\".
+
+If INCLUDE-ALL is non-nil, or with prefix argument when called
+interactively, include all files under the project root, except
+for VCS directories listed in `vc-directory-exclusion-list'."
+  (interactive "P")
   (let* ((pr (project-current t))
          (dirs (list (project-root pr))))
-    (project-find-file-in (thing-at-point 'filename) dirs pr)))
+    (project-find-file-in (thing-at-point 'filename) dirs pr include-all)))
 
 ;;;###autoload
-(defun project-or-external-find-file ()
+(defun project-or-external-find-file (&optional include-all)
   "Visit a file (with completion) in the current project or external roots.
 
 The filename at point (determined by `thing-at-point'), if any,
-is available as part of \"future history\"."
-  (interactive)
+is available as part of \"future history\".
+
+If INCLUDE-ALL is non-nil, or with prefix argument when called
+interactively, include all files under the project root, except
+for VCS directories listed in `vc-directory-exclusion-list'."
+  (interactive "P")
   (let* ((pr (project-current t))
          (dirs (cons
                 (project-root pr)
                 (project-external-roots pr))))
-    (project-find-file-in (thing-at-point 'filename) dirs pr)))
+    (project-find-file-in (thing-at-point 'filename) dirs pr include-all)))
 
 (defcustom project-read-file-name-function #'project--read-file-cpd-relative
   "Function to call to read a file name from a list.
@@ -916,12 +932,25 @@ by the user at will."
                                    predicate
                                    hist mb-default))
 
-(defun project-find-file-in (suggested-filename dirs project)
+(defun project-find-file-in (suggested-filename dirs project &optional include-all)
   "Complete a file name in DIRS in PROJECT and visit the result.
 
 SUGGESTED-FILENAME is a relative file name, or part of it, which
-is used as part of \"future history\"."
-  (let* ((all-files (project-files project dirs))
+is used as part of \"future history\".
+
+If INCLUDE-ALL is non-nil, or with prefix argument when called
+interactively, include all files from DIRS, except for VCS
+directories listed in `vc-directory-exclusion-list'."
+  (let* ((vc-dirs-ignores (mapcar
+                           (lambda (dir)
+                             (concat dir "/"))
+                           vc-directory-exclusion-list))
+         (all-files
+          (if include-all
+              (mapcan
+               (lambda (dir) (project--files-in-directory dir vc-dirs-ignores))
+               dirs)
+            (project-files project dirs)))
          (completion-ignore-case read-file-name-completion-ignore-case)
          (file (funcall project-read-file-name-function
                         "Find file" all-files nil nil
@@ -988,7 +1017,7 @@ if one already exists."
          (default-project-shell-name (project-prefixed-buffer-name "shell"))
          (shell-buffer (get-buffer default-project-shell-name)))
     (if (and shell-buffer (not current-prefix-arg))
-        (pop-to-buffer-same-window shell-buffer)
+        (pop-to-buffer shell-buffer (bound-and-true-p display-comint-buffer-action))
       (shell (generate-new-buffer-name default-project-shell-name)))))
 
 ;;;###autoload
@@ -1004,7 +1033,7 @@ if one already exists."
          (eshell-buffer-name (project-prefixed-buffer-name "eshell"))
          (eshell-buffer (get-buffer eshell-buffer-name)))
     (if (and eshell-buffer (not current-prefix-arg))
-        (pop-to-buffer-same-window eshell-buffer)
+        (pop-to-buffer eshell-buffer (bound-and-true-p display-comint-buffer-action))
       (eshell t))))
 
 ;;;###autoload
@@ -1043,9 +1072,10 @@ Stops when a match is found and prompts for whether to replace it.
 If you exit the `query-replace', you can later continue the
 `query-replace' loop using the command \\[fileloop-continue]."
   (interactive
-   (pcase-let ((`(,from ,to)
-                (query-replace-read-args "Query replace (regexp)" t t)))
-     (list from to)))
+   (let ((query-replace-read-from-regexp-default 'find-tag-default-as-regexp))
+     (pcase-let ((`(,from ,to)
+                  (query-replace-read-args "Query replace (regexp)" t t)))
+       (list from to))))
   (fileloop-initialize-replace
    from to (project-files (project-current t)) 'default)
   (fileloop-continue))
@@ -1146,7 +1176,10 @@ displayed."
          (not (major-mode . help-mode)))
     (derived-mode . compilation-mode)
     (derived-mode . dired-mode)
-    (derived-mode . diff-mode))
+    (derived-mode . diff-mode)
+    (derived-mode . comint-mode)
+    (derived-mode . eshell-mode)
+    (derived-mode . change-log-mode))
   "List of conditions to kill buffers related to a project.
 This list is used by `project-kill-buffers'.
 Each condition is either:
@@ -1179,9 +1212,18 @@ current project, it will be killed."
                                (const and) sexp)
                          (cons :tag "Disjunction"
                                (const or) sexp)))
-  :version "28.1"
+  :version "29.1"
   :group 'project
-  :package-version '(project . "0.6.0"))
+  :package-version '(project . "0.8.2"))
+
+(defcustom project-kill-buffers-display-buffer-list nil
+  "Non-nil to display list of buffers to kill before killing project buffers.
+Used by `project-kill-buffers'."
+  :type 'boolean
+  :version "29.1"
+  :group 'project
+  :package-version '(project . "0.8.2")
+  :safe #'booleanp)
 
 (defun project--buffer-list (pr)
   "Return the list of all buffers in project PR."
@@ -1249,14 +1291,35 @@ NO-CONFIRM is always nil when the command is invoked
 interactively."
   (interactive)
   (let* ((pr (project-current t))
-         (bufs (project--buffers-to-kill pr)))
+         (bufs (project--buffers-to-kill pr))
+         (query-user (lambda ()
+                       (yes-or-no-p
+                        (format "Kill %d buffers in %s? "
+                                (length bufs)
+                                (project-root pr))))))
     (cond (no-confirm
            (mapc #'kill-buffer bufs))
           ((null bufs)
            (message "No buffers to kill"))
-          ((yes-or-no-p (format "Kill %d buffers in %s? "
-                                (length bufs)
-                                (project-root pr)))
+          (project-kill-buffers-display-buffer-list
+           (when
+               (with-current-buffer-window
+                   (get-buffer-create "*Buffer List*")
+                   `(display-buffer--maybe-at-bottom
+                     (dedicated . t)
+                     (window-height . (fit-window-to-buffer))
+                     (preserve-size . (nil . t))
+                     (body-function
+                      . ,#'(lambda (_window)
+                             (list-buffers-noselect nil bufs))))
+                   #'(lambda (window _value)
+                       (with-selected-window window
+                         (unwind-protect
+                             (funcall query-user)
+                           (when (window-live-p window)
+                             (quit-restore-window window 'kill))))))
+             (mapc #'kill-buffer bufs)))
+          ((funcall query-user)
            (mapc #'kill-buffer bufs)))))
 
 

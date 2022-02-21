@@ -170,8 +170,7 @@ extension beyond end of line was not controllable."
   (defsubst file-attribute-modification-time (attributes)
     "The modification time in ATTRIBUTES returned by `file-attributes'.
 This is the time of the last change to the file's contents, and
-is a list of integers (HIGH LOW USEC PSEC) in the same style
-as (current-time)."
+is a Lisp timestamp in the same style as `current-time'."
     (nth 5 attributes)))
 
 (unless (fboundp 'file-attribute-size)
@@ -1054,9 +1053,9 @@ ELEMENT is the element at point."
     (cl-case (org-element-type object)
       ;; Prevent checks in links due to keybinding conflict with
       ;; Flyspell.
-      ((code entity export-snippet inline-babel-call
-	     inline-src-block line-break latex-fragment link macro
-	     statistics-cookie target timestamp verbatim)
+      ((citation citation-reference code entity export-snippet inline-babel-call
+	         inline-src-block line-break latex-fragment link macro
+	         statistics-cookie target timestamp verbatim)
        nil)
       (footnote-reference
        ;; Only in inline footnotes, within the definition.

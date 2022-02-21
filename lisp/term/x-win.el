@@ -1489,6 +1489,12 @@ If you don't want stock icons, set the variable to nil."
 				       (string :tag "Stock/named")))))
   :group 'x)
 
+(defcustom x-display-cursor-at-start-of-preedit-string nil
+  "If non-nil, display the cursor at the start of any pre-edit text."
+  :version "29.1"
+  :type 'boolean
+  :group 'x)
+
 (defconst x-gtk-stock-cache (make-hash-table :weakness t :test 'equal))
 
 (defun x-gtk-map-stock (file)
@@ -1516,6 +1522,59 @@ This uses `icon-map-list' to map icon file names to stock icon names."
 	 x-gtk-stock-cache))))
 
 (global-set-key [XF86WakeUp] 'ignore)
+
+
+(defvar x-preedit-overlay nil
+  "The overlay currently used to display preedit text from a compose sequence.")
+
+;; With some input methods, text gets inserted before Emacs is told to
+;; remove any preedit text that was displayed, which causes both the
+;; preedit overlay and the text to be visible for a brief period of
+;; time.  This pre-command-hook clears the overlay before any command
+;; and should be set whenever a preedit overlay is visible.
+(defun x-clear-preedit-text ()
+  "Clear the pre-edit overlay and remove itself from pre-command-hook.
+This function should be installed in `pre-command-hook' whenever
+preedit text is displayed."
+  (when x-preedit-overlay
+    (delete-overlay x-preedit-overlay)
+    (setq x-preedit-overlay nil))
+  (remove-hook 'pre-command-hook #'x-clear-preedit-text))
+
+(defun x-preedit-text (event)
+  "Display preedit text from a compose sequence in EVENT.
+EVENT is a preedit-text event."
+  (interactive "e")
+  (when x-preedit-overlay
+    (delete-overlay x-preedit-overlay)
+    (setq x-preedit-overlay nil)
+    (remove-hook 'pre-command-hook #'x-clear-preedit-text))
+  (when (nth 1 event)
+    (let ((string (propertize (nth 1 event) 'face '(:underline t))))
+      (setq x-preedit-overlay (make-overlay (point) (point)))
+      (add-hook 'pre-command-hook #'x-clear-preedit-text)
+      (overlay-put x-preedit-overlay 'window (selected-window))
+      (overlay-put x-preedit-overlay 'before-string
+                   (if x-display-cursor-at-start-of-preedit-string
+                       (propertize string 'cursor t)
+                     string)))))
+
+(define-key special-event-map [preedit-text] 'x-preedit-text)
+
+(defvaralias 'x-gtk-use-system-tooltips 'use-system-tooltips)
+
+(declare-function x-internal-focus-input-context (focus frame) "xfns.c")
+
+(defun x-gtk-use-native-input-watcher (_symbol newval &rest _ignored)
+  "Variable watcher for `x-gtk-use-native-input'.
+If NEWVAL is non-nil and the selected frame is displayed through X,
+focus the GTK input context."
+  (when (and (featurep 'gtk)
+             (eq (framep (selected-frame)) 'x))
+    (x-internal-focus-input-context newval (selected-frame))))
+
+(add-variable-watcher 'x-gtk-use-native-input
+                      #'x-gtk-use-native-input-watcher)
 
 (provide 'x-win)
 (provide 'term/x-win)

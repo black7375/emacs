@@ -32,7 +32,7 @@
 
 (require 'lisp-mode)			;for `doc-string-elt' properties.
 (require 'lisp-mnt)
-(eval-when-compile (require 'cl-lib))
+(require 'cl-lib)
 
 (defvar generated-autoload-file nil
   "File into which to write autoload definitions.
@@ -340,7 +340,7 @@ put the output in."
    (t
     (let ((doc-string-elt (function-get (car-safe form) 'doc-string-elt))
 	  (outbuf autoload-print-form-outbuf))
-      (if (and doc-string-elt (stringp (nth doc-string-elt form)))
+      (if (and (numberp doc-string-elt) (stringp (nth doc-string-elt form)))
 	  ;; We need to hack the printing because the
 	  ;; doc-string must be printed specially for
 	  ;; make-docfile (sigh).
@@ -393,6 +393,8 @@ FILE's name."
     (concat ";;; " basename
             " --- automatically extracted " (or type "autoloads")
             "  -*- lexical-binding: t -*-\n"
+            (when (string-match "/lisp/loaddefs\\.el\\'" file)
+              ";; This file will be copied to ldefs-boot.el and checked in periodically.\n")
 	    ";;\n"
 	    ";;; Code:\n\n"
 	    (if lp
@@ -408,7 +410,7 @@ FILE's name."
 	    ";; version-control: never\n"
             ";; no-byte-compile: t\n" ;; #$ is byte-compiled into nil.
 	    ";; no-update-autoloads: t\n"
-	    ";; coding: utf-8\n"
+	    ";; coding: utf-8-emacs-unix\n"
 	    ";; End:\n"
 	    ";;; " basename
 	    " ends here\n")))
@@ -1194,9 +1196,17 @@ directory or directories specified."
 	  (goto-char (point-max))
 	  (search-backward "\f" nil t)
 	  (autoload-insert-section-header
-	   (current-buffer) nil nil no-autoloads (if autoload-timestamps
-						     no-autoloads-time
-						   autoload--non-timestamp))
+	   (current-buffer) nil nil
+           ;; Filter out the other loaddefs files, because it makes
+           ;; the list unstable (and leads to spurious changes in
+           ;; ldefs-boot.el) since the loaddef files can be created in
+           ;; any order.
+           (seq-filter (lambda (file)
+                         (not (string-match-p "[/-]loaddefs.el" file)))
+                       no-autoloads)
+           (if autoload-timestamps
+	       no-autoloads-time
+	     autoload--non-timestamp))
 	  (insert generate-autoload-section-trailer)))
 
       ;; Don't modify the file if its content has not been changed, so `make'

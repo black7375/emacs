@@ -1,6 +1,6 @@
 #! /bin/sh
 # Attempt to guess a canonical system name.
-#   Copyright 1992-2022 Free Software Foundation, Inc.
+#   Copyright 1992-2021 Free Software Foundation, Inc.
 
 # shellcheck disable=SC2006,SC2268 # see below for rationale
 
@@ -435,7 +435,7 @@ case $UNAME_MACHINE:$UNAME_SYSTEM:$UNAME_RELEASE:$UNAME_VERSION in
 	# This test works for both compilers.
 	if [ "$CC_FOR_BUILD" != no_compiler_found ]; then
 	    if (echo '#ifdef __amd64'; echo IS_64BIT_ARCH; echo '#endif') | \
-		(CCOPTS="" $CC_FOR_BUILD -E - 2>/dev/null) | \
+		(CCOPTS="" $CC_FOR_BUILD -m64 -E - 2>/dev/null) | \
 		grep IS_64BIT_ARCH >/dev/null
 	    then
 		SUN_ARCH=x86_64
@@ -1519,6 +1519,9 @@ EOF
 	;;
     i*86:rdos:*:*)
 	GUESS=$UNAME_MACHINE-pc-rdos
+	;;
+    i*86:Fiwix:*:*)
+	GUESS=$UNAME_MACHINE-pc-fiwix
 	;;
     *:AROS:*:*)
 	GUESS=$UNAME_MACHINE-unknown-aros

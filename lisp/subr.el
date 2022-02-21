@@ -61,7 +61,8 @@ must be the first non-whitespace on a line.
 For more information, see Info node `(elisp)Declaring Functions'."
   (declare (advertised-calling-convention
 	    (fn file &optional arglist fileonly) nil))
-  ;; Does nothing - byte-compile-declare-function does the work.
+  ;; Does nothing - `byte-compile-macroexpand-declare-function' does
+  ;; the work.
   nil)
 
 
@@ -193,7 +194,7 @@ set earlier in the `setq-local'.  The return value of the
   "Define VAR as a buffer-local variable with default value VAL.
 Like `defvar' but additionally marks the variable as being automatically
 buffer-local wherever it is set."
-  (declare (debug defvar) (doc-string 3))
+  (declare (debug defvar) (doc-string 3) (indent 2))
   ;; Can't use backquote here, it's too early in the bootstrap.
   (list 'progn (list 'defvar var val docstring)
         (list 'make-variable-buffer-local (list 'quote var))))
@@ -929,15 +930,29 @@ side-effects, and the argument LIST is not modified."
   "Convert KEYS to the internal Emacs key representation.
 KEYS should be a string in the format returned by commands such
 as `C-h k' (`describe-key').
+
 This is the same format used for saving keyboard macros (see
 `edmacro-mode').
 
+Here's some example key sequences:
+
+    \"f\"
+    \"C-c C-c\"
+    \"H-<left>\"
+    \"M-RET\"
+    \"C-M-<return>\"
+
 For an approximate inverse of this, see `key-description'."
-  ;; Don't use a defalias, since the `pure' property is true only for
-  ;; the calling convention of `kbd'.
   (declare (pure t) (side-effect-free t))
-  ;; A pure function is expected to preserve the match data.
-  (save-match-data (read-kbd-macro keys)))
+  (let ((res (key-parse keys)))
+    (if (not (memq nil (mapcar (lambda (ch)
+                                 (and (numberp ch)
+                                      (<= 0 ch 127)))
+                               res)))
+        ;; Return a string.
+        (concat (mapcar #'identity res))
+      ;; Return a vector.
+      res)))
 
 (defun undefined ()
   "Beep to tell the user this binding is undefined."
@@ -988,6 +1003,9 @@ PARENT if non-nil should be a keymap."
 
 (defun define-key-after (keymap key definition &optional after)
   "Add binding in KEYMAP for KEY => DEFINITION, right after AFTER's binding.
+This is a legacy function; see `keymap-set-after' for the
+recommended function to use instead.
+
 This is like `define-key' except that the binding for KEY is placed
 just after the binding for the event AFTER, instead of at the beginning
 of the map.  Note that AFTER must be an event type (like KEY), NOT a command
@@ -1000,6 +1018,7 @@ Bindings are always added before any inherited map.
 
 The order of bindings in a keymap matters only when it is used as
 a menu, so this function is not useful for non-menu keymaps."
+  (declare (indent defun))
   (unless after (setq after t))
   (or (keymapp keymap)
       (signal 'wrong-type-argument (list 'keymapp keymap)))
@@ -1130,8 +1149,17 @@ Subkeymaps may be modified but are not canonicalized."
       (setq map (map-keymap ;; -internal
                  (lambda (key item)
                    (if (consp key)
-                       ;; Treat char-ranges specially.
-                       (push (cons key item) ranges)
+                       (if (= (car key) (1- (cdr key)))
+                           ;; If we have a two-character range, then
+                           ;; treat it as two separate characters
+                           ;; (because this makes `describe-bindings'
+                           ;; look better and shouldn't affect
+                           ;; anything else).
+                           (progn
+                             (push (cons (car key) item) bindings)
+                             (push (cons (cdr key) item) bindings))
+                         ;; Treat char-ranges specially.
+                         (push (cons key item) ranges))
                      (push (cons key item) bindings)))
                  map)))
     ;; Create the new map.
@@ -1157,6 +1185,9 @@ Subkeymaps may be modified but are not canonicalized."
 
 (defun keyboard-translate (from to)
   "Translate character FROM to TO on the current terminal.
+This is a legacy function; see `keymap-translate' for the
+recommended function to use instead.
+
 This function creates a `keyboard-translate-table' if necessary
 and then modifies one entry in it."
   (or (char-table-p keyboard-translate-table)
@@ -1168,6 +1199,9 @@ and then modifies one entry in it."
 
 (defun global-set-key (key command)
   "Give KEY a global binding as COMMAND.
+This is a legacy function; see `keymap-global-set' for the
+recommended function to use instead.
+
 COMMAND is the command definition to use; usually it is
 a symbol naming an interactively-callable function.
 KEY is a key sequence; noninteractively, it is a string or vector
@@ -1189,6 +1223,9 @@ that you make with this function."
 
 (defun local-set-key (key command)
   "Give KEY a local binding as COMMAND.
+This is a legacy function; see `keymap-local-set' for the
+recommended function to use instead.
+
 COMMAND is the command definition to use; usually it is
 a symbol naming an interactively-callable function.
 KEY is a key sequence; noninteractively, it is a string or vector
@@ -1207,12 +1244,18 @@ cases is shared with all other buffers in the same major mode."
 
 (defun global-unset-key (key)
   "Remove global binding of KEY.
+This is a legacy function; see `keymap-global-unset' for the
+recommended function to use instead.
+
 KEY is a string or vector representing a sequence of keystrokes."
   (interactive "kUnset key globally: ")
   (global-set-key key nil))
 
 (defun local-unset-key (key)
   "Remove local binding of KEY.
+This is a legacy function; see `keymap-local-unset' for the
+recommended function to use instead.
+
 KEY is a string or vector representing a sequence of keystrokes."
   (interactive "kUnset key locally: ")
   (if (current-local-map)
@@ -1221,6 +1264,9 @@ KEY is a string or vector representing a sequence of keystrokes."
 
 (defun local-key-binding (keys &optional accept-default)
   "Return the binding for command KEYS in current local keymap only.
+This is a legacy function; see `keymap-local-binding' for the
+recommended function to use instead.
+
 KEYS is a string or vector, a sequence of keystrokes.
 The binding is probably a symbol with a function definition.
 
@@ -1232,6 +1278,9 @@ about this."
 
 (defun global-key-binding (keys &optional accept-default)
   "Return the binding for command KEYS in current global keymap only.
+This is a legacy function; see `keymap-global-binding' for the
+recommended function to use instead.
+
 KEYS is a string or vector, a sequence of keystrokes.
 The binding is probably a symbol with a function definition.
 This function's return values are the same as those of `lookup-key'
@@ -1250,6 +1299,9 @@ about this."
 
 (defun substitute-key-definition (olddef newdef keymap &optional oldmap prefix)
   "Replace OLDDEF with NEWDEF for any keys in KEYMAP now defined as OLDDEF.
+This is a legacy function; see `keymap-substitute' for the
+recommended function to use instead.
+
 In other words, OLDDEF is replaced with NEWDEF wherever it appears.
 Alternatively, if optional fourth argument OLDMAP is specified, we redefine
 in KEYMAP as NEWDEF those keys that are defined as OLDDEF in OLDMAP.
@@ -1511,22 +1563,22 @@ nil or (STRING . POSITION)'.
 `posn-timestamp': The time the event occurred, in milliseconds.
 
 For more information, see Info node `(elisp)Click Events'."
-  (if (consp event) (nth 1 event)
-    ;; Use `window-point' for the case when the current buffer
-    ;; is temporarily switched to some other buffer (bug#50256)
-    (or (posn-at-point (window-point))
-        (list (selected-window) (window-point) '(0 . 0) 0))))
+  (or (and (consp event) (nth 1 event))
+      ;; Use `window-point' for the case when the current buffer
+      ;; is temporarily switched to some other buffer (bug#50256)
+      (posn-at-point (window-point))
+      (list (selected-window) (window-point) '(0 . 0) 0)))
 
 (defun event-end (event)
   "Return the ending position of EVENT.
 EVENT should be a click, drag, or key press event.
 
 See `event-start' for a description of the value returned."
-  (if (consp event) (nth (if (consp (nth 2 event)) 2 1) event)
-    ;; Use `window-point' for the case when the current buffer
-    ;; is temporarily switched to some other buffer (bug#50256)
-    (or (posn-at-point (window-point))
-        (list (selected-window) (window-point) '(0 . 0) 0))))
+  (or (and (consp event) (nth (if (consp (nth 2 event)) 2 1) event))
+      ;; Use `window-point' for the case when the current buffer
+      ;; is temporarily switched to some other buffer (bug#50256)
+      (posn-at-point (window-point))
+      (list (selected-window) (window-point) '(0 . 0) 0)))
 
 (defsubst event-click-count (event)
   "Return the multi-click count of EVENT, a click or drag event.
@@ -1752,6 +1804,7 @@ be a list of the form returned by `event-start' and `event-end'."
 (make-obsolete 'window-redisplay-end-trigger nil "23.1")
 (make-obsolete 'set-window-redisplay-end-trigger nil "23.1")
 (make-obsolete-variable 'operating-system-release nil "28.1")
+(make-obsolete-variable 'inhibit-changing-match-data 'save-match-data "29.1")
 
 (make-obsolete 'run-window-configuration-change-hook nil "27.1")
 
@@ -1868,7 +1921,7 @@ performance impact when running `add-hook' and `remove-hook'."
       (when (or (get hook 'hook--depth-alist) (not (zerop depth)))
         ;; Note: The main purpose of the above `when' test is to avoid running
         ;; this `setf' before `gv' is loaded during bootstrap.
-        (push (cons function depth) (get hook 'hook--depth-alist)))
+        (setf (alist-get function (get hook 'hook--depth-alist) 0) depth))
       (setq hook-value
 	    (if (< 0 depth)
 		(append hook-value (list function))
@@ -1927,7 +1980,7 @@ one will be removed."
                                 (format "%s hook to remove: "
                                         (if local "Buffer-local" "Global"))
                                 fn-alist
-                                nil t)
+                                nil t nil 'set-variable-value-history)
                                fn-alist nil nil #'string=)))
      (list hook function local)))
   (or (boundp hook) (set hook nil))
@@ -3077,7 +3130,7 @@ Optional argument CHARS, if non-nil, should be a list of characters;
 the function will ignore any input that is not one of CHARS.
 Optional argument HISTORY, if non-nil, should be a symbol that
 specifies the history list variable to use for navigating in input
-history using `M-p' and `M-n', with `RET' to select a character from
+history using \\`M-p' and \\`M-n', with \\`RET' to select a character from
 history.
 If you bind the variable `help-form' to a non-nil value
 while calling this function, then pressing `help-char'
@@ -3205,6 +3258,15 @@ switch back again to the minibuffer before entering the
 character.  This is not possible when using `read-key', but using
 `read-key' may be less confusing to some users.")
 
+(defvar from--tty-menu-p nil
+  "Non-nil means the current command was invoked from a TTY menu.")
+(defun use-dialog-box-p ()
+  "Say whether the current command should prompt the user via a dialog box."
+  (and last-input-event                 ; not during startup
+       (or (listp last-nonmenu-event)   ; invoked by a mouse event
+           from--tty-menu-p)            ; invoked via TTY menu
+       use-dialog-box))
+
 (defun y-or-n-p (prompt)
   "Ask user a \"y or n\" question.
 Return t if answer is \"y\" and nil if it is \"n\".
@@ -3264,10 +3326,7 @@ like) while `y-or-n-p' is running)."
 		  ((and (member str '("h" "H")) help-form) (print help-form))
 		  (t (setq temp-prompt (concat "Please answer y or n.  "
 					       prompt))))))))
-     ((and (display-popup-menus-p)
-           last-input-event             ; not during startup
-	   (listp last-nonmenu-event)
-	   use-dialog-box)
+     ((use-dialog-box-p)
       (setq prompt (funcall padded prompt t)
 	    answer (x-popup-dialog t `(,prompt ("Yes" . act) ("No" . skip)))))
      (y-or-n-p-use-read-key
@@ -3367,6 +3426,29 @@ user can undo the change normally."
 	 (if ,success
 	     (accept-change-group ,handle)
 	   (cancel-change-group ,handle))))))
+
+(defmacro with-undo-amalgamate (&rest body)
+  "Like `progn' but perform BODY with amalgamated undo barriers.
+
+This allows multiple operations to be undone in a single step.
+When undo is disabled this behaves like `progn'."
+  (declare (indent 0) (debug t))
+  (let ((handle (make-symbol "--change-group-handle--")))
+    `(let ((,handle (prepare-change-group))
+           ;; Don't truncate any undo data in the middle of this,
+           ;; otherwise Emacs might truncate part of the resulting
+           ;; undo step: we want to mimic the behavior we'd get if the
+           ;; undo-boundaries were never added in the first place.
+           (undo-outer-limit nil)
+           (undo-limit most-positive-fixnum)
+           (undo-strong-limit most-positive-fixnum))
+       (unwind-protect
+           (progn
+             (activate-change-group ,handle)
+             ,@body)
+         (progn
+           (accept-change-group ,handle)
+           (undo-amalgamate-change-group ,handle))))))
 
 (defun prepare-change-group (&optional buffer)
   "Return a handle for the current buffer's state, for a change group.
@@ -3566,6 +3648,9 @@ If either NAME or VAL are specified, both should be specified."
 
 (defvar suspend-resume-hook nil
   "Normal hook run by `suspend-emacs', after Emacs is continued.")
+
+(defvar after-pdump-load-hook nil
+  "Normal hook run after loading the .pdmp file.")
 
 (defvar temp-buffer-show-hook nil
   "Normal hook run by `with-output-to-temp-buffer' after displaying the buffer.
@@ -3987,7 +4072,7 @@ BUFFER is the buffer (or buffer name) to associate with the process.
  Process output goes at end of that buffer, unless you specify
  an output stream or filter function to handle the output.
  BUFFER may be also nil, meaning that this process is not associated
- with any buffer
+ with any buffer.
 COMMAND is the shell command to run."
   ;; We used to use `exec' to replace the shell with the command,
   ;; but that failed to handle (...) and semicolon, etc.
@@ -4224,11 +4309,13 @@ in which case `save-window-excursion' cannot help."
 (defmacro with-output-to-temp-buffer (bufname &rest body)
   "Bind `standard-output' to buffer BUFNAME, eval BODY, then show that buffer.
 
-This construct makes buffer BUFNAME empty before running BODY.
-It does not make the buffer current for BODY.
-Instead it binds `standard-output' to that buffer, so that output
-generated with `prin1' and similar functions in BODY goes into
-the buffer.
+This is a convenience macro meant for displaying help buffers and
+the like.  It empties the BUFNAME buffer before evaluating BODY
+and disables undo in that buffer.
+
+It does not make the buffer current for BODY.  Instead it binds
+`standard-output' to that buffer, so that output generated with
+`prin1' and similar functions in BODY goes into the buffer.
 
 At the end of BODY, this marks buffer BUFNAME unmodified and displays
 it in a window, but does not select it.  The normal way to do this is
@@ -4386,11 +4473,6 @@ is allowed once again.  (Immediately, if `inhibit-quit' is nil.)"
 	   ;; that intends to handle the quit signal next time.
 	   (eval '(ignore nil)))))
 
-;; Don't throw `throw-on-input' on those events by default.
-(setq while-no-input-ignore-events
-      '(focus-in focus-out help-echo iconify-frame
-        make-frame-visible selection-request))
-
 (defmacro while-no-input (&rest body)
   "Execute BODY only as long as there's no pending input.
 If input arrives, that ends the execution of BODY,
@@ -4449,19 +4531,21 @@ It should contain a single %-sequence; e.g., \"Error: %S\".
 
 If `debug-on-error' is non-nil, run BODY without catching its errors.
 This is to be used around code that is not expected to signal an error
-but that should be robust in the unexpected case that an error is signaled.
-
-For backward compatibility, if FORMAT is not a constant string, it
-is assumed to be part of BODY, in which case the message format
-used is \"Error: %S\"."
+but that should be robust in the unexpected case that an error is signaled."
   (declare (debug t) (indent 1))
-  (let ((err (make-symbol "err"))
-        (format (if (and (stringp format) body) format
-                  (prog1 "Error: %S"
-                    (if format (push format body))))))
-    `(condition-case-unless-debug ,err
-         ,(macroexp-progn body)
-       (error (message ,format ,err) nil))))
+  (let* ((err (make-symbol "err"))
+         (orig-body body)
+         (format (if (and (stringp format) body) format
+                   (prog1 "Error: %S"
+                     (if format (push format body)))))
+         (exp
+          `(condition-case-unless-debug ,err
+               ,(macroexp-progn body)
+             (error (message ,format ,err) nil))))
+    (if (eq orig-body body) exp
+      ;; The use without `format' is obsolete, let's warn when we bump
+      ;; into any such remaining uses.
+      (macroexp-warn-and-return format "Missing format argument" exp))))
 
 (defmacro combine-after-change-calls (&rest body)
   "Execute BODY, but don't call the after-change functions till the end.
@@ -4763,14 +4847,12 @@ wherever possible, since it is slow."
 (defsubst looking-at-p (regexp)
   "\
 Same as `looking-at' except this function does not change the match data."
-  (let ((inhibit-changing-match-data t))
-    (looking-at regexp)))
+  (looking-at regexp t))
 
 (defsubst string-match-p (regexp string &optional start)
   "\
 Same as `string-match' except this function does not change the match data."
-  (let ((inhibit-changing-match-data t))
-    (string-match regexp string start)))
+  (string-match regexp string start t))
 
 (defun subregexp-context-p (regexp pos &optional start)
   "Return non-nil if POS is in a normal subregexp context in REGEXP.
@@ -5575,6 +5657,7 @@ If HOOKVAR is nil, `mail-send-hook' is used.
 
 The properties used on SYMBOL are `composefunc', `sendfunc',
 `abortfunc', and `hookvar'."
+  (declare (indent defun))
   (put symbol 'composefunc composefunc)
   (put symbol 'sendfunc sendfunc)
   (put symbol 'abortfunc (or abortfunc #'kill-buffer))
@@ -6461,5 +6544,51 @@ not a list, return a one-element list containing OBJECT."
   (if (listp object)
       object
     (list object)))
+
+(defmacro with-delayed-message (args &rest body)
+  "Like `progn', but display MESSAGE if BODY takes longer than TIMEOUT seconds.
+The MESSAGE form will be evaluated immediately, but the resulting
+string will be displayed only if BODY takes longer than TIMEOUT seconds.
+
+\(fn (timeout message) &rest body)"
+  (declare (indent 1))
+  `(funcall-with-delayed-message ,(car args) ,(cadr args)
+                                 (lambda ()
+                                   ,@body)))
+
+(defun function-alias-p (func &optional noerror)
+  "Return nil if FUNC is not a function alias.
+If FUNC is a function alias, return the function alias chain.
+
+If the function alias chain contains loops, an error will be
+signalled.  If NOERROR, the non-loop parts of the chain is returned."
+  (declare (side-effect-free t))
+  (let ((chain nil)
+        (orig-func func))
+    (nreverse
+     (catch 'loop
+       (while (and (symbolp func)
+                   (setq func (symbol-function func))
+                   (symbolp func))
+         (when (or (memq func chain)
+                   (eq func orig-func))
+           (if noerror
+               (throw 'loop chain)
+             (signal 'cyclic-function-indirection (list orig-func))))
+         (push func chain))
+       chain))))
+
+(defun readablep (object)
+  "Say whether OBJECT has a readable syntax.
+This means that OBJECT can be printed out and then read back
+again by the Lisp reader.  This function returns nil if OBJECT is
+unreadable, and the printed representation (from `prin1') of
+OBJECT if it is readable."
+  (declare (side-effect-free t))
+  (catch 'unreadable
+    (let ((print-unreadable-function
+           (lambda (_object _escape)
+             (throw 'unreadable nil))))
+      (prin1-to-string object))))
 
 ;;; subr.el ends here

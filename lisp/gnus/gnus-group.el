@@ -35,6 +35,7 @@
 (require 'gnus-undo)
 (require 'gmm-utils)
 (require 'time-date)
+(require 'range)
 
 (eval-when-compile
   (require 'mm-url)
@@ -62,7 +63,7 @@
 
 (defcustom gnus-keep-same-level nil
   "Non-nil means that the newsgroup after this one will be on the same level.
-When you type, for instance, `n' after reading the last article in the
+When you type, for instance, \\`n' after reading the last article in the
 current newsgroup, you will go to the next newsgroup.  If this variable
 is nil, the next newsgroup will be the next from the group
 buffer.
@@ -380,8 +381,8 @@ variables in the Lisp expression:
 `group-age': Time in seconds since the group was last read
            (see info node `(gnus)Group Timestamp')."
   :group 'gnus-group-visual
-  :type '(repeat (cons (sexp :tag "Form") face)))
-(put 'gnus-group-highlight 'risky-local-variable t)
+  :type '(repeat (cons (sexp :tag "Form") face))
+  :risky t)
 
 (defcustom gnus-new-mail-mark ?%
   "Mark used for groups with new mail."
@@ -409,8 +410,8 @@ requires an understanding of Lisp expressions.  Hopefully this will
 change in a future release.  For now, you can use the same
 variables in the Lisp expression as in `gnus-group-highlight'."
   :group 'gnus-group-icons
-  :type '(repeat (cons (sexp :tag "Form") file)))
-(put 'gnus-group-icon-list 'risky-local-variable t)
+  :type '(repeat (cons (sexp :tag "Form") file))
+  :risky t)
 
 (defcustom gnus-group-name-charset-method-alist nil
   "Alist of method and the charset for group names.
@@ -512,8 +513,8 @@ simple manner."
 	      ((numberp number)
 	       (int-to-string
 		(+ number
-		   (gnus-range-length (cdr (assq 'dormant gnus-tmp-marked)))
-		   (gnus-range-length (cdr (assq 'tick gnus-tmp-marked))))))
+		   (range-length (cdr (assq 'dormant gnus-tmp-marked)))
+		   (range-length (cdr (assq 'tick gnus-tmp-marked))))))
 	      (t number))
 	?s)
     (?R gnus-tmp-number-of-read ?s)
@@ -523,10 +524,10 @@ simple manner."
 	?s)
     (?t gnus-tmp-number-total ?d)
     (?y gnus-tmp-number-of-unread ?s)
-    (?I (gnus-range-length (cdr (assq 'dormant gnus-tmp-marked))) ?d)
-    (?T (gnus-range-length (cdr (assq 'tick gnus-tmp-marked))) ?d)
-    (?i (+ (gnus-range-length (cdr (assq 'dormant gnus-tmp-marked)))
-	   (gnus-range-length (cdr (assq 'tick gnus-tmp-marked))))
+    (?I (range-length (cdr (assq 'dormant gnus-tmp-marked))) ?d)
+    (?T (range-length (cdr (assq 'tick gnus-tmp-marked))) ?d)
+    (?i (+ (range-length (cdr (assq 'dormant gnus-tmp-marked)))
+	   (range-length (cdr (assq 'tick gnus-tmp-marked))))
 	?d)
     (?g gnus-tmp-group ?s)
     (?G gnus-tmp-qualified-group ?s)
@@ -573,209 +574,209 @@ simple manner."
 ;;; Gnus group mode
 ;;;
 
-(gnus-define-keys gnus-group-mode-map
-  " " gnus-group-read-group
-  "=" gnus-group-select-group
-  "\r" gnus-group-select-group
-  "\M-\r" gnus-group-quick-select-group
-  "\M- " gnus-group-visible-select-group
-  [(meta control return)] gnus-group-select-group-ephemerally
-  "j" gnus-group-jump-to-group
-  "n" gnus-group-next-unread-group
-  "p" gnus-group-prev-unread-group
-  "\177" gnus-group-prev-unread-group
-  [delete] gnus-group-prev-unread-group
-  "N" gnus-group-next-group
-  "P" gnus-group-prev-group
-  "\M-n" gnus-group-next-unread-group-same-level
-  "\M-p" gnus-group-prev-unread-group-same-level
-  "," gnus-group-best-unread-group
-  "." gnus-group-first-unread-group
-  "u" gnus-group-toggle-subscription-at-point
-  "U" gnus-group-toggle-subscription
-  "c" gnus-group-catchup-current
-  "C" gnus-group-catchup-current-all
-  "\M-c" gnus-group-clear-data
-  "l" gnus-group-list-groups
-  "L" gnus-group-list-all-groups
-  "m" gnus-group-mail
-  "i" gnus-group-news
-  "g" gnus-group-get-new-news
-  "\M-g" gnus-group-get-new-news-this-group
-  "R" gnus-group-restart
-  "r" gnus-group-read-init-file
-  "B" gnus-group-browse-foreign-server
-  "b" gnus-group-check-bogus-groups
-  "F" gnus-group-find-new-groups
-  "\C-c\C-d" gnus-group-describe-group
-  "\M-d" gnus-group-describe-all-groups
-  "\C-c\C-a" gnus-group-apropos
-  "\C-c\M-\C-a" gnus-group-description-apropos
-  "a" gnus-group-post-news
-  "\ek" gnus-group-edit-local-kill
-  "\eK" gnus-group-edit-global-kill
-  "\C-k" gnus-group-kill-group
-  "\C-y" gnus-group-yank-group
-  "\C-w" gnus-group-kill-region
-  "\C-x\C-t" gnus-group-transpose-groups
-  "\C-c\C-l" gnus-group-list-killed
-  "\C-c\C-x" gnus-group-expire-articles
-  "\C-c\M-\C-x" gnus-group-expire-all-groups
-  "V" gnus-version
-  "s" gnus-group-save-newsrc
-  "z" gnus-group-suspend
-  "q" gnus-group-exit
-  "Q" gnus-group-quit
-  "?" gnus-group-describe-briefly
-  "\C-c\C-i" gnus-info-find-node
-  "\M-e" gnus-group-edit-group-method
-  "^" gnus-group-enter-server-mode
-  [mouse-2] gnus-mouse-pick-group
-  [follow-link] mouse-face
-  "<" beginning-of-buffer
-  ">" end-of-buffer
-  "\C-c\C-b" gnus-bug
-  "\C-c\C-s" gnus-group-sort-groups
-  "t" gnus-topic-mode
-  "\C-c\M-g" gnus-activate-all-groups
-  "\M-&" gnus-group-universal-argument
-  "#" gnus-group-mark-group
-  "\M-#" gnus-group-unmark-group)
+(define-keymap :keymap gnus-group-mode-map
+  "SPC" #'gnus-group-read-group
+  "=" #'gnus-group-select-group
+  "RET" #'gnus-group-select-group
+  "M-RET" #'gnus-group-quick-select-group
+  "M-SPC" #'gnus-group-visible-select-group
+  "C-M-<return>" #'gnus-group-select-group-ephemerally
+  "j" #'gnus-group-jump-to-group
+  "n" #'gnus-group-next-unread-group
+  "p" #'gnus-group-prev-unread-group
+  "DEL" #'gnus-group-prev-unread-group
+  "<delete>" #'gnus-group-prev-unread-group
+  "N" #'gnus-group-next-group
+  "P" #'gnus-group-prev-group
+  "M-n" #'gnus-group-next-unread-group-same-level
+  "M-p" #'gnus-group-prev-unread-group-same-level
+  "," #'gnus-group-best-unread-group
+  "." #'gnus-group-first-unread-group
+  "u" #'gnus-group-toggle-subscription-at-point
+  "U" #'gnus-group-toggle-subscription
+  "c" #'gnus-group-catchup-current
+  "C" #'gnus-group-catchup-current-all
+  "M-c" #'gnus-group-clear-data
+  "l" #'gnus-group-list-groups
+  "L" #'gnus-group-list-all-groups
+  "m" #'gnus-group-mail
+  "i" #'gnus-group-news
+  "g" #'gnus-group-get-new-news
+  "M-g" #'gnus-group-get-new-news-this-group
+  "R" #'gnus-group-restart
+  "r" #'gnus-group-read-init-file
+  "B" #'gnus-group-browse-foreign-server
+  "b" #'gnus-group-check-bogus-groups
+  "F" #'gnus-group-find-new-groups
+  "C-c C-d" #'gnus-group-describe-group
+  "M-d" #'gnus-group-describe-all-groups
+  "C-c C-a" #'gnus-group-apropos
+  "C-c C-M-a" #'gnus-group-description-apropos
+  "a" #'gnus-group-post-news
+  "ESC k" #'gnus-group-edit-local-kill
+  "ESC K" #'gnus-group-edit-global-kill
+  "C-k" #'gnus-group-kill-group
+  "C-y" #'gnus-group-yank-group
+  "C-w" #'gnus-group-kill-region
+  "C-x C-t" #'gnus-group-transpose-groups
+  "C-c C-l" #'gnus-group-list-killed
+  "C-c C-x" #'gnus-group-expire-articles
+  "C-c C-M-x" #'gnus-group-expire-all-groups
+  "V" #'gnus-version
+  "s" #'gnus-group-save-newsrc
+  "z" #'gnus-group-suspend
+  "q" #'gnus-group-exit
+  "Q" #'gnus-group-quit
+  "?" #'gnus-group-describe-briefly
+  "C-c C-i" #'gnus-info-find-node
+  "M-e" #'gnus-group-edit-group-method
+  "^" #'gnus-group-enter-server-mode
+  "<mouse-2>" #'gnus-mouse-pick-group
+  "<follow-link>" 'mouse-face
+  "<" #'beginning-of-buffer
+  ">" #'end-of-buffer
+  "C-c C-b" #'gnus-bug
+  "C-c C-s" #'gnus-group-sort-groups
+  "t" #'gnus-topic-mode
+  "C-c M-g" #'gnus-activate-all-groups
+  "M-&" #'gnus-group-universal-argument
+  "#" #'gnus-group-mark-group
+  "M-#" #'gnus-group-unmark-group
 
-(gnus-define-keys (gnus-group-cloud-map "~" gnus-group-mode-map)
-  "u" gnus-cloud-upload-all-data
-  "~" gnus-cloud-upload-all-data
-  "d" gnus-cloud-download-all-data
-  "\r" gnus-cloud-download-all-data)
+  "~" (define-keymap :prefix 'gnus-group-cloud-map
+        "u" #'gnus-cloud-upload-all-data
+        "~" #'gnus-cloud-upload-all-data
+        "d" #'gnus-cloud-download-all-data
+        "RET" #'gnus-cloud-download-all-data)
 
-(gnus-define-keys (gnus-group-mark-map "M" gnus-group-mode-map)
-  "m" gnus-group-mark-group
-  "u" gnus-group-unmark-group
-  "w" gnus-group-mark-region
-  "b" gnus-group-mark-buffer
-  "r" gnus-group-mark-regexp
-  "U" gnus-group-unmark-all-groups)
+  "M" (define-keymap :prefix 'gnus-group-mark-map
+        "m" #'gnus-group-mark-group
+        "u" #'gnus-group-unmark-group
+        "w" #'gnus-group-mark-region
+        "b" #'gnus-group-mark-buffer
+        "r" #'gnus-group-mark-regexp
+        "U" #'gnus-group-unmark-all-groups)
 
-(gnus-define-keys (gnus-group-sieve-map "D" gnus-group-mode-map)
-  "u" gnus-sieve-update
-  "g" gnus-sieve-generate)
+  "D" (define-keymap :prefix 'gnus-group-sieve-map
+        "u" #'gnus-sieve-update
+        "g" #'gnus-sieve-generate)
 
-(gnus-define-keys (gnus-group-group-map "G" gnus-group-mode-map)
-  "d" gnus-group-make-directory-group
-  "h" gnus-group-make-help-group
-  "u" gnus-group-make-useful-group
-  "l" gnus-group-nnimap-edit-acl
-  "m" gnus-group-make-group
-  "E" gnus-group-edit-group
-  "e" gnus-group-edit-group-method
-  "p" gnus-group-edit-group-parameters
-  "v" gnus-group-add-to-virtual
-  "V" gnus-group-make-empty-virtual
-  "D" gnus-group-enter-directory
-  "f" gnus-group-make-doc-group
-  "w" gnus-group-make-web-group
-  "G" gnus-group-read-ephemeral-search-group
-  "g" gnus-group-make-search-group
-  "M" gnus-group-read-ephemeral-group
-  "r" gnus-group-rename-group
-  "R" gnus-group-make-rss-group
-  "c" gnus-group-customize
-  "z" gnus-group-compact-group
-  "x" gnus-group-expunge-group
-  "\177" gnus-group-delete-group
-  [delete] gnus-group-delete-group)
+  "G" (define-keymap :prefix 'gnus-group-group-map
+        "d" #'gnus-group-make-directory-group
+        "h" #'gnus-group-make-help-group
+        "u" #'gnus-group-make-useful-group
+        "l" #'gnus-group-nnimap-edit-acl
+        "m" #'gnus-group-make-group
+        "E" #'gnus-group-edit-group
+        "e" #'gnus-group-edit-group-method
+        "p" #'gnus-group-edit-group-parameters
+        "v" #'gnus-group-add-to-virtual
+        "V" #'gnus-group-make-empty-virtual
+        "D" #'gnus-group-enter-directory
+        "f" #'gnus-group-make-doc-group
+        "w" #'gnus-group-make-web-group
+        "G" #'gnus-group-read-ephemeral-search-group
+        "g" #'gnus-group-make-search-group
+        "M" #'gnus-group-read-ephemeral-group
+        "r" #'gnus-group-rename-group
+        "R" #'gnus-group-make-rss-group
+        "c" #'gnus-group-customize
+        "z" #'gnus-group-compact-group
+        "x" #'gnus-group-expunge-group
+        "DEL" #'gnus-group-delete-group
+        "<delete>" #'gnus-group-delete-group
 
-(gnus-define-keys (gnus-group-sort-map "S" gnus-group-group-map)
-  "s" gnus-group-sort-groups
-  "a" gnus-group-sort-groups-by-alphabet
-  "u" gnus-group-sort-groups-by-unread
-  "l" gnus-group-sort-groups-by-level
-  "v" gnus-group-sort-groups-by-score
-  "r" gnus-group-sort-groups-by-rank
-  "m" gnus-group-sort-groups-by-method
-  "n" gnus-group-sort-groups-by-real-name)
+        "S" (define-keymap :prefix 'gnus-group-sort-map
+              "s" #'gnus-group-sort-groups
+              "a" #'gnus-group-sort-groups-by-alphabet
+              "u" #'gnus-group-sort-groups-by-unread
+              "l" #'gnus-group-sort-groups-by-level
+              "v" #'gnus-group-sort-groups-by-score
+              "r" #'gnus-group-sort-groups-by-rank
+              "m" #'gnus-group-sort-groups-by-method
+              "n" #'gnus-group-sort-groups-by-real-name)
 
-(gnus-define-keys (gnus-group-sort-selected-map "P" gnus-group-group-map)
-  "s" gnus-group-sort-selected-groups
-  "a" gnus-group-sort-selected-groups-by-alphabet
-  "u" gnus-group-sort-selected-groups-by-unread
-  "l" gnus-group-sort-selected-groups-by-level
-  "v" gnus-group-sort-selected-groups-by-score
-  "r" gnus-group-sort-selected-groups-by-rank
-  "m" gnus-group-sort-selected-groups-by-method
-  "n" gnus-group-sort-selected-groups-by-real-name)
+        "P" (define-keymap :prefix 'gnus-group-sort-selected-map
+              "s" #'gnus-group-sort-selected-groups
+              "a" #'gnus-group-sort-selected-groups-by-alphabet
+              "u" #'gnus-group-sort-selected-groups-by-unread
+              "l" #'gnus-group-sort-selected-groups-by-level
+              "v" #'gnus-group-sort-selected-groups-by-score
+              "r" #'gnus-group-sort-selected-groups-by-rank
+              "m" #'gnus-group-sort-selected-groups-by-method
+              "n" #'gnus-group-sort-selected-groups-by-real-name))
 
-(gnus-define-keys (gnus-group-list-map "A" gnus-group-mode-map)
-  "k" gnus-group-list-killed
-  "z" gnus-group-list-zombies
-  "s" gnus-group-list-groups
-  "u" gnus-group-list-all-groups
-  "A" gnus-group-list-active
-  "a" gnus-group-apropos
-  "d" gnus-group-description-apropos
-  "m" gnus-group-list-matching
-  "M" gnus-group-list-all-matching
-  "l" gnus-group-list-level
-  "c" gnus-group-list-cached
-  "?" gnus-group-list-dormant
-  "!" gnus-group-list-ticked)
+  "A" (define-keymap :prefix 'gnus-group-list-map
+        "k" #'gnus-group-list-killed
+        "z" #'gnus-group-list-zombies
+        "s" #'gnus-group-list-groups
+        "u" #'gnus-group-list-all-groups
+        "A" #'gnus-group-list-active
+        "a" #'gnus-group-apropos
+        "d" #'gnus-group-description-apropos
+        "m" #'gnus-group-list-matching
+        "M" #'gnus-group-list-all-matching
+        "l" #'gnus-group-list-level
+        "c" #'gnus-group-list-cached
+        "?" #'gnus-group-list-dormant
+        "!" #'gnus-group-list-ticked
 
-(gnus-define-keys (gnus-group-list-limit-map "/" gnus-group-list-map)
-  "k"  gnus-group-list-limit
-  "z"  gnus-group-list-limit
-  "s"  gnus-group-list-limit
-  "u"  gnus-group-list-limit
-  "A"  gnus-group-list-limit
-  "m"  gnus-group-list-limit
-  "M"  gnus-group-list-limit
-  "l"  gnus-group-list-limit
-  "c"  gnus-group-list-limit
-  "?"  gnus-group-list-limit
-  "!"  gnus-group-list-limit)
+        "/" (define-keymap :prefix 'gnus-group-list-limit-map
+              "k" #'gnus-group-list-limit
+              "z" #'gnus-group-list-limit
+              "s" #'gnus-group-list-limit
+              "u" #'gnus-group-list-limit
+              "A" #'gnus-group-list-limit
+              "m" #'gnus-group-list-limit
+              "M" #'gnus-group-list-limit
+              "l" #'gnus-group-list-limit
+              "c" #'gnus-group-list-limit
+              "?" #'gnus-group-list-limit
+              "!" #'gnus-group-list-limit)
 
-(gnus-define-keys (gnus-group-list-flush-map "f" gnus-group-list-map)
-  "k"  gnus-group-list-flush
-  "z"  gnus-group-list-flush
-  "s"  gnus-group-list-flush
-  "u"  gnus-group-list-flush
-  "A"  gnus-group-list-flush
-  "m"  gnus-group-list-flush
-  "M"  gnus-group-list-flush
-  "l"  gnus-group-list-flush
-  "c"  gnus-group-list-flush
-  "?"  gnus-group-list-flush
-  "!"  gnus-group-list-flush)
+        "f" (define-keymap :prefix 'gnus-group-list-flush-map
+              "k" #'gnus-group-list-flush
+              "z" #'gnus-group-list-flush
+              "s" #'gnus-group-list-flush
+              "u" #'gnus-group-list-flush
+              "A" #'gnus-group-list-flush
+              "m" #'gnus-group-list-flush
+              "M" #'gnus-group-list-flush
+              "l" #'gnus-group-list-flush
+              "c" #'gnus-group-list-flush
+              "?" #'gnus-group-list-flush
+              "!" #'gnus-group-list-flush)
 
-(gnus-define-keys (gnus-group-list-plus-map "p" gnus-group-list-map)
-  "k"  gnus-group-list-plus
-  "z"  gnus-group-list-plus
-  "s"  gnus-group-list-plus
-  "u"  gnus-group-list-plus
-  "A"  gnus-group-list-plus
-  "m"  gnus-group-list-plus
-  "M"  gnus-group-list-plus
-  "l"  gnus-group-list-plus
-  "c"  gnus-group-list-plus
-  "?"  gnus-group-list-plus
-  "!"  gnus-group-list-plus)
+        "p" (define-keymap :prefix 'gnus-group-list-plus-map
+              "k" #'gnus-group-list-plus
+              "z" #'gnus-group-list-plus
+              "s" #'gnus-group-list-plus
+              "u" #'gnus-group-list-plus
+              "A" #'gnus-group-list-plus
+              "m" #'gnus-group-list-plus
+              "M" #'gnus-group-list-plus
+              "l" #'gnus-group-list-plus
+              "c" #'gnus-group-list-plus
+              "?" #'gnus-group-list-plus
+              "!" #'gnus-group-list-plus))
 
-(gnus-define-keys (gnus-group-score-map "W" gnus-group-mode-map)
-  "f" gnus-score-flush-cache
-  "e" gnus-score-edit-all-score)
+  "W" (define-keymap :prefix 'gnus-group-score-map
+        "f" #'gnus-score-flush-cache
+        "e" #'gnus-score-edit-all-score)
 
-(gnus-define-keys (gnus-group-help-map "H" gnus-group-mode-map)
-  "d" gnus-group-describe-group
-  "v" gnus-version)
+  "H" (define-keymap :prefix 'gnus-group-help-map
+        "d" #'gnus-group-describe-group
+        "v" #'gnus-version)
 
-(gnus-define-keys (gnus-group-sub-map "S" gnus-group-mode-map)
-  "l" gnus-group-set-current-level
-  "t" gnus-group-toggle-subscription-at-point
-  "s" gnus-group-toggle-subscription
-  "k" gnus-group-kill-group
-  "y" gnus-group-yank-group
-  "w" gnus-group-kill-region
-  "\C-k" gnus-group-kill-level
-  "z" gnus-group-kill-all-zombies)
+  "S" (define-keymap :prefix 'gnus-group-sub-map
+        "l" #'gnus-group-set-current-level
+        "t" #'gnus-group-toggle-subscription-at-point
+        "s" #'gnus-group-toggle-subscription
+        "k" #'gnus-group-kill-group
+        "y" #'gnus-group-yank-group
+        "w" #'gnus-group-kill-region
+        "C-k" #'gnus-group-kill-level
+        "z" #'gnus-group-kill-all-zombies))
 
 (defun gnus-topic-mode-p ()
   "Return non-nil in `gnus-topic-mode'."
@@ -1482,9 +1483,9 @@ if it is a string, only list groups matching REGEXP."
 	 (active (gnus-active group)))
     (if (not active)
 	0
-      (length (gnus-uncompress-range
-	       (gnus-range-difference
-		(gnus-range-difference (list active) (gnus-info-read info))
+      (length (range-uncompress
+	       (range-difference
+		(range-difference (list active) (gnus-info-read info))
 		seen))))))
 
 ;; Moving through the Group buffer (in topic mode) e.g. with C-n doesn't
@@ -1642,7 +1643,7 @@ Some value are bound so the form can use them."
 			    '(mail post-mail))))
 	     (cons 'level (or (gnus-info-level info) gnus-level-killed))
 	     (cons 'score (or (gnus-info-score info) 0))
-	     (cons 'ticked (gnus-range-length (cdr (assq 'tick marked))))
+	     (cons 'ticked (range-length (cdr (assq 'tick marked))))
 	     (cons 'group-age (gnus-group-timestamp-delta group)))))
       (while (and list
                   (not (eval (caar list) env)))
@@ -2065,9 +2066,9 @@ that group."
 		 (- (1+ (cdr active)) (car active)))))
     (gnus-summary-read-group
      group (or all (and (numberp number)
-			(zerop (+ number (gnus-range-length
+			(zerop (+ number (range-length
 					  (cdr (assq 'tick marked)))
-				  (gnus-range-length
+				  (range-length
 				   (cdr (assq 'dormant marked)))))))
      no-article nil no-display nil select-articles)))
 
@@ -2832,7 +2833,7 @@ according to the expiry settings.  Note that this will delete old
 not-expirable articles, too."
   (interactive (list (gnus-group-group-name) current-prefix-arg)
 	       gnus-group-mode)
-  (let ((articles (gnus-uncompress-range (gnus-active group))))
+  (let ((articles (range-uncompress (gnus-active group))))
     (when (gnus-yes-or-no-p
 	   (format "Do you really want to delete these %d articles forever? "
 		   (length articles)))
@@ -3134,9 +3135,9 @@ If SOLID (the prefix), create a solid group."
 	     (if (derived-mode-p 'gnus-summary-mode) 'summary 'group))))))
 
 (defvar nnrss-group-alist)
-(eval-when-compile
-  (defun nnrss-discover-feed (_arg))
-  (defun nnrss-save-server-data (_arg)))
+(declare-function nnrss-discover-feed "nnrss" (url))
+(declare-function nnrss-save-server-data "nnrss" (server))
+
 (defun gnus-group-make-rss-group (&optional url)
   "Given a URL, discover if there is an RSS feed.
 If there is, use Gnus to create an nnrss group"
@@ -3755,15 +3756,15 @@ or nil if no action could be taken."
 						 'del '(tick))
 					   (list (cdr (assq 'dormant marks))
 						 'del '(dormant))))
-	(setq unread (gnus-range-add (gnus-range-add
-                                      unread (cdr (assq 'dormant marks)))
-                                     (cdr (assq 'tick marks))))
+	(setq unread (range-concat (range-concat
+                                    unread (cdr (assq 'dormant marks)))
+                                   (cdr (assq 'tick marks))))
 	(gnus-add-marked-articles group 'tick nil nil 'force)
 	(gnus-add-marked-articles group 'dormant nil nil 'force))
       ;; Do auto-expirable marks if that's required.
       (when (and (gnus-group-auto-expirable-p group)
 		 (not (gnus-group-read-only-p group)))
-        (gnus-range-map
+        (range-map
 	 (lambda (article)
 	   (gnus-add-marked-articles group 'expire (list article))
 	   (gnus-request-set-mark group (list (list (list article)
@@ -3795,7 +3796,7 @@ Uses the process/prefix convention."
 			  (cons nil (gnus-list-of-read-articles group))
 			(assq 'expire (gnus-info-marks info))))
 	   (articles-to-expire
-	    (gnus-list-range-difference
+	    (range-list-difference
 	     (gnus-uncompress-sequence (cdr expirable))
 	     (cdr (assq 'unexist (gnus-info-marks info)))))
 	   (expiry-wait (gnus-group-find-parameter group 'expiry-wait))
@@ -4671,23 +4672,22 @@ and the second element is the address."
 	(and (not (setq marked (nthcdr 3 info)))
 	     (or (null articles)
 		 (setcdr (nthcdr 2 info)
-			 (list (list (cons type (gnus-compress-sequence
-						 articles t)))))))
+			 (list (list (cons type (range-compress-list
+                                                 articles)))))))
 	(and (not (setq m (assq type (car marked))))
 	     (or (null articles)
 		 (setcar marked
-			 (cons (cons type (gnus-compress-sequence articles t) )
+			 (cons (cons type (range-compress-list articles))
 			       (car marked)))))
 	(if force
 	    (if (null articles)
 		(setcar (nthcdr 3 info)
 			(assq-delete-all type (car marked)))
-	      (setcdr m (gnus-compress-sequence articles t)))
-	  (setcdr m (gnus-compress-sequence
-		     (sort (nconc (gnus-uncompress-range (cdr m))
+	      (setcdr m (range-compress-list articles)))
+	  (setcdr m (range-compress-list
+		     (sort (nconc (range-uncompress (cdr m))
 				  (copy-sequence articles))
-			   #'<)
-		     t))))))
+			   #'<)))))))
 
 (declare-function gnus-summary-add-mark "gnus-sum" (article type))
 

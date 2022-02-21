@@ -40,6 +40,7 @@
 
 (autoload 'auth-source-forget+ "auth-source")
 (autoload 'auth-source-search "auth-source")
+(autoload 'auth-info-password "auth-source")
 
 (nnoo-declare nnimap)
 
@@ -245,7 +246,7 @@ during splitting, which may be slow."
 	  (nnimap-header-parameters))
 	 t)
 	(unless (process-live-p (get-buffer-process (current-buffer)))
-	  (error "Server closed connection"))
+	  (error "IMAP server %S closed connection" nnimap-address))
 	(nnimap-transform-headers)
 	(nnheader-remove-cr-followed-by-lf))
       (insert-buffer-substring
@@ -407,10 +408,7 @@ during splitting, which may be slow."
                                            :create t))))
     (if found
         (list (plist-get found :user)
-	      (let ((secret (plist-get found :secret)))
-		(if (functionp secret)
-		    (funcall secret)
-		  secret))
+	      (auth-info-password found)
 	      (plist-get found :save-function))
       nil)))
 
@@ -429,8 +427,18 @@ during splitting, which may be slow."
 		       now
 		       (nnimap-last-command-time nnimap-object))))
             (with-local-quit
-              (ignore-errors          ;E.g. "buffer foo has no process".
-                (nnimap-send-command "NOOP")))))))))
+              (ignore-errors        ;E.g. "buffer foo has no process".
+                (nnimap-send-command "NOOP"))
+              ;; If our connection has died in the meantime, clean it
+              ;; and its buffer up.
+              (unless (process-live-p (get-buffer-process buffer))
+	        (setq nnimap-process-buffers
+		      (delq buffer nnimap-process-buffers))
+	        (setq nnimap-connection-alist
+		      (seq-filter (lambda (elt)
+				    (null (eq buffer (cdr elt))))
+				  nnimap-connection-alist))
+	        (kill-buffer buffer)))))))))
 
 (defun nnimap-open-connection (buffer)
   ;; Be backwards-compatible -- the earlier value of nnimap-stream was
@@ -662,10 +670,17 @@ during splitting, which may be slow."
 
 (deffoo nnimap-close-server (&optional server defs)
   (when (nnoo-change-server 'nnimap server defs)
-    (ignore-errors
-      (delete-process (get-buffer-process (nnimap-buffer))))
-    (nnoo-close-server 'nnimap server)
-    t))
+    (let ((buf (nnimap-buffer)))
+      (ignore-errors
+        (delete-process (get-buffer-process buf)))
+      (setq nnimap-process-buffers
+            (delq buf nnimap-process-buffers)
+            nnimap-connection-alist
+	    (seq-filter (lambda (elt)
+			  (null (eq buf (cdr elt))))
+			nnimap-connection-alist))
+      (nnoo-close-server 'nnimap server)
+      t)))
 
 (deffoo nnimap-request-close ()
   t)
@@ -1645,13 +1660,13 @@ If LIMIT, first try to limit the search to the N last articles."
 			(cdr (assoc '%Seen flags))
 			(cdr (assoc '%Deleted flags))))
 		      (cdr (assoc '%Flagged flags)))))
-		   (read (gnus-range-difference
+		   (read (range-difference
 			  (cons start-article high) unread)))
 	      (when (> start-article 1)
 		(setq read
 		      (gnus-range-nconcat
 		       (if (> start-article 1)
-			   (gnus-sorted-range-intersection
+			   (range-intersection
 			    (cons 1 (1- start-article))
 			    (gnus-info-read info))
 			 (gnus-info-read info))
@@ -1676,7 +1691,7 @@ If LIMIT, first try to limit the search to the N last articles."
 		    (pop old-marks)
 		    (when (and old-marks
 			       (> start-article 1))
-		      (setq old-marks (gnus-range-difference
+		      (setq old-marks (range-difference
 				       old-marks
 				       (cons start-article high)))
 		      (setq new-marks (gnus-range-nconcat old-marks new-marks)))
@@ -1687,15 +1702,15 @@ If LIMIT, first try to limit the search to the N last articles."
 		     (active (gnus-active group))
 		     (unexists
 		      (if completep
-			  (gnus-range-difference
+			  (range-difference
 			   active
 			   (gnus-compress-sequence existing))
-			(gnus-add-to-range
+			(range-add-list
 			 (cdr old-unexists)
-			 (gnus-list-range-difference
+			 (range-list-difference
 			  existing (gnus-active group))))))
 		(when (> (car active) 1)
-		  (setq unexists (gnus-range-add
+		  (setq unexists (range-concat
 				  (cons 1 (1- (car active)))
 				  unexists)))
 		(if old-unexists
@@ -1718,10 +1733,9 @@ If LIMIT, first try to limit the search to the N last articles."
 (defun nnimap-update-qresync-info (info existing vanished flags)
   ;; Add all the vanished articles to the list of read articles.
   (setf (gnus-info-read info)
-        (gnus-add-to-range
-         (gnus-add-to-range
-          (gnus-range-add (gnus-info-read info)
-			  vanished)
+        (range-add-list
+         (range-add-list
+          (range-concat (gnus-info-read info) vanished)
 	  (cdr (assq '%Flagged flags)))
 	 (cdr (assq '%Seen flags))))
   (let ((marks (gnus-info-marks info)))
@@ -1735,9 +1749,9 @@ If LIMIT, first try to limit the search to the N last articles."
 	  (setq marks (delq ticks marks))
 	  (pop ticks)
 	  ;; Add the new marks we got.
-	  (setq ticks (gnus-add-to-range ticks new-marks))
+	  (setq ticks (range-add-list ticks new-marks))
 	  ;; Remove the marks from messages that don't have them.
-	  (setq ticks (gnus-remove-from-range
+	  (setq ticks (range-remove
 		       ticks
 		       (gnus-compress-sequence
 			(gnus-sorted-complement existing new-marks))))
@@ -1747,7 +1761,7 @@ If LIMIT, first try to limit the search to the N last articles."
     ;; Add vanished to the list of unexisting articles.
     (when vanished
       (let* ((old-unexists (assq 'unexist marks))
-	     (unexists (gnus-range-add (cdr old-unexists) vanished)))
+	     (unexists (range-concat (cdr old-unexists) vanished)))
 	(if old-unexists
 	    (setcdr old-unexists unexists)
 	  (push (cons 'unexist unexists) marks)))
@@ -1937,10 +1951,13 @@ Return the server's response to the SELECT or EXAMINE command."
     (when entry
       (if (and (buffer-live-p (cadr entry))
 	       (get-buffer-process (cadr entry))
-	       (memq (process-status (get-buffer-process (cadr entry)))
-		     '(open run)))
+	       (process-live-p (get-buffer-process (cadr entry))))
 	  (get-buffer-process (cadr entry))
-	(setq nnimap-connection-alist (delq entry nnimap-connection-alist))
+	(setq nnimap-connection-alist (delq entry nnimap-connection-alist)
+              nnimap-process-buffers
+	      (delq (cadr entry) nnimap-process-buffers))
+	(when (buffer-live-p (cadr entry))
+	  (kill-buffer (cadr entry)))
 	nil))))
 
 ;; Leave room for `open-network-stream' to issue a couple of IMAP
@@ -2224,7 +2241,7 @@ Return the server's response to the SELECT or EXAMINE command."
     (while (re-search-forward "^\\([0-9]+\\) OK\\b" nil t)
       (setq sequence (string-to-number (match-string 1)))
       (when (setq range (cadr (assq sequence sequences)))
-	(push (gnus-uncompress-range range) copied)))
+	(push (range-uncompress range) copied)))
     (gnus-compress-sequence (sort (apply #'nconc copied) #'<))))
 
 (defun nnimap-new-articles (flags)

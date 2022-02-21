@@ -25,16 +25,6 @@
 ;; library is based on draft-ietf-drums-msg-fmt-05.txt, released on
 ;; 1998-08-05.
 
-;; Pending a real regression self test suite, Simon Josefsson added
-;; various self test expressions snipped from bug reports, and their
-;; expected value, below.  I you believe it could be useful, please
-;; add your own test cases, or write a real self test suite, or just
-;; remove this.
-
-;; <m3oekvfd50.fsf@whitebox.m5r.de>
-;; (ietf-drums-parse-address "'foo' <foo@example.com>")
-;; => ("foo@example.com" . "'foo'")
-
 ;;; Code:
 
 (eval-when-compile (require 'cl-lib))
@@ -150,7 +140,7 @@ backslash and doublequote.")
       (buffer-string))))
 
 (defun ietf-drums-get-comment (string)
-  "Return the first comment in STRING."
+  "Return the last comment in STRING."
   (with-temp-buffer
     (ietf-drums-init string)
     (let (result c)
@@ -191,6 +181,8 @@ the Content-Transfer-Encoding header of a mail."
   "Parse STRING and return a MAILBOX / DISPLAY-NAME pair.
 If DECODE, the DISPLAY-NAME will have RFC2047 decoding performed
 (that's the \"=?utf...q...=?\") stuff."
+  (when decode
+    (require 'rfc2047))
   (with-temp-buffer
     (let (display-name mailbox c display-string)
       (ietf-drums-init string)
@@ -240,7 +232,7 @@ If DECODE, the DISPLAY-NAME will have RFC2047 decoding performed
 	    (cons
 	     (mapconcat #'identity (nreverse display-name) "")
 	     (ietf-drums-get-comment string)))
-	(cons mailbox (if decode
+	(cons mailbox (if (and decode display-string)
                           (rfc2047-decode-string display-string)
                         display-string))))))
 

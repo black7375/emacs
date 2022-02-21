@@ -594,6 +594,8 @@ struct frame
     struct w32_output *w32;     /* From w32term.h.  */
     struct mac_output *mac;     /* From macterm.h.  */
     struct ns_output *ns;       /* From nsterm.h.  */
+    struct pgtk_output *pgtk; /* From pgtkterm.h. */
+    struct haiku_output *haiku; /* From haikuterm.h. */
   }
   output_data;
 
@@ -643,6 +645,9 @@ struct frame
      alpha[1]: alpha transparency of inactive frames
      Negative values mean not to change alpha.  */
   double alpha[2];
+
+  /* Background opacity */
+  double alpha_background;
 
   /* Exponent for gamma correction of colors.  1/(VIEWING_GAMMA *
      SCREEN_GAMMA) where viewing_gamma is 0.4545 and SCREEN_GAMMA is a
@@ -873,6 +878,16 @@ default_pixels_per_inch_y (void)
 #else
 #define FRAME_NS_P(f) ((f)->output_method == output_ns)
 #endif
+#ifndef HAVE_PGTK
+#define FRAME_PGTK_P(f) false
+#else
+#define FRAME_PGTK_P(f) ((f)->output_method == output_pgtk)
+#endif
+#ifndef HAVE_HAIKU
+#define FRAME_HAIKU_P(f) false
+#else
+#define FRAME_HAIKU_P(f) ((f)->output_method == output_haiku)
+#endif
 
 /* FRAME_WINDOW_P tests whether the frame is a graphical window system
    frame.  */
@@ -887,6 +902,12 @@ default_pixels_per_inch_y (void)
 #endif
 #ifdef HAVE_NS
 #define FRAME_WINDOW_P(f) FRAME_NS_P(f)
+#endif
+#ifdef HAVE_PGTK
+#define FRAME_WINDOW_P(f) FRAME_PGTK_P(f)
+#endif
+#ifdef HAVE_HAIKU
+#define FRAME_WINDOW_P(f) FRAME_HAIKU_P (f)
 #endif
 #ifndef FRAME_WINDOW_P
 #define FRAME_WINDOW_P(f) ((void) (f), false)
@@ -942,6 +963,8 @@ default_pixels_per_inch_y (void)
 # define FRAME_SCALE_FACTOR(f) (FRAME_MAC_P (f) ? FRAME_BACKING_SCALE_FACTOR (f) : 1)
 #elif defined HAVE_NS
 # define FRAME_SCALE_FACTOR(f) (FRAME_NS_P (f) ? ns_frame_scale_factor (f) : 1)
+#elif defined HAVE_PGTK
+# define FRAME_SCALE_FACTOR(f) (FRAME_PGTK_P (f) ? pgtk_frame_scale_factor (f) : 1)
 #else
 # define FRAME_SCALE_FACTOR(f) 1
 #endif
@@ -1675,6 +1698,7 @@ extern void gui_set_scroll_bar_height (struct frame *, Lisp_Object, Lisp_Object)
 extern long gui_figure_window_size (struct frame *, Lisp_Object, bool, bool);
 
 extern void gui_set_alpha (struct frame *, Lisp_Object, Lisp_Object);
+extern void gui_set_alpha_background (struct frame *, Lisp_Object, Lisp_Object);
 extern void gui_set_no_special_glyphs (struct frame *, Lisp_Object, Lisp_Object);
 
 extern void validate_x_resource_name (void);
@@ -1699,7 +1723,7 @@ extern const char *x_get_resource_string (const char *, const char *);
 extern void x_sync (struct frame *);
 #endif /* HAVE_X_WINDOWS */
 
-#if !defined HAVE_MACGUI && !defined HAVE_NS
+#if !defined (HAVE_MACGUI) && !defined (HAVE_NS) && !defined (HAVE_PGTK)
 
 /* Set F's bitmap icon, if specified among F's parameters.  */
 
@@ -1735,6 +1759,9 @@ struct MonitorInfo {
   Emacs_Rectangle geom, work;
   int mm_width, mm_height;
   char *name;
+#ifdef HAVE_PGTK
+  double scale_factor;
+#endif
 };
 
 extern void free_monitors (struct MonitorInfo *monitors, int n_monitors);

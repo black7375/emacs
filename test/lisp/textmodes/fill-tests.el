@@ -45,6 +45,8 @@
     (should (string= (buffer-string) "Abc\nd efg\n(h ijk)."))))
 
 (ert-deftest fill-test-unbreakable-paragraph ()
+  ;; See bug#45720 and bug#53537.
+  :expected-result :failed
   (with-temp-buffer
     (let ((string "aaa =   baaaaaaaaaaaaaaaaaaaaaaaaaaaa\n"))
       (insert string)
@@ -75,6 +77,49 @@
       (should (equal
                (buffer-string)
                "aaa =   baaaaaaaa aaaaaaaaaa\n         aaaaaaaaaa\n")))))
+
+(ert-deftest test-fill-end-period ()
+  (should
+   (equal
+    (with-temp-buffer
+      (text-mode)
+      (auto-fill-mode)
+      (insert "Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eius.")
+      (self-insert-command 1 ?\s)
+      (buffer-string))
+    "Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eius. "))
+  (should
+   (equal
+    (with-temp-buffer
+      (text-mode)
+      (auto-fill-mode)
+      (insert "Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do eius.Foo")
+      (forward-char -3)
+      (self-insert-command 1 ?\s)
+      (buffer-string))
+    "Lorem ipsum dolor sit amet, consectetur adipisicing elit, sed do
+eius. Foo")))
+
+(ert-deftest test-fill-haskell ()
+  (should
+   (equal
+    (with-temp-buffer
+      (asm-mode)
+      (dolist (line '("  ;; a b c"
+                      "  ;; d e f"
+                      "  ;; x y z"
+                      "  ;; w"))
+        (insert line "\n"))
+      (goto-char (point-min))
+      (end-of-line)
+      (setf fill-column 10)
+      (fill-paragraph nil)
+      (buffer-string))
+    "  ;; a b c
+  ;; d e f
+  ;; x y z
+  ;; w
+")))
 
 (provide 'fill-tests)
 
