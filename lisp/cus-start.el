@@ -1034,6 +1034,7 @@ since it could result in memory overflow and make Emacs crash."
                character)
               "27.1"
               :safe (lambda (value) (or (characterp value) (null value))))
+             (composition-break-at-point display boolean "29.1")
 	     ;; xfaces.c
 	     (scalable-fonts-allowed
               display (choice (const :tag "Don't allow scalable fonts" nil)
@@ -1082,6 +1083,8 @@ since it could result in memory overflow and make Emacs crash."
 		       (featurep 'ns))
                       ((string-match "\\`haiku-" (symbol-name symbol))
                        (featurep 'haiku))
+                      ((eq symbol 'process-error-pause-time)
+                       (not (eq system-type 'ms-dos)))
                       ((eq symbol 'x-gtk-use-native-input)
                        (and (featurep 'x)
                             (featurep 'gtk)))

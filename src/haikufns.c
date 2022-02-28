@@ -570,7 +570,7 @@ haiku_create_frame (Lisp_Object parms)
   Lisp_Object name;
   bool minibuffer_only = false;
   long window_prompting = 0;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object display;
   struct haiku_display_info *dpyinfo = NULL;
   struct kboard *kb;
@@ -673,6 +673,12 @@ haiku_create_frame (Lisp_Object parms)
 
   FRAME_RIF (f)->default_font_parameter (f, parms);
 
+  if (!FRAME_FONT (f))
+    {
+      delete_frame (frame, Qnoelisp);
+      error ("Invalid frame font");
+    }
+
   gui_default_parameter (f, parms, Qborder_width, make_fixnum (0),
                          "borderwidth", "BorderWidth", RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qinternal_border_width, make_fixnum (2),
@@ -682,9 +688,9 @@ haiku_create_frame (Lisp_Object parms)
 			 "childFrameBorderWidth", "childFrameBorderWidth",
 			 RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qright_divider_width, make_fixnum (0),
-		       NULL, NULL, RES_TYPE_NUMBER);
+			 NULL, NULL, RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qbottom_divider_width, make_fixnum (0),
-		       NULL, NULL, RES_TYPE_NUMBER);
+			 NULL, NULL, RES_TYPE_NUMBER);
   gui_default_parameter (f, parms, Qvertical_scroll_bars, Qt,
 			 "verticalScrollBars", "VerticalScrollBars",
 			 RES_TYPE_SYMBOL);
@@ -908,7 +914,7 @@ haiku_create_tip_frame (Lisp_Object parms)
   struct frame *f;
   Lisp_Object frame;
   Lisp_Object name;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   bool face_change_before = face_change;
   struct haiku_display_info *dpyinfo = x_display_list;
 
@@ -1204,10 +1210,9 @@ haiku_hide_tip (bool delete)
     return Qnil;
   else
     {
-      ptrdiff_t count;
       Lisp_Object was_open = Qnil;
 
-      count = SPECPDL_INDEX ();
+      specpdl_ref count = SPECPDL_INDEX ();
       specbind (Qinhibit_redisplay, Qt);
       specbind (Qinhibit_quit, Qt);
 
@@ -1408,7 +1413,7 @@ haiku_set_cursor_color (struct frame *f, Lisp_Object arg, Lisp_Object oldval)
     {
       if (haiku_get_color (SSDATA (Vx_cursor_fore_pixel),
 			   &fore_pixel))
-	error ("Bad color %s", Vx_cursor_fore_pixel);
+	error ("Bad color %s", SSDATA (Vx_cursor_fore_pixel));
       FRAME_OUTPUT_DATA (f)->cursor_fg = fore_pixel.pixel;
     }
   else
@@ -1839,16 +1844,29 @@ DEFUN ("x-open-connection", Fx_open_connection, Sx_open_connection,
        doc: /* SKIP: real doc in xfns.c.  */)
      (Lisp_Object display, Lisp_Object resource_string, Lisp_Object must_succeed)
 {
-  struct haiku_display_info *dpy_info;
+  struct haiku_display_info *dpyinfo;
   CHECK_STRING (display);
 
   if (NILP (Fstring_equal (display, build_string ("be"))))
-    !NILP (must_succeed) ? fatal ("Bad display") : error ("Bad display");
-  dpy_info = haiku_term_init ();
+    {
+      if (!NILP (must_succeed))
+	fatal ("Bad display");
+      else
+	error ("Bad display");
+    }
 
-  if (!dpy_info)
-    !NILP (must_succeed) ? fatal ("Display not responding") :
-      error ("Display not responding");
+  if (x_display_list)
+    return Qnil;
+
+  dpyinfo = haiku_term_init ();
+
+  if (!dpyinfo)
+    {
+      if (!NILP (must_succeed))
+	fatal ("Display not responding");
+      else
+	error ("Display not responding");
+    }
 
   return Qnil;
 }
@@ -1932,15 +1950,14 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
   (Lisp_Object string, Lisp_Object frame, Lisp_Object parms,
    Lisp_Object timeout, Lisp_Object dx, Lisp_Object dy)
 {
-  struct frame *tip_f;
+  struct frame *f, *tip_f;
   struct window *w;
   int root_x, root_y;
   struct buffer *old_buffer;
   struct text_pos pos;
   int width, height;
   int old_windows_or_buffers_changed = windows_or_buffers_changed;
-  ptrdiff_t count = SPECPDL_INDEX ();
-  ptrdiff_t count_1;
+  specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object window, size, tip_buf;
   AUTO_STRING (tip, " *tip*");
 
@@ -1952,7 +1969,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 
   if (NILP (frame))
     frame = selected_frame;
-  decode_window_system_frame (frame);
+  f = decode_window_system_frame (frame);
 
   if (NILP (timeout))
     timeout = make_fixnum (5);
@@ -2156,7 +2173,7 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
 
   /* Insert STRING into root window's buffer and fit the frame to the
      buffer.  */
-  count_1 = SPECPDL_INDEX ();
+  specpdl_ref count_1 = SPECPDL_INDEX ();
   old_buffer = current_buffer;
   set_buffer_internal_1 (XBUFFER (w->contents));
   bset_truncate_lines (current_buffer, Qnil);
@@ -2185,12 +2202,20 @@ DEFUN ("x-show-tip", Fx_show_tip, Sx_show_tip, 1, 6, 0,
   void *wnd = FRAME_HAIKU_WINDOW (tip_f);
   BWindow_resize (wnd, width, height);
   BView_resize_to (FRAME_HAIKU_VIEW (tip_f), width, height);
+  BView_set_view_cursor (FRAME_HAIKU_VIEW (tip_f),
+			 FRAME_OUTPUT_DATA (f)->current_cursor);
   BWindow_set_offset (wnd, root_x, root_y);
   BWindow_set_visible (wnd, true);
   SET_FRAME_VISIBLE (tip_f, true);
   FRAME_PIXEL_WIDTH (tip_f) = width;
   FRAME_PIXEL_HEIGHT (tip_f) = height;
   BWindow_sync (wnd);
+
+  /* This is needed because the app server resets the cursor whenever
+     a new window is mapped, so we won't see the cursor set on the
+     tooltip if the mouse pointer isn't actually over it.  */
+  BView_set_view_cursor (FRAME_HAIKU_VIEW (f),
+			 FRAME_OUTPUT_DATA (f)->current_cursor);
   unblock_input ();
 
   w->must_be_updated_p = true;
@@ -2407,7 +2432,6 @@ Optional arg SAVE_TEXT, if non-nil, specifies some text to show in the entry fie
    Lisp_Object dir, Lisp_Object mustmatch,
    Lisp_Object dir_only_p, Lisp_Object save_text)
 {
-  ptrdiff_t idx;
   if (!x_display_list)
     error ("Be windowing not initialized");
 
@@ -2425,7 +2449,7 @@ Optional arg SAVE_TEXT, if non-nil, specifies some text to show in the entry fie
   CHECK_LIVE_FRAME (frame);
   check_window_system (XFRAME (frame));
 
-  idx = SPECPDL_INDEX ();
+  specpdl_ref idx = SPECPDL_INDEX ();
   record_unwind_protect_void (unwind_popup);
 
   struct frame *f = XFRAME (frame);

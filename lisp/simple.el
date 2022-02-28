@@ -1477,46 +1477,59 @@ START and END."
   (cond ((not (called-interactively-p 'any))
 	 (count-words start end))
 	(arg
-	 (count-words--buffer-message))
+	 (message "%s" (count-words--buffer-format)))
 	(t
-	 (count-words--message "Region" start end))))
+	 (message "%s" (count-words--format "Region" start end)))))
 
-(defun count-words (start end)
+(defun count-words (start end &optional totals)
   "Count words between START and END.
 If called interactively, START and END are normally the start and
 end of the buffer; but if the region is active, START and END are
 the start and end of the region.  Print a message reporting the
-number of lines, words, and chars.
+number of lines, words, and chars.  With prefix argument, also
+include the data for the entire (un-narrowed) buffer.
 
 If called from Lisp, return the number of words between START and
-END, without printing any message."
-  (interactive (list nil nil))
-  (cond ((not (called-interactively-p 'any))
-	 (let ((words 0)
-               ;; Count across field boundaries. (Bug#41761)
-               (inhibit-field-text-motion t))
-	   (save-excursion
-	     (save-restriction
-	       (narrow-to-region start end)
-	       (goto-char (point-min))
-	       (while (forward-word-strictly 1)
-		 (setq words (1+ words)))))
-	   words))
-	((use-region-p)
-	 (call-interactively 'count-words-region))
-	(t
-	 (count-words--buffer-message))))
+END, without printing any message.  TOTALS is ignored when called
+from Lisp."
+  (interactive (list nil nil current-prefix-arg))
+  ;; When called from Lisp, return the data.
+  (if (not (called-interactively-p 'any))
+      (let ((words 0)
+            ;; Count across field boundaries. (Bug#41761)
+            (inhibit-field-text-motion t))
+	(save-excursion
+	  (save-restriction
+	    (narrow-to-region start end)
+	    (goto-char (point-min))
+	    (while (forward-word-strictly 1)
+	      (setq words (1+ words)))))
+	words)
+    ;; When called interactively, message the data.
+    (let ((totals (if (and totals
+                           (or (use-region-p)
+                               (buffer-narrowed-p)))
+                      (save-restriction
+                        (widen)
+                        (count-words--format "; buffer in total"
+                                             (point-min) (point-max)))
+                    "")))
+      (if (use-region-p)
+	  (message "%s%s" (count-words--format
+                           "Region" (region-beginning) (region-end))
+                   totals)
+        (message "%s%s" (count-words--buffer-format) totals)))))
 
-(defun count-words--buffer-message ()
-  (count-words--message
+(defun count-words--buffer-format ()
+  (count-words--format
    (if (buffer-narrowed-p) "Narrowed part of buffer" "Buffer")
    (point-min) (point-max)))
 
-(defun count-words--message (str start end)
+(defun count-words--format (str start end)
   (let ((lines (count-lines start end))
 	(words (count-words start end))
 	(chars (- end start)))
-    (message "%s has %d line%s, %d word%s, and %d character%s."
+    (format "%s has %d line%s, %d word%s, and %d character%s"
 	     str
 	     lines (if (= lines 1) "" "s")
 	     words (if (= words 1) "" "s")
@@ -2368,12 +2381,17 @@ don't clear it."
                        (setq current-prefix-arg prefix-arg)
                        (setq prefix-arg nil)
                        (when current-prefix-arg
-                         (prefix-command-update))))))
+                         (prefix-command-update)))))
+        query)
     (if (and (symbolp cmd)
              (get cmd 'disabled)
-             disabled-command-function)
-        ;; FIXME: Weird calling convention!
-        (run-hooks 'disabled-command-function)
+             (or (and (setq query (and (consp (get cmd 'disabled))
+                                       (eq (car (get cmd 'disabled)) 'query)))
+                      (not (command-execute--query cmd)))
+                 (and (not query) disabled-command-function)))
+        (when (not query)
+          ;; FIXME: Weird calling convention!
+          (run-hooks 'disabled-command-function))
       (let ((final cmd))
         (while
             (progn
@@ -2397,6 +2415,21 @@ don't clear it."
               (put cmd 'command-execute-obsolete-warned t)
               (message "%s" (macroexp--obsolete-warning
                              cmd (get cmd 'byte-obsolete-info) "command"))))))))))
+
+(defun command-execute--query (command)
+  "Query the user whether to run COMMAND."
+  (let ((query (get command 'disabled)))
+    (funcall (if (nth 1 query) #'yes-or-no-p #'y-or-n-p)
+             (nth 2 query))))
+
+;;;###autoload
+(defun command-query (command query &optional verbose)
+  "Make executing COMMAND issue QUERY to the user.
+This will, by default, use `y-or-n-p', but if VERBOSE,
+`yes-or-no-p' is used instead."
+  (put command 'disabled
+       (list 'query (not (not verbose)) query)))
+
 
 (defvar minibuffer-history nil
   "Default minibuffer history list.
@@ -8303,7 +8336,8 @@ Just \\[universal-argument] as argument means to use the current column."
              ;; We used to use current-column silently, but C-x f is too easily
              ;; typed as a typo for C-x C-f, so we turned it into an error and
              ;; now an interactive prompt.
-             (read-number "Set fill-column to: " (current-column)))))
+             (read-number (format "Change fill-column from %s to: " fill-column)
+                          (current-column)))))
   (if (consp arg)
       (setq arg (current-column)))
   (if (not (integerp arg))

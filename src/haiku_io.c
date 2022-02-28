@@ -96,6 +96,8 @@ haiku_len (enum haiku_event_type type)
       return sizeof (struct haiku_app_quit_requested_event);
     case DUMMY_EVENT:
       return sizeof (struct haiku_dummy_event);
+    case MENU_BAR_LEFT:
+      return sizeof (struct haiku_menu_bar_left_event);
     }
 
   emacs_abort ();
@@ -207,7 +209,7 @@ record_c_unwind_protect_from_cxx (void (*fn) (void *), void *r)
 }
 
 /* SPECPDL_IDX that is safe from C++ code.  */
-ptrdiff_t
+specpdl_ref
 c_specpdl_idx_from_cxx (void)
 {
   return SPECPDL_INDEX ();
@@ -215,7 +217,7 @@ c_specpdl_idx_from_cxx (void)
 
 /* unbind_to (IDX, Qnil), but safe from C++ code.  */
 void
-c_unbind_to_nil_from_cxx (ptrdiff_t idx)
+c_unbind_to_nil_from_cxx (specpdl_ref idx)
 {
   unbind_to (idx, Qnil);
 }

@@ -3004,7 +3004,7 @@ safe__call (bool inhibit_quit, ptrdiff_t nargs, Lisp_Object func, va_list ap)
   else
     {
       ptrdiff_t i;
-      ptrdiff_t count = SPECPDL_INDEX ();
+      specpdl_ref count = SPECPDL_INDEX ();
       Lisp_Object *args;
       USE_SAFE_ALLOCA;
       SAFE_ALLOCA_LISP (args, nargs);
@@ -3990,6 +3990,12 @@ compute_stop_pos (struct it *it)
       pos = next_overlay_change (charpos);
       if (pos < it->stop_charpos)
 	it->stop_charpos = pos;
+      /* If we are breaking compositions at point, stop at point.  */
+      if (!NILP (BVAR (current_buffer, enable_multibyte_characters))
+	  && !NILP (Vauto_composition_mode)
+	  && composition_break_at_point
+	  && charpos < PT && PT < it->stop_charpos)
+	it->stop_charpos = PT;
 
       /* Set up variables for computing the stop position from text
          property changes.  */
@@ -4001,7 +4007,8 @@ compute_stop_pos (struct it *it)
 	 chunks.  We play safe here by assuming that only SPC, TAB,
 	 FF, and NL cannot be in some composition; in particular, most
 	 ASCII punctuation characters could be composed into ligatures.  */
-      if (!NILP (BVAR (current_buffer, enable_multibyte_characters))
+      if (!composition_break_at_point
+	  && !NILP (BVAR (current_buffer, enable_multibyte_characters))
 	  && !NILP (Vauto_composition_mode))
 	{
 	  ptrdiff_t endpos = charpos + 10 * TEXT_PROP_DISTANCE_LIMIT;
@@ -4310,7 +4317,7 @@ handle_fontified_prop (struct it *it)
 	     no amount of fontifying will be able to change it.  */
 	  NILP (prop) && IT_CHARPOS (*it) < Z))
     {
-      ptrdiff_t count = SPECPDL_INDEX ();
+      specpdl_ref count = SPECPDL_INDEX ();
       Lisp_Object val;
       struct buffer *obuf = current_buffer;
       ptrdiff_t begv = BEGV, zv = ZV;
@@ -4505,7 +4512,7 @@ face_at_pos (const struct it *it, enum lface_attribute_index attr_filter)
 static enum prop_handled
 handle_face_prop (struct it *it)
 {
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   /* Don't allow the user to quit out of face-merging code, in case
      this is called when redisplaying a non-selected window, with
      point temporarily moved to window-point.  */
@@ -5550,7 +5557,7 @@ handle_single_display_spec (struct it *it, Lisp_Object spec, Lisp_Object object,
     form = Qnil;
   if (!NILP (form) && !EQ (form, Qt))
     {
-      ptrdiff_t count = SPECPDL_INDEX ();
+      specpdl_ref count = SPECPDL_INDEX ();
 
       /* Bind `object' to the object having the `display' property, a
 	 buffer or string.  Bind `position' to the position in the
@@ -5627,7 +5634,7 @@ handle_single_display_spec (struct it *it, Lisp_Object spec, Lisp_Object object,
 		{
 		  /* Evaluate IT->font_height with `height' bound to the
 		     current specified height to get the new height.  */
-		  ptrdiff_t count = SPECPDL_INDEX ();
+		  specpdl_ref count = SPECPDL_INDEX ();
 		  struct face *face = FACE_FROM_ID (it->f, it->face_id);
 
 		  specbind (Qheight, face->lface[LFACE_HEIGHT_INDEX]);
@@ -5828,7 +5835,7 @@ handle_single_display_spec (struct it *it, Lisp_Object spec, Lisp_Object object,
 	      /* Don't allow quitting from lookup_derived_face, for when
 		 we are displaying a non-selected window, and the buffer's
 		 point was temporarily moved to the window-point.  */
-	      ptrdiff_t count1 = SPECPDL_INDEX ();
+	      specpdl_ref count1 = SPECPDL_INDEX ();
 	      specbind (Qinhibit_quit, Qt);
 	      face_id2 = lookup_derived_face (it->w, it->f, face_name,
 					      FRINGE_FACE_ID, false);
@@ -6001,7 +6008,7 @@ handle_single_display_spec (struct it *it, Lisp_Object spec, Lisp_Object object,
 #ifdef HAVE_WINDOW_SYSTEM
       else
 	{
-	  ptrdiff_t count = SPECPDL_INDEX ();
+	  specpdl_ref count = SPECPDL_INDEX ();
 
 	  it->what = IT_IMAGE;
 	  /* Don't allow quitting from lookup_image, for when we are
@@ -9192,7 +9199,19 @@ next_element_from_buffer (struct it *it)
 	  && IT_CHARPOS (*it) >= it->redisplay_end_trigger_charpos)
 	run_redisplay_end_trigger_hook (it);
 
-      stop = it->bidi_it.scan_dir < 0 ? -1 : it->end_charpos;
+      if (composition_break_at_point
+	  && !NILP (BVAR (current_buffer, enable_multibyte_characters))
+	  && !NILP (Vauto_composition_mode))
+	{
+	  /* Limit search for composable characters to point's position.  */
+	  if (it->bidi_it.scan_dir < 0)
+	    stop = (PT <= IT_CHARPOS (*it)) ? PT : -1;
+	  else
+	    stop = (IT_CHARPOS (*it) < PT
+		    && PT < it->end_charpos) ? PT : it->end_charpos;
+	}
+      else
+	stop = it->bidi_it.scan_dir < 0 ? -1 : it->end_charpos;
       if (CHAR_COMPOSED_P (it, IT_CHARPOS (*it), IT_BYTEPOS (*it),
 			   stop)
 	  && next_element_from_composition (it))
@@ -11218,7 +11237,7 @@ WINDOW.  */)
 		      ? current_buffer
 		      : XBUFFER (Fget_buffer (buffer_or_name)));
   Lisp_Object buffer, value;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
 
   XSETBUFFER (buffer, b);
 
@@ -11454,7 +11473,7 @@ message_dolog (const char *m, ptrdiff_t nbytes, bool nlflag, bool multibyte)
              we aren't prepared to run modification hooks (we could
              end up calling modification hooks from another buffer and
              only with AFTER=t, Bug#21824).  */
-          ptrdiff_t count = SPECPDL_INDEX ();
+          specpdl_ref count = SPECPDL_INDEX ();
           specbind (Qinhibit_modification_hooks, Qt);
 
 	  insert_1_both ("\n", 1, 1, true, false, false);
@@ -11909,7 +11928,7 @@ with_echo_area_buffer (struct window *w, int which,
 {
   Lisp_Object buffer;
   bool this_one, the_other, clear_buffer_p, rc;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
 
   /* If buffers aren't live, make new ones.  */
   ensure_echo_area_buffers ();
@@ -12094,7 +12113,7 @@ setup_echo_area_for_printing (bool multibyte_p)
 
       if (Z > BEG)
 	{
-	  ptrdiff_t count = SPECPDL_INDEX ();
+	  specpdl_ref count = SPECPDL_INDEX ();
 	  specbind (Qinhibit_read_only, Qt);
 	  /* Note that undo recording is always disabled.  */
 	  del_range (BEG, Z);
@@ -12162,7 +12181,7 @@ display_echo_area (struct window *w)
      That message would modify the echo area buffer's contents while a
      redisplay of the buffer is going on, and seriously confuse
      redisplay.  */
-  ptrdiff_t count = inhibit_garbage_collection ();
+  specpdl_ref count = inhibit_garbage_collection ();
 
   /* If there is no message, we must call display_echo_area_1
      nevertheless because it resizes the window.  But we will have to
@@ -12542,7 +12561,7 @@ set_message (Lisp_Object string)
 
   if (FUNCTIONP (Vset_message_function))
     {
-      ptrdiff_t count = SPECPDL_INDEX ();
+      specpdl_ref count = SPECPDL_INDEX ();
       specbind (Qinhibit_quit, Qt);
       message = safe_call1 (Vset_message_function, string);
       unbind_to (count, Qnil);
@@ -12620,7 +12639,7 @@ clear_message (bool current_p, bool last_displayed_p)
 
       if (FUNCTIONP (Vclear_message_function))
         {
-          ptrdiff_t count = SPECPDL_INDEX ();
+          specpdl_ref count = SPECPDL_INDEX ();
           specbind (Qinhibit_quit, Qt);
           safe_call (1, Vclear_message_function);
           unbind_to (count, Qnil);
@@ -12763,7 +12782,7 @@ echo_area_display (bool update_frame_p)
 	      /* Must update other windows.  Likewise as in other
 		 cases, don't let this update be interrupted by
 		 pending input.  */
-	      ptrdiff_t count = SPECPDL_INDEX ();
+	      specpdl_ref count = SPECPDL_INDEX ();
 	      specbind (Qredisplay_dont_pause, Qt);
 	      fset_redisplay (f);
 	      redisplay_internal ();
@@ -13099,7 +13118,7 @@ gui_consider_frame_title (Lisp_Object frame)
       char *title;
       ptrdiff_t len;
       struct it it;
-      ptrdiff_t count = SPECPDL_INDEX ();
+      specpdl_ref count = SPECPDL_INDEX ();
 
       FOR_EACH_FRAME (tail, other_frame)
 	{
@@ -13257,7 +13276,7 @@ prepare_menu_bars (void)
   if (all_windows)
     {
       Lisp_Object tail, frame;
-      ptrdiff_t count = SPECPDL_INDEX ();
+      specpdl_ref count = SPECPDL_INDEX ();
       /* True means that update_menu_bar has run its hooks
 	 so any further calls to update_menu_bar shouldn't do so again.  */
       bool menu_bar_hooks_run = false;
@@ -13360,7 +13379,7 @@ update_menu_bar (struct frame *f, bool save_match_data, bool hooks_run)
 	  || window_buffer_changed (w))
 	{
 	  struct buffer *prev = current_buffer;
-	  ptrdiff_t count = SPECPDL_INDEX ();
+	  specpdl_ref count = SPECPDL_INDEX ();
 
 	  specbind (Qinhibit_menubar_update, Qt);
 
@@ -13530,7 +13549,7 @@ update_tab_bar (struct frame *f, bool save_match_data)
 	  || window_buffer_changed (w))
 	{
 	  struct buffer *prev = current_buffer;
-	  ptrdiff_t count = SPECPDL_INDEX ();
+	  specpdl_ref count = SPECPDL_INDEX ();
 	  Lisp_Object new_tab_bar;
           int new_n_tab_bar;
 
@@ -14452,7 +14471,7 @@ update_tool_bar (struct frame *f, bool save_match_data)
 	  || window_buffer_changed (w))
 	{
 	  struct buffer *prev = current_buffer;
-	  ptrdiff_t count = SPECPDL_INDEX ();
+	  specpdl_ref count = SPECPDL_INDEX ();
 	  Lisp_Object frame, new_tool_bar;
           int new_n_tool_bar;
 
@@ -16003,7 +16022,6 @@ redisplay_internal (void)
   bool must_finish = false, match_p;
   struct text_pos tlbufpos, tlendpos;
   int number_of_visible_frames;
-  ptrdiff_t count;
   struct frame *sf;
   bool polling_stopped_here = false;
   Lisp_Object tail, frame;
@@ -16066,7 +16084,7 @@ redisplay_internal (void)
 
   /* Record a function that clears redisplaying_p
      when we leave this function.  */
-  count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   record_unwind_protect_void (unwind_redisplay);
   redisplaying_p = true;
   block_buffer_flips ();
@@ -16420,7 +16438,8 @@ redisplay_internal (void)
       /* If highlighting the region, or if the cursor is in the echo area,
 	 then we can't just move the cursor.  */
       else if (NILP (Vshow_trailing_whitespace)
-	       && !cursor_in_echo_area)
+	       && !cursor_in_echo_area
+	       && !composition_break_at_point)
 	{
 	  struct it it;
 	  struct glyph_row *row;
@@ -16856,7 +16875,7 @@ redisplay_preserve_echo_area (int from_where)
   redisplay_trace ("redisplay_preserve_echo_area (%d)\n", from_where);
 
   block_input ();
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   record_unwind_protect_void (unwind_redisplay_preserve_echo_area);
   block_buffer_flips ();
   unblock_input ();
@@ -17730,7 +17749,7 @@ run_window_scroll_functions (Lisp_Object window, struct text_pos startp)
 
   if (!NILP (Vwindow_scroll_functions))
     {
-      ptrdiff_t count = SPECPDL_INDEX ();
+      specpdl_ref count = SPECPDL_INDEX ();
       specbind (Qinhibit_quit, Qt);
       run_hook_with_args_2 (Qwindow_scroll_functions, window,
 			    make_fixnum (CHARPOS (startp)));
@@ -18865,7 +18884,7 @@ redisplay_window (Lisp_Object window, bool just_this_one_p)
      It indicates that the buffer contents and narrowing are unchanged.  */
   bool buffer_unchanged_p = false;
   bool temp_scroll_step = false;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   int rc;
   int centering_position = -1;
   bool last_line_misfit = false;
@@ -18959,6 +18978,7 @@ redisplay_window (Lisp_Object window, bool just_this_one_p)
        && !current_buffer->clip_changed
        && !current_buffer->prevent_redisplay_optimizations_p
        && !window_outdated (w)
+       && !composition_break_at_point
        && !hscrolling_current_line_p (w));
 
   beg_unchanged = BEG_UNCHANGED;
@@ -19814,7 +19834,7 @@ redisplay_window (Lisp_Object window, bool just_this_one_p)
 	  || window_wants_header_line (w)
 	  || window_wants_tab_line (w)))
     {
-      ptrdiff_t count1 = SPECPDL_INDEX ();
+      specpdl_ref count1 = SPECPDL_INDEX ();
 
       specbind (Qinhibit_quit, Qt);
       display_mode_lines (w);
@@ -22645,7 +22665,7 @@ extend_face_to_end_of_line (struct it *it)
 	   || WINDOW_RIGHT_MARGIN_WIDTH (it->w) > 0))
     return;
 
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
 
   /* Don't allow the user to quit out of face-merging code, in case
      this is called when redisplaying a non-selected window, with
@@ -23543,7 +23563,7 @@ display_count_lines_logically (ptrdiff_t start_byte, ptrdiff_t limit_byte,
     return display_count_lines (start_byte, limit_byte, count, byte_pos_ptr);
 
   ptrdiff_t val;
-  ptrdiff_t pdl_count = SPECPDL_INDEX ();
+  specpdl_ref pdl_count = SPECPDL_INDEX ();
   record_unwind_protect (save_restriction_restore, save_restriction_save ());
   Fwiden ();
   val = display_count_lines (start_byte, limit_byte, count, byte_pos_ptr);
@@ -23569,7 +23589,7 @@ display_count_lines_visually (struct it *it)
     return it->lnum + 1;
   else
     {
-      ptrdiff_t count = SPECPDL_INDEX ();
+      specpdl_ref count = SPECPDL_INDEX ();
 
       if (IT_CHARPOS (*it) <= PT)
 	{
@@ -26009,7 +26029,7 @@ display_mode_lines (struct window *w)
 {
   Lisp_Object old_selected_window = selected_window;
   Lisp_Object new_frame = w->frame;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   int n = 0;
 
   record_unwind_protect (restore_selected_window, selected_window);
@@ -26101,7 +26121,7 @@ display_mode_line (struct window *w, enum face_id face_id, Lisp_Object format)
 {
   struct it it;
   struct face *face;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
 
   init_iterator (&it, w, -1, -1, NULL, face_id);
   /* Don't extend on a previously drawn mode-line.
@@ -26866,7 +26886,7 @@ are the selected window and the WINDOW's buffer).  */)
   struct buffer *old_buffer = NULL;
   int face_id;
   bool no_props = FIXNUMP (face);
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object str;
   int string_start = 0;
 
@@ -27579,7 +27599,7 @@ decode_mode_spec (struct window *w, register int c, int field_width,
 
     case '@':
       {
-	ptrdiff_t count = inhibit_garbage_collection ();
+	specpdl_ref count = inhibit_garbage_collection ();
 	Lisp_Object curdir = BVAR (current_buffer, directory);
 	Lisp_Object val = Qnil;
 
@@ -36596,6 +36616,12 @@ Otherwise, use custom-tailored code after resizing minibuffer windows to try
 and display the most important part of the minibuffer.   */);
   /* See bug#43519 for some discussion around this.  */
   redisplay_adhoc_scroll_in_resize_mini_windows = true;
+
+  DEFVAR_BOOL ("composition-break-at-point", composition_break_at_point,
+    doc: /* If non-nil, prevent auto-composition of characters around point.
+This makes it easier to edit character sequences that are
+composed on display.  */);
+  composition_break_at_point = false;
 }
 
 

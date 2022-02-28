@@ -682,7 +682,7 @@ add_command_key (Lisp_Object key)
 Lisp_Object
 recursive_edit_1 (void)
 {
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object val;
 
   if (command_loop_level > 0)
@@ -776,7 +776,7 @@ throwing to \\='exit:
 This function is called by the editor initialization to begin editing.  */)
   (void)
 {
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object buffer;
 
   /* If we enter while input is blocked, don't lock up here.
@@ -939,7 +939,7 @@ static Lisp_Object
 cmd_error (Lisp_Object data)
 {
   Lisp_Object old_level, old_length;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object conditions;
   char macroerror[sizeof "After..kbd macro iterations: "
 		  + INT_STRLEN_BOUND (EMACS_INT)];
@@ -1232,7 +1232,7 @@ DEFUN ("internal--track-mouse", Finternal_track_mouse, Sinternal_track_mouse,
        doc: /* Call BODYFUN with mouse movement events enabled.  */)
   (Lisp_Object bodyfun)
 {
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object val;
 
   record_unwind_protect (tracking_off, track_mouse);
@@ -1368,7 +1368,7 @@ command_loop_1 (void)
 	{
 	  /* Bind inhibit-quit to t so that C-g gets read in
 	     rather than quitting back to the minibuffer.  */
-	  ptrdiff_t count = SPECPDL_INDEX ();
+	  specpdl_ref count = SPECPDL_INDEX ();
 	  specbind (Qinhibit_quit, Qt);
 
 	  sit_for (Vminibuffer_message_timeout, 0, 2);
@@ -1500,7 +1500,7 @@ command_loop_1 (void)
 	  /* Here for a command that isn't executed directly.  */
 
 #ifdef HAVE_WINDOW_SYSTEM
-            ptrdiff_t scount = SPECPDL_INDEX ();
+            specpdl_ref scount = SPECPDL_INDEX ();
 
             if (display_hourglass_p
                 && NILP (Vexecuting_kbd_macro))
@@ -1616,23 +1616,33 @@ command_loop_1 (void)
 
       if (current_buffer == prev_buffer
 	  && XBUFFER (XWINDOW (selected_window)->contents) == current_buffer
-	  && last_point_position != PT
-	  && NILP (Vdisable_point_adjustment)
-	  && NILP (Vglobal_disable_point_adjustment))
+	  && last_point_position != PT)
 	{
-	  if (last_point_position > BEGV
-	      && last_point_position < ZV
-	      && (composition_adjust_point (last_point_position,
-					    last_point_position)
-		  != last_point_position))
-	    /* The last point was temporarily set within a grapheme
-	       cluster to prevent automatic composition.  To recover
-	       the automatic composition, we must update the
-	       display.  */
-	    windows_or_buffers_changed = 21;
-	  if (!already_adjusted)
-	    adjust_point_for_property (last_point_position,
-				       MODIFF != prev_modiff);
+	  if (NILP (Vdisable_point_adjustment)
+	      && NILP (Vglobal_disable_point_adjustment)
+	      && !composition_break_at_point)
+	    {
+	      if (last_point_position > BEGV
+		  && last_point_position < ZV
+		  && (composition_adjust_point (last_point_position,
+						last_point_position)
+		      != last_point_position))
+		/* The last point was temporarily set within a grapheme
+		   cluster to prevent automatic composition.  To recover
+		   the automatic composition, we must update the
+		   display.  */
+		windows_or_buffers_changed = 21;
+	      if (!already_adjusted)
+		adjust_point_for_property (last_point_position,
+					   MODIFF != prev_modiff);
+	    }
+	  else if (PT > BEGV && PT < ZV
+		   && (composition_adjust_point (last_point_position, PT)
+		       != PT))
+	    /* Now point is within a grapheme cluster.  We must update
+	       the display so that this cluster is de-composed on the
+	       screen and the cursor is correctly placed at point.  */
+	    windows_or_buffers_changed = 39;
 	}
 
       /* Install chars successfully executed in kbd macro.  */
@@ -1656,7 +1666,7 @@ command_loop_1 (void)
 Lisp_Object
 read_menu_command (void)
 {
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
 
   /* We don't want to echo the keystrokes while navigating the
      menus.  */
@@ -1901,7 +1911,7 @@ safe_run_hook_funcall (ptrdiff_t nargs, Lisp_Object *args)
 void
 safe_run_hooks (Lisp_Object hook)
 {
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
 
   specbind (Qinhibit_quit, Qt);
   run_hook_with_args (2, ((Lisp_Object []) {hook, hook}), safe_run_hook_funcall);
@@ -2233,7 +2243,7 @@ read_event_from_main_queue (struct timespec *end_time,
     return c;
 
   /* Actually read a character, waiting if necessary.  */
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   save_getcjmp (save_jump);
   record_unwind_protect_ptr (restore_getcjmp, save_jump);
   restore_getcjmp (local_getcjmp);
@@ -2435,7 +2445,6 @@ read_char (int commandflag, Lisp_Object map,
 	   bool *used_mouse_menu, struct timespec *end_time)
 {
   Lisp_Object c;
-  ptrdiff_t jmpcount;
   sys_jmp_buf local_getcjmp;
   sys_jmp_buf save_jump;
   Lisp_Object tem, save;
@@ -2677,7 +2686,7 @@ read_char (int commandflag, Lisp_Object map,
      around any call to sit_for or kbd_buffer_get_event;
      it *must not* be in effect when we call redisplay.  */
 
-  jmpcount = SPECPDL_INDEX ();
+  specpdl_ref jmpcount = SPECPDL_INDEX ();
   if (sys_setjmp (local_getcjmp))
     {
       /* Handle quits while reading the keyboard.  */
@@ -2760,7 +2769,7 @@ read_char (int commandflag, Lisp_Object map,
 	{
 	  Lisp_Object tem0;
 
-	  ptrdiff_t count = SPECPDL_INDEX ();
+	  specpdl_ref count = SPECPDL_INDEX ();
 	  save_getcjmp (save_jump);
 	  record_unwind_protect_ptr (restore_getcjmp, save_jump);
 	  restore_getcjmp (local_getcjmp);
@@ -2837,7 +2846,7 @@ read_char (int commandflag, Lisp_Object map,
 
 	  timeout = min (timeout, MOST_POSITIVE_FIXNUM / delay_level * 4);
 	  timeout = delay_level * timeout / 4;
-	  ptrdiff_t count1 = SPECPDL_INDEX ();
+	  specpdl_ref count1 = SPECPDL_INDEX ();
 	  save_getcjmp (save_jump);
 	  record_unwind_protect_ptr (restore_getcjmp, save_jump);
 	  restore_getcjmp (local_getcjmp);
@@ -3120,7 +3129,7 @@ read_char (int commandflag, Lisp_Object map,
       Lisp_Object keys;
       ptrdiff_t key_count;
       ptrdiff_t command_key_start;
-      ptrdiff_t count = SPECPDL_INDEX ();
+      specpdl_ref count = SPECPDL_INDEX ();
 
       /* Save the echo status.  */
       bool saved_immediate_echo = current_kboard->immediate_echo;
@@ -3245,7 +3254,7 @@ read_char (int commandflag, Lisp_Object map,
   /* Process the help character specially if enabled.  */
   if (!NILP (Vhelp_form) && help_char_p (c))
     {
-      ptrdiff_t count = SPECPDL_INDEX ();
+      specpdl_ref count = SPECPDL_INDEX ();
 
       help_form_saved_window_configs
 	= Fcons (Fcurrent_window_configuration (Qnil),
@@ -3848,6 +3857,26 @@ clear_event (struct input_event *event)
   event->kind = NO_EVENT;
 }
 
+static Lisp_Object
+kbd_buffer_get_event_1 (Lisp_Object arg)
+{
+  Lisp_Object coding_system = Fget_text_property (make_fixnum (0),
+						  Qcoding, arg);
+
+  if (EQ (coding_system, Qt))
+    return arg;
+
+  return code_convert_string (arg, (!NILP (coding_system)
+				    ? coding_system
+				    : Vlocale_coding_system),
+			      Qnil, 0, false, 0);
+}
+
+static Lisp_Object
+kbd_buffer_get_event_2 (Lisp_Object val)
+{
+  return Qnil;
+}
 
 /* Read one event from the event buffer, waiting if necessary.
    The value is a Lisp object representing the event.
@@ -3860,7 +3889,7 @@ kbd_buffer_get_event (KBOARD **kbp,
                       bool *used_mouse_menu,
                       struct timespec *end_time)
 {
-  Lisp_Object obj;
+  Lisp_Object obj, str;
 
 #ifdef subprocesses
   if (kbd_on_hold_p () && kbd_buffer_nr_stored () < KBD_BUFFER_SIZE / 4)
@@ -3885,6 +3914,8 @@ kbd_buffer_get_event (KBOARD **kbp,
       return obj;
     }
 #endif	/* !defined HAVE_DBUS && !defined USE_FILE_NOTIFY && !defined THREADS_ENABLED  */
+
+  *kbp = current_kboard;
 
   /* Wait until there is input available.  */
   for (;;)
@@ -4133,6 +4164,47 @@ kbd_buffer_get_event (KBOARD **kbp,
 		    }
 		}
 
+	      if (event->kind == MULTIBYTE_CHAR_KEYSTROKE_EVENT
+		  /* This string has to be decoded.  */
+		  && STRINGP (event->ie.arg))
+		{
+		  str = internal_condition_case_1 (kbd_buffer_get_event_1,
+						   event->ie.arg, Qt,
+						   kbd_buffer_get_event_2);
+
+		  /* Decoding the string failed, so use the original,
+		     where at least ASCII text will work.  */
+		  if (NILP (str))
+		    str = event->ie.arg;
+
+		  if (!SCHARS (str))
+		    {
+		      kbd_fetch_ptr = next_kbd_event (event);
+		      obj = Qnil;
+		      break;
+		    }
+
+		  /* car is the index of the next character in the
+		     string that will be sent and cdr is the string
+		     itself.  */
+		  event->ie.arg = Fcons (make_fixnum (0), str);
+		}
+
+	      if (event->kind == MULTIBYTE_CHAR_KEYSTROKE_EVENT
+		  && CONSP (event->ie.arg))
+		{
+		  eassert (FIXNUMP (XCAR (event->ie.arg)));
+		  eassert (STRINGP (XCDR (event->ie.arg)));
+		  eassert (XFIXNUM (XCAR (event->ie.arg))
+			   < SCHARS (XCDR (event->ie.arg)));
+
+		  event->ie.code = XFIXNUM (Faref (XCDR (event->ie.arg),
+						   XCAR (event->ie.arg)));
+
+		  XSETCAR (event->ie.arg,
+			   make_fixnum (XFIXNUM (XCAR (event->ie.arg)) + 1));
+		}
+
 	      obj = make_lispy_event (&event->ie);
 
 #ifdef HAVE_EXT_MENU_BAR
@@ -4155,9 +4227,15 @@ kbd_buffer_get_event (KBOARD **kbp,
 		*used_mouse_menu = true;
 #endif
 
-	      /* Wipe out this event, to catch bugs.  */
-	      clear_event (&event->ie);
-	      kbd_fetch_ptr = next_kbd_event (event);
+	      if (event->kind != MULTIBYTE_CHAR_KEYSTROKE_EVENT
+		  || !CONSP (event->ie.arg)
+		  || (XFIXNUM (XCAR (event->ie.arg))
+		      >= SCHARS (XCDR (event->ie.arg))))
+		{
+		  /* Wipe out this event, to catch bugs.  */
+		  clear_event (&event->ie);
+		  kbd_fetch_ptr = next_kbd_event (event);
+		}
 	    }
 	}
       }
@@ -4461,7 +4539,7 @@ timer_check_2 (Lisp_Object timers, Lisp_Object idle_timers)
 	{
 	  if (NILP (AREF (chosen_timer, 0)))
 	    {
-	      ptrdiff_t count = SPECPDL_INDEX ();
+	      specpdl_ref count = SPECPDL_INDEX ();
 	      Lisp_Object old_deactivate_mark = Vdeactivate_mark;
 
 	      /* Mark the timer as triggered to prevent problems if the lisp
@@ -7940,7 +8018,7 @@ eval_dyn (Lisp_Object form)
 Lisp_Object
 menu_item_eval_property (Lisp_Object sexpr)
 {
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object val;
   specbind (Qinhibit_redisplay, Qt);
   val = internal_condition_case_1 (eval_dyn, sexpr, Qerror,
@@ -9607,7 +9685,7 @@ read_key_sequence (Lisp_Object *keybuf, Lisp_Object prompt,
 		   bool dont_downcase_last, bool can_return_switch_frame,
 		   bool fix_current_buffer, bool prevent_redisplay)
 {
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
 
   /* How many keys there are in the current key sequence.  */
   int t;
@@ -10543,7 +10621,7 @@ read_key_sequence_vs (Lisp_Object prompt, Lisp_Object continue_echo,
 		      Lisp_Object can_return_switch_frame,
 		      Lisp_Object cmd_loop, bool allow_string)
 {
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
 
   if (!NILP (prompt))
     CHECK_STRING (prompt);
@@ -11011,7 +11089,7 @@ Some operating systems cannot stop the Emacs process and resume it later.
 On such systems, Emacs starts a subshell instead of suspending.  */)
   (Lisp_Object stuffstring)
 {
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   int old_height, old_width;
   int width, height;
 
@@ -12504,6 +12582,9 @@ See also `pre-command-hook'.  */);
   DEFSYM (Qtouchscreen_end, "touchscreen-end");
   DEFSYM (Qtouchscreen_update, "touchscreen-update");
   DEFSYM (Qpinch, "pinch");
+
+  DEFSYM (Qcoding, "coding");
+
   Fset (Qecho_area_clear_hook, Qnil);
 
   DEFVAR_LISP ("lucid-menu-bar-dirty-flag", Vlucid_menu_bar_dirty_flag,

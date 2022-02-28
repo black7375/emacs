@@ -115,6 +115,7 @@ static BLocker child_frame_lock;
 static BLocker movement_locker;
 
 static BMessage volatile *popup_track_message;
+static int32 volatile alert_popup_value;
 
 /* This could be a private API, but it's used by (at least) the Qt
    port, so it's probably here to stay.  */
@@ -433,7 +434,8 @@ public:
   int shown_flag = 0;
   volatile int was_shown_p = 0;
   bool menu_bar_active_p = false;
-  window_look pre_override_redirect_style;
+  bool override_redirect_p = false;
+  window_look pre_override_redirect_look;
   window_feel pre_override_redirect_feel;
   uint32 pre_override_redirect_workspaces;
   pthread_mutex_t menu_update_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -581,7 +583,6 @@ public:
 	fullscreen_p = 0;
 	MakeFullscreen (1);
       }
-    this->Sync ();
     window->LinkChild (this);
 
     child_frame_lock.Unlock ();
@@ -913,7 +914,6 @@ public:
       DoMove (f);
     child_frame_lock.Unlock ();
 
-    Sync ();
     BWindow::FrameMoved (newPosition);
   }
 
@@ -1168,12 +1168,32 @@ public:
     haiku_write (MENU_BAR_RESIZE, &rq);
     BMenuBar::FrameResized (newWidth, newHeight);
   }
+
+  void
+  MouseMoved (BPoint point, uint32 transit, const BMessage *msg)
+  {
+    struct haiku_menu_bar_left_event rq;
+
+    if (transit == B_EXITED_VIEW)
+      {
+	rq.x = std::lrint (point.x);
+	rq.y = std::lrint (point.y);
+	rq.window = this->Window ();
+
+	if (movement_locker.Lock ())
+	  {
+	    haiku_write (MENU_BAR_LEFT, &rq);
+	    movement_locker.Unlock ();
+	  }
+      }
+
+    BMenuBar::MouseMoved (point, transit, msg);
+  }
 };
 
 class EmacsView : public BView
 {
 public:
-  uint32_t visible_bell_color = 0;
   uint32_t previous_buttons = 0;
   int looper_locked_count = 0;
   BRegion sb_region;
@@ -1313,28 +1333,10 @@ public:
   }
 
   void
-  Pulse (void)
-  {
-    visible_bell_color = 0;
-    SetFlags (Flags () & ~B_PULSE_NEEDED);
-    Window ()->SetPulseRate (0);
-    Invalidate ();
-  }
-
-  void
   Draw (BRect expose_bounds)
   {
     struct haiku_expose_event rq;
     EmacsWindow *w = (EmacsWindow *) Window ();
-
-    if (visible_bell_color > 0)
-      {
-	PushState ();
-	BView_SetHighColorForVisibleBell (this, visible_bell_color);
-	FillRect (Frame ());
-	PopState ();
-	return;
-      }
 
     if (w->shown_flag && offscreen_draw_view)
       {
@@ -1369,18 +1371,6 @@ public:
 
 	haiku_write (FRAME_EXPOSED, &rq);
       }
-  }
-
-  void
-  DoVisibleBell (uint32_t color)
-  {
-    if (!LockLooper ())
-      gui_abort ("Failed to lock looper during visible bell");
-    visible_bell_color = color | (255 << 24);
-    SetFlags (Flags () | B_PULSE_NEEDED);
-    Window ()->SetPulseRate (100 * 1000);
-    Invalidate ();
-    UnlockLooper ();
   }
 
   void
@@ -2217,19 +2207,38 @@ BView_mouse_moved (void *view, int x, int y, uint32_t transit)
     }
 }
 
-/* Import BITS into BITMAP using the B_GRAY1 colorspace.  */
+/* Import fringe bitmap (short array, low bit rightmost) BITS into
+   BITMAP using the B_GRAY1 colorspace.  */
+void
+BBitmap_import_fringe_bitmap (void *bitmap, unsigned short *bits, int wd, int h)
+{
+  BBitmap *bmp = (BBitmap *) bitmap;
+  unsigned char *data = (unsigned char *) bmp->Bits ();
+  int i;
+
+  for (i = 0; i < h; i++)
+    {
+      if (wd <= 8)
+	data[0] = bits[i] & 0xff;
+      else
+	{
+	  data[1] = bits[i] & 0xff;
+	  data[0] = bits[i] >> 8;
+	}
+
+      data += bmp->BytesPerRow ();
+    }
+}
+
 void
 BBitmap_import_mono_bits (void *bitmap, void *bits, int wd, int h)
 {
   BBitmap *bmp = (BBitmap *) bitmap;
-  unsigned char *data = (unsigned char *) bmp->Bits ();
-  unsigned short *bts = (unsigned short *) bits;
 
-  for (int i = 0; i < (h * (wd / 8)); i++)
-    {
-      *((unsigned short *) data) = bts[i];
-      data += bmp->BytesPerRow ();
-    }
+  if (wd % 8)
+    wd += 8 - (wd % 8);
+
+  bmp->ImportBits (bits, wd / 8 * h, wd / 8, 0, B_GRAY1);
 }
 
 /* Make a scrollbar at X, Y known to the view VIEW.  */
@@ -2305,13 +2314,24 @@ BView_convert_from_screen (void *view, int *x, int *y)
 void
 BWindow_change_decoration (void *window, int decorate_p)
 {
-  BWindow *w = (BWindow *) window;
+  EmacsWindow *w = (EmacsWindow *) window;
   if (!w->LockLooper ())
     gui_abort ("Failed to lock window while changing its decorations");
-  if (decorate_p)
-    w->SetLook (B_TITLED_WINDOW_LOOK);
+
+  if (!w->override_redirect_p)
+    {
+      if (decorate_p)
+	w->SetLook (B_TITLED_WINDOW_LOOK);
+      else
+	w->SetLook (B_NO_BORDER_WINDOW_LOOK);
+    }
   else
-    w->SetLook (B_NO_BORDER_WINDOW_LOOK);
+    {
+      if (decorate_p)
+	w->pre_override_redirect_look = B_TITLED_WINDOW_LOOK;
+      else
+	w->pre_override_redirect_look = B_NO_BORDER_WINDOW_LOOK;
+    }
   w->UnlockLooper ();
 }
 
@@ -2666,12 +2686,83 @@ BAlert_add_button (void *alert, const char *text)
   return al->ButtonAt (al->CountButtons () - 1);
 }
 
+/* Make sure the leftmost button is grouped to the left hand side of
+   the alert.  */
+void
+BAlert_set_offset_spacing (void *alert)
+{
+  BAlert *al = (BAlert *) alert;
+
+  al->SetButtonSpacing (B_OFFSET_SPACING);
+}
+
+static int32
+be_alert_thread_entry (void *thread_data)
+{
+  BAlert *alert = (BAlert *) thread_data;
+  int32 value;
+
+  if (alert->LockLooper ())
+    value = alert->Go ();
+  else
+    value = -1;
+
+  alert_popup_value = value;
+  return 0;
+}
+
 /* Run ALERT, returning the number of the button that was selected,
    or -1 if no button was selected before the alert was closed.  */
-int32_t
-BAlert_go (void *alert)
+int32
+BAlert_go (void *alert,
+	   void (*block_input_function) (void),
+	   void (*unblock_input_function) (void),
+	   void (*process_pending_signals_function) (void))
 {
-  return ((BAlert *) alert)->Go ();
+  struct object_wait_info infos[2];
+  ssize_t stat;
+  BAlert *alert_object = (BAlert *) alert;
+
+  infos[0].object = port_application_to_emacs;
+  infos[0].type = B_OBJECT_TYPE_PORT;
+  infos[0].events = B_EVENT_READ;
+
+  block_input_function ();
+  /* Alerts are created locked, just like other windows.  */
+  alert_object->UnlockLooper ();
+  infos[1].object = spawn_thread (be_alert_thread_entry,
+				  "Popup tracker",
+				  B_DEFAULT_MEDIA_PRIORITY,
+				  alert);
+  infos[1].type = B_OBJECT_TYPE_THREAD;
+  infos[1].events = B_EVENT_INVALID;
+  unblock_input_function ();
+
+  if (infos[1].object < B_OK)
+    return -1;
+
+  block_input_function ();
+  resume_thread (infos[1].object);
+  unblock_input_function ();
+
+  while (true)
+    {
+      stat = wait_for_objects ((object_wait_info *) &infos, 2);
+
+      if (stat == B_INTERRUPTED)
+	continue;
+      else if (stat < B_OK)
+	gui_abort ("Failed to wait for popup dialog");
+
+      if (infos[1].events & B_EVENT_INVALID)
+	return alert_popup_value;
+
+      if (infos[0].events & B_EVENT_READ)
+	process_pending_signals_function ();
+
+      infos[0].events = B_EVENT_READ;
+      infos[1].events = B_EVENT_INVALID;
+    }
 }
 
 /* Enable or disable BUTTON depending on ENABLED_P.  */
@@ -2967,7 +3058,7 @@ be_popup_file_dialog (int open_p, const char *default_dir, int must_match_p, int
 		      void (*unblock_input_function) (void),
 		      void (*maybe_quit_function) (void))
 {
-  ptrdiff_t idx = c_specpdl_idx_from_cxx ();
+  specpdl_ref idx = c_specpdl_idx_from_cxx ();
   /* setjmp/longjmp is UB with automatic objects. */
   block_input_function ();
   BWindow *w = (BWindow *) window;
@@ -3040,14 +3131,6 @@ be_app_quit (void)
       while (!be_app->Lock ());
       be_app->Quit ();
     }
-}
-
-/* Temporarily fill VIEW with COLOR.  */
-void
-EmacsView_do_visible_bell (void *view, uint32_t color)
-{
-  EmacsView *vw = (EmacsView *) view;
-  vw->DoVisibleBell (color);
 }
 
 /* Zoom WINDOW.  */
@@ -3339,9 +3422,6 @@ be_use_subpixel_antialiasing (void)
   return current_subpixel_antialiasing;
 }
 
-/* This isn't implemented very properly (for example: what if
-   decorations are changed while the window is under override
-   redirect?) but it works well enough for most use cases.  */
 void
 BWindow_set_override_redirect (void *window, bool override_redirect_p)
 {
@@ -3349,19 +3429,21 @@ BWindow_set_override_redirect (void *window, bool override_redirect_p)
 
   if (w->LockLooper ())
     {
-      if (override_redirect_p)
+      if (override_redirect_p && !w->override_redirect_p)
 	{
+	  w->override_redirect_p = true;
 	  w->pre_override_redirect_feel = w->Feel ();
-	  w->pre_override_redirect_style = w->Look ();
+	  w->pre_override_redirect_look = w->Look ();
 	  w->SetFeel (kMenuWindowFeel);
 	  w->SetLook (B_NO_BORDER_WINDOW_LOOK);
 	  w->pre_override_redirect_workspaces = w->Workspaces ();
 	  w->SetWorkspaces (B_ALL_WORKSPACES);
 	}
-      else
+      else if (w->override_redirect_p)
 	{
+	  w->override_redirect_p = false;
 	  w->SetFeel (w->pre_override_redirect_feel);
-	  w->SetLook (w->pre_override_redirect_style);
+	  w->SetLook (w->pre_override_redirect_look);
 	  w->SetWorkspaces (w->pre_override_redirect_workspaces);
 	}
 

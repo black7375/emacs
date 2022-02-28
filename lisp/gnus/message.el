@@ -8369,7 +8369,11 @@ regular text mode tabbing command."
 
 (defcustom message-expand-name-standard-ui nil
   "If non-nil, use the standard completion UI in `message-expand-name'.
-E.g. this means it will obey `completion-styles' and other such settings."
+E.g. this means it will obey `completion-styles' and other such settings.
+
+If this variable is non-nil and `message-mail-alias-type' is
+`ecomplete', `message-self-insert-commands' should probably be
+set to nil."
   :version "27.1"
   :type 'boolean)
 
@@ -8621,26 +8625,23 @@ From headers in the original article."
 		   message-hidden-headers))
 	(inhibit-point-motion-hooks t)
 	(inhibit-modification-hooks t)
-	(end-of-headers (point-min)))
+	end-of-headers)
     (when regexps
       (save-excursion
 	(save-restriction
 	  (message-narrow-to-headers)
+          (setq end-of-headers (point-min-marker))
 	  (goto-char (point-min))
 	  (while (not (eobp))
 	    (if (not (message-hide-header-p regexps))
 		(message-next-header)
-	      (let ((begin (point))
-		    header header-len)
+	      (let ((begin (point)))
 		(message-next-header)
-		(setq header (buffer-substring begin (point))
-		      header-len (- (point) begin))
-		(delete-region begin (point))
-		(goto-char end-of-headers)
-		(insert header)
-		(setq end-of-headers
-		      (+ end-of-headers header-len))))))))
-    (narrow-to-region end-of-headers (point-max))))
+                (let ((header (delete-and-extract-region begin (point))))
+                  (save-excursion
+                    (goto-char end-of-headers)
+                    (insert-before-markers header))))))))
+      (narrow-to-region end-of-headers (point-max)))))
 
 (defun message-hide-header-p (regexps)
   (let ((result nil)

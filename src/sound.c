@@ -1362,7 +1362,7 @@ Internal use only, use `play-sound' instead.  */)
   (Lisp_Object sound)
 {
   Lisp_Object attrs[SOUND_ATTR_SENTINEL];
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
 
 #ifdef HAVE_MACGUI
   CFTypeRef mac_sound;

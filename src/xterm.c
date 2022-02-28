@@ -126,6 +126,10 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <X11/extensions/sync.h>
 #endif
 
+#ifdef HAVE_XINERAMA
+#include <X11/extensions/Xinerama.h>
+#endif
+
 /* Load sys/types.h if not already loaded.
    In some systems loading it twice is suicidal.  */
 #ifndef makedev
@@ -345,7 +349,7 @@ static void x_wm_set_icon_pixmap (struct frame *, ptrdiff_t);
 static void x_initialize (void);
 
 static bool x_get_current_wm_state (struct frame *, Window, int *, bool *);
-static void x_update_opaque_region (struct frame *);
+static void x_update_opaque_region (struct frame *, XEvent *);
 
 /* Flush display of frame F.  */
 
@@ -366,7 +370,6 @@ x_flush (struct frame *f)
 static void
 x_drop_xrender_surfaces (struct frame *f)
 {
-  x_update_opaque_region (f);
   font_drop_xrender_surfaces (f);
 
 #ifdef HAVE_XRENDER
@@ -440,14 +443,37 @@ record_event (char *locus, int type)
 #endif
 
 static void
-x_update_opaque_region (struct frame *f)
+x_update_opaque_region (struct frame *f, XEvent *configure)
 {
+#ifndef HAVE_GTK3
+  unsigned long opaque_region[] = {0, 0,
+				   (configure
+				    ? configure->xconfigure.width
+				    : FRAME_PIXEL_WIDTH (f)),
+				   (configure
+				    ? configure->xconfigure.height
+				    : FRAME_PIXEL_HEIGHT (f))};
+#endif
+
+  if (!FRAME_DISPLAY_INFO (f)->alpha_bits)
+    return;
+
+  block_input ();
   if (f->alpha_background < 1.0)
     XChangeProperty (FRAME_X_DISPLAY (f),
 		     FRAME_X_WINDOW (f),
 		     FRAME_DISPLAY_INFO (f)->Xatom_net_wm_opaque_region,
 		     XA_CARDINAL, 32, PropModeReplace,
 		     NULL, 0);
+#ifndef HAVE_GTK3
+  else
+    XChangeProperty (FRAME_X_DISPLAY (f),
+		     FRAME_X_WINDOW (f),
+		     FRAME_DISPLAY_INFO (f)->Xatom_net_wm_opaque_region,
+		     XA_CARDINAL, 32, PropModeReplace,
+		     (unsigned char *) &opaque_region, 4);
+#endif
+  unblock_input ();
 }
 
 
@@ -555,6 +581,11 @@ x_free_xi_devices (struct x_display_info *dpyinfo)
 /* Setup valuator tracking for XI2 master devices on
    DPYINFO->display.  */
 
+/* This function's name is a misnomer: these days, it keeps a
+   client-side record of all devices, which includes basic information
+   about the device and also touchscreen tracking information, instead
+   of just scroll valuators.  */
+
 static void
 x_init_master_valuators (struct x_display_info *dpyinfo)
 {
@@ -605,16 +636,14 @@ x_init_master_valuators (struct x_display_info *dpyinfo)
 		      (XIScrollClassInfo *) device->classes[c];
 		    struct xi_scroll_valuator_t *valuator;
 
-		    if (xi_device->master_p)
-		      {
-			valuator = &xi_device->valuators[actual_valuator_count++];
-			valuator->horizontal
-			  = (info->scroll_type == XIScrollTypeHorizontal);
-			valuator->invalid_p = true;
-			valuator->emacs_value = DBL_MIN;
-			valuator->increment = info->increment;
-			valuator->number = info->number;
-		      }
+		    valuator = &xi_device->valuators[actual_valuator_count++];
+		    valuator->horizontal
+		      = (info->scroll_type == XIScrollTypeHorizontal);
+		    valuator->invalid_p = true;
+		    valuator->emacs_value = DBL_MIN;
+		    valuator->increment = info->increment;
+		    valuator->number = info->number;
+		    valuator->pending_enter_reset = false;
 
 		    break;
 		  }
@@ -660,7 +689,7 @@ x_get_scroll_valuator_delta (struct x_display_info *dpyinfo, int device_id,
     {
       struct xi_device_t *device = &dpyinfo->devices[i];
 
-      if (device->device_id == device_id && device->master_p)
+      if (device->device_id == device_id)
 	{
 	  for (int j = 0; j < device->scroll_valuator_count; ++j)
 	    {
@@ -768,12 +797,13 @@ xi_find_touch_point (struct xi_device_t *device, int detail)
 #endif /* XI_TouchBegin */
 
 static void
-xi_reset_scroll_valuators_for_device_id (struct x_display_info *dpyinfo, int id)
+xi_reset_scroll_valuators_for_device_id (struct x_display_info *dpyinfo, int id,
+					 bool pending_only)
 {
   struct xi_device_t *device = xi_device_from_id (dpyinfo, id);
   struct xi_scroll_valuator_t *valuator;
 
-  if (!device || !device->master_p)
+  if (!device)
     return;
 
   if (!device->scroll_valuator_count)
@@ -782,6 +812,11 @@ xi_reset_scroll_valuators_for_device_id (struct x_display_info *dpyinfo, int id)
   for (int i = 0; i < device->scroll_valuator_count; ++i)
     {
       valuator = &device->valuators[i];
+
+      if (pending_only && !valuator->pending_enter_reset)
+	continue;
+
+      valuator->pending_enter_reset = false;
       valuator->invalid_p = true;
       valuator->emacs_value = 0.0;
     }
@@ -875,20 +910,35 @@ x_end_cr_clip (struct frame *f)
 }
 
 void
-x_set_cr_source_with_gc_foreground (struct frame *f, GC gc)
+x_set_cr_source_with_gc_foreground (struct frame *f, GC gc,
+				    bool respect_alpha_background)
 {
   XGCValues xgcv;
   XColor color;
+  unsigned int depth;
 
   XGetGCValues (FRAME_X_DISPLAY (f), gc, GCForeground, &xgcv);
   color.pixel = xgcv.foreground;
   x_query_colors (f, &color, 1);
-  cairo_set_source_rgb (FRAME_CR_CONTEXT (f), color.red / 65535.0,
-			color.green / 65535.0, color.blue / 65535.0);
+  depth = FRAME_DISPLAY_INFO (f)->n_planes;
+
+  if (f->alpha_background < 1.0 && depth == 32
+      && respect_alpha_background)
+    {
+      cairo_set_source_rgba (FRAME_CR_CONTEXT (f), color.red / 65535.0,
+			     color.green / 65535.0, color.blue / 65535.0,
+			     f->alpha_background);
+
+      cairo_set_operator (FRAME_CR_CONTEXT (f), CAIRO_OPERATOR_SOURCE);
+    }
+  else
+    cairo_set_source_rgb (FRAME_CR_CONTEXT (f), color.red / 65535.0,
+                          color.green / 65535.0, color.blue / 65535.0);
 }
 
 void
-x_set_cr_source_with_gc_background (struct frame *f, GC gc)
+x_set_cr_source_with_gc_background (struct frame *f, GC gc,
+				    bool respect_alpha_background)
 {
   XGCValues xgcv;
   XColor color;
@@ -901,7 +951,8 @@ x_set_cr_source_with_gc_background (struct frame *f, GC gc)
 
   depth = FRAME_DISPLAY_INFO (f)->n_planes;
 
-  if (f->alpha_background < 1.0 && depth == 32)
+  if (f->alpha_background < 1.0 && depth == 32
+      && respect_alpha_background)
     {
       cairo_set_source_rgba (FRAME_CR_CONTEXT (f), color.red / 65535.0,
 			     color.green / 65535.0, color.blue / 65535.0,
@@ -912,7 +963,6 @@ x_set_cr_source_with_gc_background (struct frame *f, GC gc)
   else
     cairo_set_source_rgb (FRAME_CR_CONTEXT (f), color.red / 65535.0,
                           color.green / 65535.0, color.blue / 65535.0);
-
 }
 
 static const cairo_user_data_key_t xlib_surface_key, saved_drawable_key;
@@ -1097,7 +1147,7 @@ x_cr_draw_image (struct frame *f, GC gc, cairo_pattern_t *image,
     cairo_rectangle (cr, dest_x, dest_y, width, height);
   else
     {
-      x_set_cr_source_with_gc_background (f, gc);
+      x_set_cr_source_with_gc_background (f, gc, false);
       cairo_rectangle (cr, dest_x, dest_y, width, height);
       cairo_fill_preserve (cr);
     }
@@ -1114,7 +1164,7 @@ x_cr_draw_image (struct frame *f, GC gc, cairo_pattern_t *image,
     }
   else
     {
-      x_set_cr_source_with_gc_foreground (f, gc);
+      x_set_cr_source_with_gc_foreground (f, gc, false);
       cairo_clip (cr);
       cairo_mask (cr, image);
     }
@@ -1165,7 +1215,7 @@ x_cr_export_frames (Lisp_Object frames, cairo_surface_type_t surface_type)
   int width, height;
   void (*surface_set_size_func) (cairo_surface_t *, double, double) = NULL;
   Lisp_Object acc = Qnil;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
 
   specbind (Qredisplay_dont_pause, Qt);
   redisplay_preserve_echo_area (31);
@@ -1325,7 +1375,7 @@ x_fill_rectangle (struct frame *f, GC gc, int x, int y, int width, int height,
 	 regarded as Pixmap of unspecified size filled with ones.  */
       || (xgcv.stipple & ((Pixmap) 7 << (sizeof (Pixmap) * CHAR_BIT - 3))))
     {
-      x_set_cr_source_with_gc_foreground (f, gc);
+      x_set_cr_source_with_gc_foreground (f, gc, respect_alpha_background);
       cairo_rectangle (cr, x, y, width, height);
       cairo_fill (cr);
     }
@@ -1333,14 +1383,14 @@ x_fill_rectangle (struct frame *f, GC gc, int x, int y, int width, int height,
     {
       eassert (xgcv.fill_style == FillOpaqueStippled);
       eassert (xgcv.stipple != None);
-      x_set_cr_source_with_gc_background (f, gc);
+      x_set_cr_source_with_gc_background (f, gc, respect_alpha_background);
       cairo_rectangle (cr, x, y, width, height);
       cairo_fill_preserve (cr);
 
       cairo_pattern_t *pattern = x_bitmap_stipple (f, xgcv.stipple);
       if (pattern)
 	{
-	  x_set_cr_source_with_gc_foreground (f, gc);
+	  x_set_cr_source_with_gc_foreground (f, gc, respect_alpha_background);
 	  cairo_clip (cr);
 	  cairo_mask (cr, pattern);
 	}
@@ -1349,6 +1399,7 @@ x_fill_rectangle (struct frame *f, GC gc, int x, int y, int width, int height,
 #else
 #if defined HAVE_XRENDER && (RENDER_MAJOR > 0 || (RENDER_MINOR >= 2))
   if (respect_alpha_background
+      && f->alpha_background != 1.0
       && FRAME_DISPLAY_INFO (f)->alpha_bits
       && FRAME_CHECK_XR_VERSION (f, 0, 2))
     {
@@ -1358,11 +1409,52 @@ x_fill_rectangle (struct frame *f, GC gc, int x, int y, int width, int height,
 	{
 	  XRenderColor xc;
 
+#if RENDER_MAJOR > 0 || (RENDER_MINOR >= 10)
+	  XGCValues xgcv;
+	  XRenderPictureAttributes attrs;
+	  XRenderColor alpha;
+	  Picture stipple, fill;
+#endif
+
 	  x_xr_apply_ext_clip (f, gc);
-	  x_xrender_color_from_gc_foreground (f, gc, &xc, true);
-	  XRenderFillRectangle (FRAME_X_DISPLAY (f),
-				PictOpSrc, FRAME_X_PICTURE (f),
-				&xc, x, y, width, height);
+
+#if RENDER_MAJOR > 0 || (RENDER_MINOR >= 10)
+	  XGetGCValues (FRAME_X_DISPLAY (f),
+			gc, GCFillStyle | GCStipple, &xgcv);
+
+	  if (xgcv.fill_style == FillOpaqueStippled
+	      && FRAME_CHECK_XR_VERSION (f, 0, 10))
+	    {
+	      x_xrender_color_from_gc_background (f, gc, &alpha, true);
+	      x_xrender_color_from_gc_foreground (f, gc, &xc, true);
+	      attrs.repeat = RepeatNormal;
+
+	      stipple = XRenderCreatePicture (FRAME_X_DISPLAY (f),
+					      xgcv.stipple,
+					      XRenderFindStandardFormat (FRAME_X_DISPLAY (f),
+									 PictStandardA1),
+					      CPRepeat, &attrs);
+
+	      XRenderFillRectangle (FRAME_X_DISPLAY (f), PictOpSrc,
+				    FRAME_X_PICTURE (f),
+				    &alpha, x, y, width, height);
+
+	      fill = XRenderCreateSolidFill (FRAME_X_DISPLAY (f), &xc);
+
+	      XRenderComposite (FRAME_X_DISPLAY (f), PictOpOver, fill, stipple,
+				FRAME_X_PICTURE (f), 0, 0, x, y, x, y, width, height);
+
+	      XRenderFreePicture (FRAME_X_DISPLAY (f), stipple);
+	      XRenderFreePicture (FRAME_X_DISPLAY (f), fill);
+	    }
+	  else
+#endif
+	    {
+	      x_xrender_color_from_gc_foreground (f, gc, &xc, true);
+	      XRenderFillRectangle (FRAME_X_DISPLAY (f),
+				    PictOpSrc, FRAME_X_PICTURE (f),
+				    &xc, x, y, width, height);
+	    }
 	  x_xr_reset_ext_clip (f);
 	  x_mark_frame_dirty (f);
 
@@ -1384,13 +1476,14 @@ x_clear_rectangle (struct frame *f, GC gc, int x, int y, int width, int height,
   cairo_t *cr;
 
   cr = x_begin_cr_clip (f, gc);
-  x_set_cr_source_with_gc_background (f, gc);
+  x_set_cr_source_with_gc_background (f, gc, respect_alpha_background);
   cairo_rectangle (cr, x, y, width, height);
   cairo_fill (cr);
   x_end_cr_clip (f);
 #else
 #if defined HAVE_XRENDER && (RENDER_MAJOR > 0 || (RENDER_MINOR >= 2))
   if (respect_alpha_background
+      && f->alpha_background != 1.0
       && FRAME_DISPLAY_INFO (f)->alpha_bits
       && FRAME_CHECK_XR_VERSION (f, 0, 2))
     {
@@ -1430,7 +1523,7 @@ x_draw_rectangle (struct frame *f, GC gc, int x, int y, int width, int height)
   cairo_t *cr;
 
   cr = x_begin_cr_clip (f, gc);
-  x_set_cr_source_with_gc_foreground (f, gc);
+  x_set_cr_source_with_gc_foreground (f, gc, false);
   cairo_rectangle (cr, x + 0.5, y + 0.5, width, height);
   cairo_set_line_width (cr, 1);
   cairo_stroke (cr);
@@ -1448,7 +1541,7 @@ x_clear_window (struct frame *f)
   cairo_t *cr;
 
   cr = x_begin_cr_clip (f, NULL);
-  x_set_cr_source_with_gc_background (f, f->output_data.x->normal_gc);
+  x_set_cr_source_with_gc_background (f, f->output_data.x->normal_gc, true);
   cairo_paint (cr);
   x_end_cr_clip (f);
 #else
@@ -1471,7 +1564,7 @@ x_fill_trapezoid_for_relief (struct frame *f, GC gc, int x, int y,
   cairo_t *cr;
 
   cr = x_begin_cr_clip (f, gc);
-  x_set_cr_source_with_gc_foreground (f, gc);
+  x_set_cr_source_with_gc_foreground (f, gc, false);
   cairo_move_to (cr, top_p ? x : x + height, y);
   cairo_line_to (cr, x, y + height);
   cairo_line_to (cr, top_p ? x + width - height : x + width, y + height);
@@ -1498,7 +1591,7 @@ x_erase_corners_for_relief (struct frame *f, GC gc, int x, int y,
   int i;
 
   cr = x_begin_cr_clip (f, gc);
-  x_set_cr_source_with_gc_background (f, gc);
+  x_set_cr_source_with_gc_background (f, gc, false);
   for (i = 0; i < CORNER_LAST; i++)
     if (corners & (1 << i))
       {
@@ -1531,7 +1624,7 @@ x_draw_horizontal_wave (struct frame *f, GC gc, int x, int y,
   int xoffset, n;
 
   cr = x_begin_cr_clip (f, gc);
-  x_set_cr_source_with_gc_foreground (f, gc);
+  x_set_cr_source_with_gc_foreground (f, gc, false);
   cairo_rectangle (cr, x, y, width, height);
   cairo_clip (cr);
 
@@ -1848,10 +1941,14 @@ x_update_end (struct frame *f)
 static void
 XTframe_up_to_date (struct frame *f)
 {
-#ifdef HAVE_XSYNC
+#if defined HAVE_XSYNC && !defined HAVE_GTK3
   XSyncValue add;
   XSyncValue current;
   Bool overflow_p;
+#elif defined HAVE_XSYNC
+  GtkWidget *widget;
+  GdkWindow *window;
+  GdkFrameClock *clock;
 #endif
 
   eassert (FRAME_X_P (f));
@@ -1861,6 +1958,7 @@ XTframe_up_to_date (struct frame *f)
     show_back_buffer (f);
 
 #ifdef HAVE_XSYNC
+#ifndef HAVE_GTK3
   if (FRAME_X_OUTPUT (f)->sync_end_pending_p
       && FRAME_X_BASIC_COUNTER (f) != None)
     {
@@ -1892,6 +1990,20 @@ XTframe_up_to_date (struct frame *f)
 
       FRAME_X_OUTPUT (f)->ext_sync_end_pending_p = false;
     }
+#else
+  if (FRAME_X_OUTPUT (f)->xg_sync_end_pending_p)
+    {
+      widget = FRAME_GTK_OUTER_WIDGET (f);
+      window = gtk_widget_get_window (widget);
+      eassert (window);
+      clock = gdk_window_get_frame_clock (window);
+      eassert (clock);
+
+      gdk_frame_clock_request_phase (clock,
+				     GDK_FRAME_CLOCK_PHASE_AFTER_PAINT);
+      FRAME_X_OUTPUT (f)->xg_sync_end_pending_p = false;
+    }
+#endif
 #endif
   unblock_input ();
 }
@@ -2077,6 +2189,7 @@ x_draw_fringe_bitmap (struct window *w, struct glyph_row *row, struct draw_fring
       int depth = FRAME_DISPLAY_INFO (f)->n_planes;
       XGCValues gcv;
       unsigned long background = face->background;
+      XColor bg;
 #ifdef HAVE_XRENDER
       Picture picture = None;
       XRenderPictureAttributes attrs;
@@ -2089,9 +2202,18 @@ x_draw_fringe_bitmap (struct window *w, struct glyph_row *row, struct draw_fring
       else
 	bits = (char *) p->bits + p->dh;
 
-      if (FRAME_DISPLAY_INFO (f)->alpha_bits)
+      if (FRAME_DISPLAY_INFO (f)->alpha_bits
+	  && f->alpha_background < 1.0)
 	{
-	  background = (background & ~FRAME_DISPLAY_INFO (f)->alpha_mask);
+	  bg.pixel = background;
+	  x_query_colors (f, &bg, 1);
+	  bg.red *= f->alpha_background;
+	  bg.green *= f->alpha_background;
+	  bg.blue *= f->alpha_background;
+
+	  background = x_make_truecolor_pixel (FRAME_DISPLAY_INFO (f),
+					       bg.red, bg.green, bg.blue);
+	  background &= ~FRAME_DISPLAY_INFO (f)->alpha_mask;
 	  background |= (((unsigned long) (f->alpha_background * 0xffff)
 			  >> (16 - FRAME_DISPLAY_INFO (f)->alpha_bits))
 			 << FRAME_DISPLAY_INFO (f)->alpha_offset);
@@ -2182,6 +2304,34 @@ static void x_scroll_bar_clear (struct frame *);
 #ifdef GLYPH_DEBUG
 static void x_check_font (struct frame *, struct font *);
 #endif
+
+void
+x_display_set_last_user_time (struct x_display_info *dpyinfo, Time time)
+{
+#ifndef USE_GTK
+  struct frame *focus_frame = dpyinfo->x_focus_frame;
+#endif
+
+#ifdef ENABLE_CHECKING
+  eassert (time <= X_ULONG_MAX);
+#endif
+  dpyinfo->last_user_time = time;
+
+#ifndef USE_GTK
+  if (focus_frame)
+    {
+      while (FRAME_PARENT_FRAME (focus_frame))
+	focus_frame = FRAME_PARENT_FRAME (focus_frame);
+
+      if (FRAME_X_OUTPUT (focus_frame)->user_time_window != None)
+	XChangeProperty (dpyinfo->display,
+			 FRAME_X_OUTPUT (focus_frame)->user_time_window,
+			 dpyinfo->Xatom_net_wm_user_time,
+			 XA_CARDINAL, 32, PropModeReplace,
+			 (unsigned char *) &time, 1);
+    }
+#endif
+}
 
 
 /* Set S->gc to a suitable GC for drawing glyph string S in cursor
@@ -2399,9 +2549,7 @@ x_compute_glyph_string_overhangs (struct glyph_string *s)
 static void
 x_clear_glyph_string_rect (struct glyph_string *s, int x, int y, int w, int h)
 {
-  x_clear_rectangle (s->f, s->gc, x, y, w, h,
-		     (s->first_glyph->type != STRETCH_GLYPH
-		      || s->hl != DRAW_CURSOR));
+  x_clear_rectangle (s->f, s->gc, x, y, w, h, s->hl != DRAW_CURSOR);
 }
 
 
@@ -2430,7 +2578,7 @@ x_draw_glyph_string_background (struct glyph_string *s, bool force_p)
 			    s->y + box_line_width,
 			    s->background_width,
 			    s->height - 2 * box_line_width,
-			    false);
+			    s->hl != DRAW_CURSOR);
 	  XSetFillStyle (display, s->gc, FillSolid);
 	  s->background_filled_p = true;
 	}
@@ -3043,13 +3191,35 @@ static void
 x_query_frame_background_color (struct frame *f, XColor *bgcolor)
 {
   unsigned long background = FRAME_BACKGROUND_PIXEL (f);
+#ifndef USE_CAIRO
+  XColor bg;
+#endif
 
   if (FRAME_DISPLAY_INFO (f)->alpha_bits)
     {
+#ifdef USE_CAIRO
       background = (background & ~FRAME_DISPLAY_INFO (f)->alpha_mask);
       background |= (((unsigned long) (f->alpha_background * 0xffff)
 		      >> (16 - FRAME_DISPLAY_INFO (f)->alpha_bits))
 		     << FRAME_DISPLAY_INFO (f)->alpha_offset);
+#else
+      if (FRAME_DISPLAY_INFO (f)->alpha_bits
+	  && f->alpha_background < 1.0)
+	{
+	  bg.pixel = background;
+	  x_query_colors (f, &bg, 1);
+	  bg.red *= f->alpha_background;
+	  bg.green *= f->alpha_background;
+	  bg.blue *= f->alpha_background;
+
+	  background = x_make_truecolor_pixel (FRAME_DISPLAY_INFO (f),
+					       bg.red, bg.green, bg.blue);
+	  background &= ~FRAME_DISPLAY_INFO (f)->alpha_mask;
+	  background |= (((unsigned long) (f->alpha_background * 0xffff)
+			  >> (16 - FRAME_DISPLAY_INFO (f)->alpha_bits))
+			 << FRAME_DISPLAY_INFO (f)->alpha_offset);
+	}
+#endif
     }
 
   bgcolor->pixel = background;
@@ -3121,9 +3291,15 @@ x_parse_color (struct frame *f, const char *color_name,
 static bool
 x_alloc_nearest_color_1 (Display *dpy, Colormap cmap, XColor *color)
 {
+  struct x_display_info *dpyinfo = x_display_info_for_display (dpy);
   bool rc;
 
+  eassume (dpyinfo);
   rc = XAllocColor (dpy, cmap, color) != 0;
+
+  if (dpyinfo->visual->class == DirectColor)
+    return rc;
+
   if (rc == 0)
     {
       /* If we got to this point, the colormap is full, so we're going
@@ -3220,9 +3396,7 @@ x_alloc_nearest_color (struct frame *f, Colormap cmap, XColor *color)
 
   gamma_correct (f, color);
 
-  if (dpyinfo->red_bits > 0
-      && (dpyinfo->n_planes != 32
-	  || dpyinfo->alpha_bits > 0))
+  if (dpyinfo->red_bits > 0)
     {
       color->pixel = x_make_truecolor_pixel (dpyinfo,
 					     color->red,
@@ -4070,7 +4244,7 @@ x_draw_glyph_string_bg_rect (struct glyph_string *s, int x, int y, int w, int h)
 
       /* Fill background with a stipple pattern.  */
       XSetFillStyle (display, s->gc, FillOpaqueStippled);
-      x_fill_rectangle (s->f, s->gc, x, y, w, h, false);
+      x_fill_rectangle (s->f, s->gc, x, y, w, h, true);
       XSetFillStyle (display, s->gc, FillSolid);
     }
   else
@@ -4153,6 +4327,7 @@ x_draw_image_glyph_string (struct glyph_string *s)
 	      XGCValues xgcv;
 #if defined HAVE_XRENDER && (RENDER_MAJOR > 0 || (RENDER_MINOR >= 2))
 	      if (FRAME_DISPLAY_INFO (s->f)->alpha_bits
+		  && s->f->alpha_background != 1.0
 		  && FRAME_CHECK_XR_VERSION (s->f, 0, 2)
 		  && FRAME_X_PICTURE_FORMAT (s->f))
 		{
@@ -4821,7 +4996,8 @@ x_clear_area (struct frame *f, int x, int y, int width, int height)
   eassert (width > 0 && height > 0);
 
   cr = x_begin_cr_clip (f, NULL);
-  x_set_cr_source_with_gc_background (f, f->output_data.x->normal_gc);
+  x_set_cr_source_with_gc_background (f, f->output_data.x->normal_gc,
+				      true);
   cairo_rectangle (cr, x, y, width, height);
   cairo_fill (cr);
   x_end_cr_clip (f);
@@ -4836,6 +5012,7 @@ x_clear_area (struct frame *f, int x, int y, int width, int height)
       x_xr_ensure_picture (f);
       if (FRAME_DISPLAY_INFO (f)->alpha_bits
 	  && FRAME_X_PICTURE (f) != None
+	  && f->alpha_background != 1.0
 	  && FRAME_CHECK_XR_VERSION (f, 0, 2))
 	{
 	  XRenderColor xc;
@@ -4989,16 +5166,13 @@ x_hide_hourglass (struct frame *f)
 static void
 XTflash (struct frame *f)
 {
+  GC gc;
+  XGCValues values;
+
   block_input ();
 
-  {
-    GC gc;
-
-    /* Create a GC that will use the GXxor function to flip foreground
-       pixels into background pixels.  */
+  if (FRAME_X_VISUAL (f)->class == TrueColor)
     {
-      XGCValues values;
-
       values.function = GXxor;
       values.foreground = (FRAME_FOREGROUND_PIXEL (f)
 			   ^ FRAME_BACKGROUND_PIXEL (f));
@@ -5006,85 +5180,86 @@ XTflash (struct frame *f)
       gc = XCreateGC (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f),
 		      GCFunction | GCForeground, &values);
     }
+  else
+    gc = FRAME_X_OUTPUT (f)->normal_gc;
+
+
+  /* Get the height not including a menu bar widget.  */
+  int height = FRAME_PIXEL_HEIGHT (f);
+  /* Height of each line to flash.  */
+  int flash_height = FRAME_LINE_HEIGHT (f);
+  /* These will be the left and right margins of the rectangles.  */
+  int flash_left = FRAME_INTERNAL_BORDER_WIDTH (f);
+  int flash_right = FRAME_PIXEL_WIDTH (f) - FRAME_INTERNAL_BORDER_WIDTH (f);
+  int width = flash_right - flash_left;
+
+  /* If window is tall, flash top and bottom line.  */
+  if (height > 3 * FRAME_LINE_HEIGHT (f))
     {
-      /* Get the height not including a menu bar widget.  */
-      int height = FRAME_PIXEL_HEIGHT (f);
-      /* Height of each line to flash.  */
-      int flash_height = FRAME_LINE_HEIGHT (f);
-      /* These will be the left and right margins of the rectangles.  */
-      int flash_left = FRAME_INTERNAL_BORDER_WIDTH (f);
-      int flash_right = FRAME_PIXEL_WIDTH (f) - FRAME_INTERNAL_BORDER_WIDTH (f);
-      int width = flash_right - flash_left;
+      XFillRectangle (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), gc,
+		      flash_left,
+		      (FRAME_INTERNAL_BORDER_WIDTH (f)
+		       + FRAME_TOP_MARGIN_HEIGHT (f)),
+		      width, flash_height);
+      XFillRectangle (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), gc,
+		      flash_left,
+		      (height - flash_height
+		       - FRAME_INTERNAL_BORDER_WIDTH (f)),
+		      width, flash_height);
 
-      /* If window is tall, flash top and bottom line.  */
-      if (height > 3 * FRAME_LINE_HEIGHT (f))
-	{
-	  XFillRectangle (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), gc,
-			  flash_left,
-			  (FRAME_INTERNAL_BORDER_WIDTH (f)
-			   + FRAME_TOP_MARGIN_HEIGHT (f)),
-			  width, flash_height);
-	  XFillRectangle (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), gc,
-			  flash_left,
-			  (height - flash_height
-			   - FRAME_INTERNAL_BORDER_WIDTH (f)),
-			  width, flash_height);
-
-	}
-      else
-	/* If it is short, flash it all.  */
-	XFillRectangle (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), gc,
-			flash_left, FRAME_INTERNAL_BORDER_WIDTH (f),
-			width, height - 2 * FRAME_INTERNAL_BORDER_WIDTH (f));
-
-      x_flush (f);
-
-      {
-	struct timespec delay = make_timespec (0, 150 * 1000 * 1000);
-	struct timespec wakeup = timespec_add (current_timespec (), delay);
-
-	/* Keep waiting until past the time wakeup or any input gets
-	   available.  */
-	while (! detect_input_pending ())
-	  {
-	    struct timespec current = current_timespec ();
-	    struct timespec timeout;
-
-	    /* Break if result would not be positive.  */
-	    if (timespec_cmp (wakeup, current) <= 0)
-	      break;
-
-	    /* How long `select' should wait.  */
-	    timeout = make_timespec (0, 10 * 1000 * 1000);
-
-	    /* Try to wait that long--but we might wake up sooner.  */
-	    pselect (0, NULL, NULL, NULL, &timeout, NULL);
-	  }
-      }
-
-      /* If window is tall, flash top and bottom line.  */
-      if (height > 3 * FRAME_LINE_HEIGHT (f))
-	{
-	  XFillRectangle (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), gc,
-			  flash_left,
-			  (FRAME_INTERNAL_BORDER_WIDTH (f)
-			   + FRAME_TOP_MARGIN_HEIGHT (f)),
-			  width, flash_height);
-	  XFillRectangle (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), gc,
-			  flash_left,
-			  (height - flash_height
-			   - FRAME_INTERNAL_BORDER_WIDTH (f)),
-			  width, flash_height);
-	}
-      else
-	/* If it is short, flash it all.  */
-	XFillRectangle (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), gc,
-			flash_left, FRAME_INTERNAL_BORDER_WIDTH (f),
-			width, height - 2 * FRAME_INTERNAL_BORDER_WIDTH (f));
-      XFreeGC (FRAME_X_DISPLAY (f), gc);
-      x_flush (f);
     }
-  }
+  else
+    /* If it is short, flash it all.  */
+    XFillRectangle (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), gc,
+		    flash_left, FRAME_INTERNAL_BORDER_WIDTH (f),
+		    width, height - 2 * FRAME_INTERNAL_BORDER_WIDTH (f));
+
+  x_flush (f);
+
+  struct timespec delay = make_timespec (0, 150 * 1000 * 1000);
+  struct timespec wakeup = timespec_add (current_timespec (), delay);
+
+  /* Keep waiting until past the time wakeup or any input gets
+     available.  */
+  while (! detect_input_pending ())
+    {
+      struct timespec current = current_timespec ();
+      struct timespec timeout;
+
+      /* Break if result would not be positive.  */
+      if (timespec_cmp (wakeup, current) <= 0)
+	break;
+
+      /* How long `select' should wait.  */
+      timeout = make_timespec (0, 10 * 1000 * 1000);
+
+      /* Try to wait that long--but we might wake up sooner.  */
+      pselect (0, NULL, NULL, NULL, &timeout, NULL);
+    }
+
+  /* If window is tall, flash top and bottom line.  */
+  if (height > 3 * FRAME_LINE_HEIGHT (f))
+    {
+      XFillRectangle (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), gc,
+		      flash_left,
+		      (FRAME_INTERNAL_BORDER_WIDTH (f)
+		       + FRAME_TOP_MARGIN_HEIGHT (f)),
+		      width, flash_height);
+      XFillRectangle (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), gc,
+		      flash_left,
+		      (height - flash_height
+		       - FRAME_INTERNAL_BORDER_WIDTH (f)),
+		      width, flash_height);
+    }
+  else
+    /* If it is short, flash it all.  */
+    XFillRectangle (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), gc,
+		    flash_left, FRAME_INTERNAL_BORDER_WIDTH (f),
+		    width, height - 2 * FRAME_INTERNAL_BORDER_WIDTH (f));
+
+  if (FRAME_X_VISUAL (f)->class == TrueColor)
+    XFreeGC (FRAME_X_DISPLAY (f), gc);
+  x_flush (f);
 
   unblock_input ();
 }
@@ -5458,17 +5633,21 @@ x_focus_changed (int type, int state, struct x_display_info *dpyinfo, struct fra
           XSETFRAME (bufp->frame_or_window, frame);
         }
 
-#ifdef HAVE_X_I18N
-      if (FRAME_XIC (frame))
-        XUnsetICFocus (FRAME_XIC (frame));
-#ifdef USE_GTK
-      if (x_gtk_use_native_input)
+      if (!frame->output_data.x->focus_state)
 	{
-	  gtk_im_context_focus_out (FRAME_X_OUTPUT (frame)->im_context);
-	  gtk_im_context_set_client_window (FRAME_X_OUTPUT (frame)->im_context, NULL);
+#ifdef HAVE_X_I18N
+	  if (FRAME_XIC (frame))
+	    XUnsetICFocus (FRAME_XIC (frame));
+#ifdef USE_GTK
+	  if (x_gtk_use_native_input)
+	    {
+	      gtk_im_context_focus_out (FRAME_X_OUTPUT (frame)->im_context);
+	      gtk_im_context_set_client_window (FRAME_X_OUTPUT (frame)->im_context, NULL);
+	    }
+#endif
+#endif
 	}
-#endif
-#endif
+
       if (frame->pointer_invisible)
         XTtoggle_invisible_pointer (frame, false);
     }
@@ -5541,6 +5720,13 @@ x_any_window_to_frame (struct x_display_info *dpyinfo, int wdesc)
 
   if (wdesc == None)
     return NULL;
+
+#ifdef HAVE_XWIDGETS
+  struct xwidget_view *xv = xwidget_view_from_window (wdesc);
+
+  if (xv)
+    return xv->frame;
+#endif
 
   FOR_EACH_FRAME (tail, frame)
     {
@@ -5976,7 +6162,10 @@ x_find_modifier_meanings (struct x_display_info *dpyinfo)
     dpyinfo->hyper_mod_mask &= ~dpyinfo->super_mod_mask;
 
   XFree (syms);
-  XFreeModifiermap (mods);
+
+  if (dpyinfo->modmap)
+    XFreeModifiermap (dpyinfo->modmap);
+  dpyinfo->modmap = mods;
 }
 
 /* Convert between the modifier bits X uses and the modifier bits
@@ -8377,6 +8566,9 @@ x_scroll_bar_expose (struct scroll_bar *bar, const XEvent *event)
 		  /* x, y, width, height */
 		  0, 0, bar->width - 1, bar->height - 1);
 
+  XDrawPoint (FRAME_X_DISPLAY (f), w, gc,
+	      bar->width - 1, bar->height - 1);
+
   /* Restore the foreground color of the GC if we changed it above.  */
   if (f->output_data.x->scroll_bar_foreground_pixel != -1)
     XSetForeground (FRAME_X_DISPLAY (f), gc,
@@ -8982,7 +9174,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
   int do_help = 0;
   ptrdiff_t nbytes = 0;
   struct frame *any, *f = NULL;
-  struct coding_system coding;
   Mouse_HLInfo *hlinfo = &dpyinfo->mouse_highlight;
   /* This holds the state XLookupString needs to implement dead keys
      and other tricks known as "compose processing".  _X Window System_
@@ -8991,8 +9182,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
   static XComposeStatus compose_status;
   XEvent configureEvent;
   XEvent next_event;
-
-  USE_SAFE_ALLOCA;
+  Lisp_Object coding;
 
   *finish = X_EVENT_NORMAL;
 
@@ -9130,7 +9320,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		goto done;
 	      }
 
-#if defined HAVE_XSYNC && !defined HAVE_GTK3
+#if defined HAVE_XSYNC
 	    if (event->xclient.data.l[0] == dpyinfo->Xatom_net_wm_sync_request
 		&& event->xclient.format == 32
 		&& dpyinfo->xsync_supported_p)
@@ -9138,9 +9328,15 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		struct frame *f
 		  = x_top_window_to_frame (dpyinfo,
 					   event->xclient.window);
+#if defined HAVE_GTK3
+		GtkWidget *widget;
+		GdkWindow *window;
+		GdkFrameClock *frame_clock;
+#endif
 
 		if (f)
 		  {
+#ifndef HAVE_GTK3
 		    if (event->xclient.data.l[4] == 0)
 		      {
 			XSyncIntsToValue (&FRAME_X_OUTPUT (f)->pending_basic_counter_value,
@@ -9155,6 +9351,22 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		      }
 
 		    *finish = X_EVENT_DROP;
+#else
+		    widget = FRAME_GTK_OUTER_WIDGET (f);
+
+		    if (widget && !FRAME_X_OUTPUT (f)->xg_sync_end_pending_p)
+		      {
+			window = gtk_widget_get_window (widget);
+			eassert (window);
+			frame_clock = gdk_window_get_frame_clock (window);
+			eassert (frame_clock);
+
+			gdk_frame_clock_request_phase (frame_clock,
+						       GDK_FRAME_CLOCK_PHASE_BEFORE_PAINT);
+
+			FRAME_X_OUTPUT (f)->xg_sync_end_pending_p = true;
+		      }
+#endif
 		    goto done;
 		  }
 	      }
@@ -9250,7 +9462,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
       break;
 
     case SelectionNotify:
-      x_display_set_last_user_time (dpyinfo, event->xselection.time);
 #ifdef USE_X_TOOLKIT
       if (! x_window_to_frame (dpyinfo, event->xselection.requestor))
         goto OTHER;
@@ -9259,7 +9470,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
       break;
 
     case SelectionClear:	/* Someone has grabbed ownership.  */
-      x_display_set_last_user_time (dpyinfo, event->xselectionclear.time);
 #ifdef USE_X_TOOLKIT
       if (! x_window_to_frame (dpyinfo, event->xselectionclear.window))
         goto OTHER;
@@ -9275,7 +9485,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
       break;
 
     case SelectionRequest:	/* Someone wants our selection.  */
-      x_display_set_last_user_time (dpyinfo, event->xselectionrequest.time);
 #ifdef USE_X_TOOLKIT
       if (!x_window_to_frame (dpyinfo, event->xselectionrequest.owner))
         goto OTHER;
@@ -9294,7 +9503,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
       break;
 
     case PropertyNotify:
-      x_display_set_last_user_time (dpyinfo, event->xproperty.time);
       f = x_top_window_to_frame (dpyinfo, event->xproperty.window);
       if (f && event->xproperty.atom == dpyinfo->Xatom_net_wm_state)
 	{
@@ -9614,7 +9822,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      f->output_data.x->has_been_visible = true;
 	    }
 
-	  x_update_opaque_region (f);
+	  x_update_opaque_region (f, NULL);
 
           if (not_hidden && iconified)
             {
@@ -9625,9 +9833,9 @@ handle_one_xevent (struct x_display_info *dpyinfo,
       goto OTHER;
 
     case KeyPress:
-
       x_display_set_last_user_time (dpyinfo, event->xkey.time);
       ignore_next_mouse_click_timeout = 0;
+      coding = Qlatin_1;
 
 #if defined (USE_X_TOOLKIT) || defined (USE_GTK)
       /* Dispatch KeyPress events when in menu.  */
@@ -9684,11 +9892,11 @@ handle_one_xevent (struct x_display_info *dpyinfo,
           unsigned char *copy_bufptr = copy_buffer;
           int copy_bufsiz = sizeof (copy_buffer);
           int modifiers;
-          Lisp_Object coding_system = Qlatin_1;
 	  Lisp_Object c;
 	  /* `xkey' will be modified, but it's not important to modify
 	     `event' itself.  */
 	  XKeyEvent xkey = event->xkey;
+	  int i;
 
 #ifdef USE_GTK
           /* Don't pass keys to GTK.  A Tab will shift focus to the
@@ -9720,16 +9928,37 @@ handle_one_xevent (struct x_display_info *dpyinfo,
           if (modifiers & dpyinfo->meta_mod_mask)
             memset (&compose_status, 0, sizeof (compose_status));
 
+#ifdef HAVE_XKB
+	  if (FRAME_DISPLAY_INFO (f)->xkb_desc)
+	    {
+	      XkbDescRec *rec = FRAME_DISPLAY_INFO (f)->xkb_desc;
+
+	      if (rec->map->modmap && rec->map->modmap[xkey.keycode])
+		goto done_keysym;
+	    }
+	  else
+#endif
+	    {
+	      if (dpyinfo->modmap)
+		{
+		  for (i = 0; i < 8 * dpyinfo->modmap->max_keypermod; i++)
+		    {
+		      if (xkey.keycode == dpyinfo->modmap->modifiermap[i])
+			  goto done_keysym;
+		    }
+		}
+	    }
+
 #ifdef HAVE_X_I18N
           if (FRAME_XIC (f))
             {
               Status status_return;
 
-              coding_system = Vlocale_coding_system;
               nbytes = XmbLookupString (FRAME_XIC (f),
                                         &xkey, (char *) copy_bufptr,
                                         copy_bufsiz, &keysym,
                                         &status_return);
+	      coding = Qnil;
               if (status_return == XBufferOverflow)
                 {
                   copy_bufsiz = nbytes + 1;
@@ -9892,59 +10121,17 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 	  {	/* Raw bytes, not keysym.  */
 	    ptrdiff_t i;
-	    int nchars, len;
 
-	    for (i = 0, nchars = 0; i < nbytes; i++)
+	    for (i = 0; i < nbytes; i++)
 	      {
-		if (ASCII_CHAR_P (copy_bufptr[i]))
-		  nchars++;
 		STORE_KEYSYM_FOR_DEBUG (copy_bufptr[i]);
 	      }
 
-	    if (nchars < nbytes)
-	      {
-		/* Decode the input data.  */
+	    inev.ie.kind = MULTIBYTE_CHAR_KEYSTROKE_EVENT;
+	    inev.ie.arg = make_unibyte_string ((char *) copy_bufptr, nbytes);
 
-		/* The input should be decoded with `coding_system'
-		   which depends on which X*LookupString function
-		   we used just above and the locale.  */
-		setup_coding_system (coding_system, &coding);
-		coding.src_multibyte = false;
-		coding.dst_multibyte = true;
-		/* The input is converted to events, thus we can't
-		   handle composition.  Anyway, there's no XIM that
-		   gives us composition information.  */
-		coding.common_flags &= ~CODING_ANNOTATION_MASK;
-
-		SAFE_NALLOCA (coding.destination, MAX_MULTIBYTE_LENGTH,
-			      nbytes);
-		coding.dst_bytes = MAX_MULTIBYTE_LENGTH * nbytes;
-		coding.mode |= CODING_MODE_LAST_BLOCK;
-		decode_coding_c_string (&coding, copy_bufptr, nbytes, Qnil);
-		nbytes = coding.produced;
-		nchars = coding.produced_char;
-		copy_bufptr = coding.destination;
-	      }
-
-	    /* Convert the input data to a sequence of
-	       character events.  */
-	    for (i = 0; i < nbytes; i += len)
-	      {
-		int ch;
-		if (nchars == nbytes)
-		  ch = copy_bufptr[i], len = 1;
-		else
-		  ch = string_char_and_length (copy_bufptr + i, &len);
-		inev.ie.kind = (SINGLE_BYTE_CHAR_P (ch)
-				? ASCII_KEYSTROKE_EVENT
-				: MULTIBYTE_CHAR_KEYSTROKE_EVENT);
-		inev.ie.code = ch;
-		kbd_buffer_store_buffered_event (&inev, hold_quit);
-	      }
-
-	    count += nchars;
-
-	    inev.ie.kind = NO_EVENT;  /* Already stored above.  */
+	    Fput_text_property (make_fixnum (0), make_fixnum (nbytes),
+				Qcoding, coding, inev.ie.arg);
 
 	    if (keysym == NoSymbol)
 	      break;
@@ -9961,7 +10148,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 #endif
 
     case KeyRelease:
-      x_display_set_last_user_time (dpyinfo, event->xkey.time);
 #ifdef HAVE_X_I18N
       /* Don't dispatch this event since XtDispatchEvent calls
          XFilterEvent, and two calls in a row may freeze the
@@ -10068,8 +10254,17 @@ handle_one_xevent (struct x_display_info *dpyinfo,
       if (x_top_window_to_frame (dpyinfo, event->xcrossing.window))
 	x_detect_focus_change (dpyinfo, any, event, &inev.ie);
 
+#if defined USE_X_TOOLKIT
+      /* If the mouse leaves the edit widget, then any mouse highlight
+	 should be cleared.  */
+      f = x_window_to_frame (dpyinfo, event->xcrossing.window);
+
+      if (!f)
+	f = x_top_window_to_frame (dpyinfo, event->xcrossing.window);
+#else
       f = x_top_window_to_frame (dpyinfo, event->xcrossing.window);
-#if defined HAVE_X_TOOLKIT && defined HAVE_XINPUT2
+#endif
+#if defined USE_X_TOOLKIT && defined HAVE_XINPUT2
       /* The XI2 event mask is set on the frame widget, so this event
 	 likely originates from the shell widget, which we aren't
 	 interested in.  */
@@ -10106,7 +10301,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
     case MotionNotify:
       {
-        x_display_set_last_user_time (dpyinfo, event->xmotion.time);
         previous_help_echo_string = help_echo_string;
         help_echo_string = Qnil;
 
@@ -10246,6 +10440,8 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	x_cr_update_surface_desired_size (any,
 					  configureEvent.xconfigure.width,
 					  configureEvent.xconfigure.height);
+      if (f || (any && configureEvent.xconfigure.window == FRAME_X_WINDOW (any)))
+	x_update_opaque_region (f ? f : any, &configureEvent);
 #endif
 #ifdef USE_GTK
       if (!f
@@ -10274,6 +10470,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	  x_cr_update_surface_desired_size (f, configureEvent.xconfigure.width,
 					    configureEvent.xconfigure.height);
 #endif
+	  x_update_opaque_region (f, &configureEvent);
           f = 0;
 	}
 #endif
@@ -10416,7 +10613,9 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 	memset (&compose_status, 0, sizeof (compose_status));
 	dpyinfo->last_mouse_glyph_frame = NULL;
-	x_display_set_last_user_time (dpyinfo, event->xbutton.time);
+
+	if (event->xbutton.type == ButtonPress)
+	  x_display_set_last_user_time (dpyinfo, event->xbutton.time);
 
 	f = mouse_or_wdesc_frame (dpyinfo, event->xmotion.window);
 	if (f && event->xbutton.type == ButtonPress
@@ -10637,6 +10836,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	XIEnterEvent *enter = (XIEnterEvent *) xi_event;
 	XIFocusInEvent *focusin = (XIFocusInEvent *) xi_event;
 	XIFocusOutEvent *focusout = (XIFocusOutEvent *) xi_event;
+	XIDeviceChangedEvent *device_changed = (XIDeviceChangedEvent *) xi_event;
 	XIValuatorState *states;
 	double *values;
 	bool found_valuator = false;
@@ -10709,6 +10909,9 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	    if (!any)
 	      any = x_any_window_to_frame (dpyinfo, enter->event);
 
+	    xi_reset_scroll_valuators_for_device_id (dpyinfo, enter->deviceid,
+						     true);
+
 	    {
 #ifdef HAVE_XWIDGETS
 	      struct xwidget_view *xwidget_view = xwidget_view_from_window (enter->event);
@@ -10747,6 +10950,17 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	    ev.window = leave->event;
 	    any = x_top_window_to_frame (dpyinfo, leave->event);
 
+	    /* This allows us to catch LeaveNotify events generated by
+	       popup menu grabs.  FIXME: this is right when there is a
+	       focus menu, but implicit focus tracking can get screwed
+	       up if we get this and no XI_Enter event later.   */
+
+#ifdef USE_X_TOOLKIT
+	    if (popup_activated ()
+		&& leave->mode == XINotifyPassiveUngrab)
+	      any = x_any_window_to_frame (dpyinfo, leave->event);
+#endif
+
 	    /* One problem behind the design of XInput 2 scrolling is
 	       that valuators are not unique to each window, but only
 	       the window that has grabbed the valuator's device or
@@ -10761,7 +10975,8 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	       moves out of a frame (and not into one of its
 	       children, which we know about).  */
 	    if (leave->detail != XINotifyInferior && any)
-	      xi_reset_scroll_valuators_for_device_id (dpyinfo, enter->deviceid);
+	      xi_reset_scroll_valuators_for_device_id (dpyinfo,
+						       enter->deviceid, false);
 
 #ifdef HAVE_XWIDGETS
 	    {
@@ -10783,15 +10998,15 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	    if (any)
 	      x_detect_focus_change (dpyinfo, any, event, &inev.ie);
 
-	    if (!any)
-	      any = x_any_window_to_frame (dpyinfo, leave->event);
-
 #ifndef USE_X_TOOLKIT
 	    f = x_top_window_to_frame (dpyinfo, leave->event);
 #else
 	    /* On Xt builds that have XI2, the enter and leave event
 	       masks are set on the frame widget's window.  */
 	    f = x_window_to_frame (dpyinfo, leave->event);
+
+	    if (!f)
+	      f = x_top_window_to_frame (dpyinfo, leave->event);
 #endif
 	    if (f)
 	      {
@@ -10820,28 +11035,26 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	  case XI_Motion:
 	    {
 	      struct xi_device_t *device;
-	      bool touch_end_event_seen = false;
 
 	      states = &xev->valuators;
 	      values = states->values;
 	      device = xi_device_from_id (dpyinfo, xev->deviceid);
 
-	      if (!device || !device->master_p)
+	      if (!device)
 		goto XI_OTHER;
 
 #ifdef XI_TouchBegin
-	      if (xev->flags & XIPointerEmulated
-		  && dpyinfo->xi2_version >= 2)
+	      if (xev->flags & XIPointerEmulated)
 		goto XI_OTHER;
 #endif
-
-	      x_display_set_last_user_time (dpyinfo, xi_event->time);
 
 #ifdef HAVE_XWIDGETS
 	      struct xwidget_view *xv = xwidget_view_from_window (xev->event);
 	      double xv_total_x = 0.0;
 	      double xv_total_y = 0.0;
 #endif
+	      double total_x = 0.0;
+	      double total_y = 0.0;
 
 	      for (int i = 0; i < states->mask_len * 8; i++)
 		{
@@ -10858,19 +11071,21 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 			 scroll wheel movement is reported on XInput 2.  */
 		      delta = x_get_scroll_valuator_delta (dpyinfo, xev->deviceid,
 							   i, *values, &val);
+		      values++;
 
 		      if (delta != DBL_MAX)
 			{
+			  if (!f)
+			    {
+			      f = x_any_window_to_frame (dpyinfo, xev->event);
+
+			      if (!f)
+				goto XI_OTHER;
+			    }
+
 #ifdef HAVE_XWIDGETS
 			  if (xv)
 			    {
-			      /* FIXME: figure out what in GTK is
-				 causing interval values to jump by
-				 >100 at the end of a touch sequence
-				 when an xwidget gets a scroll event
-				 where is_stop is TRUE.  */
-			      if (fabs (delta) > 100)
-				continue;
 			      if (val->horizontal)
 				xv_total_x += delta;
 			      else
@@ -10880,15 +11095,9 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 			      continue;
 			    }
 #endif
-			  if (!f)
-			    {
-			      f = x_any_window_to_frame (dpyinfo, xev->event);
 
-			      if (!f)
-				goto XI_OTHER;
-			    }
-
-			  found_valuator = true;
+			  if (delta == 0.0)
+			    found_valuator = true;
 
 			  if (signbit (delta) != signbit (val->emacs_value))
 			    val->emacs_value = 0;
@@ -10899,26 +11108,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 			      && (fabs (val->emacs_value) < 1)
 			      && (fabs (delta) > 0))
 			    continue;
-
-			  bool s = signbit (val->emacs_value);
-			  inev.ie.kind = (fabs (delta) > 0
-					  ? (val->horizontal
-					     ? HORIZ_WHEEL_EVENT
-					     : WHEEL_EVENT)
-					  : TOUCH_END_EVENT);
-			  inev.ie.timestamp = xev->time;
-
-			  XSETINT (inev.ie.x, lrint (xev->event_x));
-			  XSETINT (inev.ie.y, lrint (xev->event_y));
-			  XSETFRAME (inev.ie.frame_or_window, f);
-
-			  if (fabs (delta) > 0)
-			    {
-			      inev.ie.modifiers = !s ? up_modifier : down_modifier;
-			      inev.ie.modifiers
-				|= x_x_to_emacs_modifiers (dpyinfo,
-							   xev->mods.effective);
-			    }
 
 			  window = window_from_coordinates (f, xev->event_x,
 							    xev->event_y, NULL,
@@ -10937,41 +11126,15 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 			  if (NUMBERP (Vx_scroll_event_delta_factor))
 			    scroll_unit *= XFLOATINT (Vx_scroll_event_delta_factor);
 
-			  if (fabs (delta) > 0)
-			    {
-			      if (val->horizontal)
-				{
-				  inev.ie.arg
-				    = list3 (Qnil,
-					     make_float (val->emacs_value
-							 * scroll_unit),
-					     make_float (0));
-				}
-			      else
-				{
-				  inev.ie.arg = list3 (Qnil, make_float (0),
-						       make_float (val->emacs_value
-								   * scroll_unit));
-				}
-			    }
+			  if (val->horizontal)
+			    total_x += delta * scroll_unit;
 			  else
-			    {
-			      inev.ie.arg = Qnil;
-			    }
+			    total_y += delta * scroll_unit;
 
-			  if (inev.ie.kind != TOUCH_END_EVENT
-			      || !touch_end_event_seen)
-			    {
-			      kbd_buffer_store_event_hold (&inev.ie, hold_quit);
-			      touch_end_event_seen = inev.ie.kind == TOUCH_END_EVENT;
-			    }
-
+			  found_valuator = true;
 			  val->emacs_value = 0;
 			}
-		      values++;
 		    }
-
-		  inev.ie.kind = NO_EVENT;
 		}
 
 #ifdef HAVE_XWIDGETS
@@ -11001,15 +11164,51 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 		  goto XI_OTHER;
 		}
-#endif
-	      if (found_valuator)
+	      else
 		{
-#ifdef USE_GTK
-		  if (f && xg_event_is_for_scrollbar (f, event))
-		    *finish = X_EVENT_DROP;
 #endif
-		  goto XI_OTHER;
+		  if (found_valuator)
+		    {
+		      if (fabs (total_x) > 0 || fabs (total_y) > 0)
+			{
+			  inev.ie.kind = (fabs (total_y) >= fabs (total_x)
+					  ? WHEEL_EVENT : HORIZ_WHEEL_EVENT);
+			  inev.ie.timestamp = xev->time;
+
+			  XSETINT (inev.ie.x, lrint (xev->event_x));
+			  XSETINT (inev.ie.y, lrint (xev->event_y));
+			  XSETFRAME (inev.ie.frame_or_window, f);
+
+			  inev.ie.modifiers = (signbit (fabs (total_y) >= fabs (total_x)
+							? total_y : total_x)
+					       ? down_modifier : up_modifier);
+			  inev.ie.modifiers
+			    |= x_x_to_emacs_modifiers (dpyinfo,
+						       xev->mods.effective);
+			  inev.ie.arg = list3 (Qnil,
+					       make_float (total_x),
+					       make_float (total_y));
+
+#ifdef USE_GTK
+			  if (f && xg_event_is_for_scrollbar (f, event))
+			    *finish = X_EVENT_DROP;
+#endif
+			}
+		      else
+			{
+			  inev.ie.kind = TOUCH_END_EVENT;
+			  inev.ie.timestamp = xev->time;
+
+			  XSETINT (inev.ie.x, lrint (xev->event_x));
+			  XSETINT (inev.ie.y, lrint (xev->event_y));
+			  XSETFRAME (inev.ie.frame_or_window, f);
+			}
+
+		      goto XI_OTHER;
+		    }
+#ifdef HAVE_XWIDGETS
 		}
+#endif
 
 	      ev.x = lrint (xev->event_x);
 	      ev.y = lrint (xev->event_y);
@@ -11114,11 +11313,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 #ifdef XIPointerEmulated
 	      /* Ignore emulated scroll events when XI2 native
 		 scroll events are present.  */
-	      if (((dpyinfo->xi2_version == 1
-		   && xev->detail >= 4
-		   && xev->detail <= 8)
-		   || (dpyinfo->xi2_version >= 2))
-		  && xev->flags & XIPointerEmulated)
+	      if (xev->flags & XIPointerEmulated)
 		{
 		  *finish = X_EVENT_DROP;
 		  goto XI_OTHER;
@@ -11146,7 +11341,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 	      device = xi_device_from_id (dpyinfo, xev->deviceid);
 
-	      if (!device || !device->master_p)
+	      if (!device)
 		goto XI_OTHER;
 
 	      bv.button = xev->detail;
@@ -11158,7 +11353,9 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      bv.time = xev->time;
 
 	      dpyinfo->last_mouse_glyph_frame = NULL;
-	      x_display_set_last_user_time (dpyinfo, xev->time);
+
+	      if (xev->evtype == XI_ButtonPress)
+		x_display_set_last_user_time (dpyinfo, xev->time);
 
 	      f = mouse_or_wdesc_frame (dpyinfo, xev->event);
 
@@ -11309,15 +11506,15 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      KeySym keysym;
 	      char copy_buffer[81];
 	      char *copy_bufptr = copy_buffer;
-	      unsigned char *copy_ubufptr;
 	      int copy_bufsiz = sizeof (copy_buffer);
 	      ptrdiff_t i;
-	      int nchars, len;
 	      struct xi_device_t *device;
+
+	      coding = Qlatin_1;
 
 	      device = xi_device_from_id (dpyinfo, xev->deviceid);
 
-	      if (!device || !device->master_p)
+	      if (!device)
 		goto XI_OTHER;
 
 #if defined (USE_X_TOOLKIT) || defined (USE_GTK)
@@ -11374,6 +11571,29 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		  goto XI_OTHER;
 		}
 #endif
+
+	      state |= x_emacs_to_x_modifiers (dpyinfo, extra_keyboard_modifiers);
+
+#ifdef HAVE_XKB
+	      if (FRAME_DISPLAY_INFO (f)->xkb_desc)
+		{
+		  XkbDescRec *rec = FRAME_DISPLAY_INFO (f)->xkb_desc;
+
+		  if (rec->map->modmap && rec->map->modmap[xev->detail])
+		    goto xi_done_keysym;
+		}
+	      else
+#endif
+		{
+		  if (dpyinfo->modmap)
+		    {
+		      for (i = 0; i < 8 * dpyinfo->modmap->max_keypermod; i++)
+			{
+			  if (xkey.keycode == dpyinfo->modmap->modifiermap[xev->detail])
+			    goto xi_done_keysym;
+			}
+		    }
+		}
 
 #ifdef HAVE_XKB
 	      if (dpyinfo->xkb_desc)
@@ -11442,6 +11662,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 						&xkey, (char *) copy_bufptr,
 						copy_bufsiz, &keysym,
 						&status_return);
+		      coding = Qnil;
 
 		      if (status_return == XBufferOverflow)
 			{
@@ -11488,6 +11709,8 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 			      if (overflow)
 				nbytes = 0;
 			    }
+
+			  coding = Qnil;
 			}
 		      else
 #endif
@@ -11614,64 +11837,25 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		      goto xi_done_keysym;
 		    }
 
-		  for (i = 0, nchars = 0; i < nbytes; i++)
+		  for (i = 0; i < nbytes; i++)
 		    {
-		      if (ASCII_CHAR_P (copy_bufptr[i]))
-			nchars++;
 		      STORE_KEYSYM_FOR_DEBUG (copy_bufptr[i]);
 		    }
 
-		  if (nchars < nbytes)
-		    {
-		      /* Decode the input data.  */
+		  inev.ie.kind = MULTIBYTE_CHAR_KEYSTROKE_EVENT;
+		  inev.ie.arg = make_unibyte_string (copy_bufptr, nbytes);
 
-		      setup_coding_system (Vlocale_coding_system, &coding);
-		      coding.src_multibyte = false;
-		      coding.dst_multibyte = true;
-		      /* The input is converted to events, thus we can't
-			 handle composition.  Anyway, there's no XIM that
-			 gives us composition information.  */
-		      coding.common_flags &= ~CODING_ANNOTATION_MASK;
-
-		      SAFE_NALLOCA (coding.destination, MAX_MULTIBYTE_LENGTH,
-				    nbytes);
-		      coding.dst_bytes = MAX_MULTIBYTE_LENGTH * nbytes;
-		      coding.mode |= CODING_MODE_LAST_BLOCK;
-		      decode_coding_c_string (&coding, (unsigned char *) copy_bufptr,
-					      nbytes, Qnil);
-		      nbytes = coding.produced;
-		      nchars = coding.produced_char;
-		      copy_bufptr = (char *) coding.destination;
-		    }
-
-		  copy_ubufptr = (unsigned char *) copy_bufptr;
-
-		  /* Convert the input data to a sequence of
-		     character events.  */
-		  for (i = 0; i < nbytes; i += len)
-		    {
-		      int ch;
-		      if (nchars == nbytes)
-			ch = copy_ubufptr[i], len = 1;
-		      else
-			ch = string_char_and_length (copy_ubufptr + i, &len);
-		      inev.ie.kind = (SINGLE_BYTE_CHAR_P (ch)
-				      ? ASCII_KEYSTROKE_EVENT
-				      : MULTIBYTE_CHAR_KEYSTROKE_EVENT);
-		      inev.ie.code = ch;
-		      kbd_buffer_store_buffered_event (&inev, hold_quit);
-		    }
-
-		  inev.ie.kind = NO_EVENT;
+		  Fput_text_property (make_fixnum (0), make_fixnum (nbytes),
+				      Qcoding, coding, inev.ie.arg);
 		  goto xi_done_keysym;
 		}
+
 	      goto XI_OTHER;
 	    }
 
 	  case XI_KeyRelease:
-	    x_display_set_last_user_time (dpyinfo, xev->time);
-
 #if defined HAVE_X_I18N || defined USE_GTK
+	    {
 	      XKeyPressedEvent xkey;
 
 	      memset (&xkey, 0, sizeof xkey);
@@ -11698,21 +11882,135 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      if (f && xg_filter_key (f, event))
 		*finish = X_EVENT_DROP;
 #endif
+	    }
 #endif
 
 	    goto XI_OTHER;
 
 	  case XI_PropertyEvent:
+	    goto XI_OTHER;
+
 	  case XI_HierarchyChanged:
-	  case XI_DeviceChanged:
-#ifdef XISlaveSwitch
-	    if (xi_event->evtype == XI_DeviceChanged
-		&& (((XIDeviceChangedEvent *) xi_event)->reason
-		    == XISlaveSwitch))
-	      goto XI_OTHER;
-#endif
 	    x_init_master_valuators (dpyinfo);
 	    goto XI_OTHER;
+
+	  case XI_DeviceChanged:
+	    {
+	      struct xi_device_t *device;
+	      struct xi_touch_point_t *tem, *last;
+	      int c, i;
+
+	      device = xi_device_from_id (dpyinfo, device_changed->deviceid);
+
+	      if (!device)
+		{
+		  /* An existing device might have been enabled.  */
+		  x_init_master_valuators (dpyinfo);
+
+		  /* Now try to find the device again, in case it was
+		     just enabled.  */
+		  device = xi_device_from_id (dpyinfo, device_changed->deviceid);
+		}
+
+	      /* If it wasn't enabled, then stop handling this event.  */
+	      if (!device)
+		goto XI_OTHER;
+
+	      /* Free data that we will regenerate from new
+		 information.  */
+	      device->valuators = xrealloc (device->valuators,
+					    (device_changed->num_classes
+					     * sizeof *device->valuators));
+	      device->scroll_valuator_count = 0;
+	      device->direct_p = false;
+
+	      for (c = 0; c < device_changed->num_classes; ++c)
+		{
+		  switch (device_changed->classes[c]->type)
+		    {
+#ifdef XIScrollClass
+		    case XIScrollClass:
+		      {
+			XIScrollClassInfo *info;
+
+			info = (XIScrollClassInfo *) device_changed->classes[c];
+			struct xi_scroll_valuator_t *valuator;
+
+			valuator = &device->valuators[device->scroll_valuator_count++];
+			valuator->horizontal
+			  = (info->scroll_type == XIScrollTypeHorizontal);
+			valuator->invalid_p = true;
+			valuator->emacs_value = DBL_MIN;
+			valuator->increment = info->increment;
+			valuator->number = info->number;
+
+			break;
+		      }
+#endif
+
+#ifdef XITouchClass
+		    case XITouchClass:
+		      {
+			XITouchClassInfo *info;
+
+			info = (XITouchClassInfo *) device_changed->classes[c];
+			device->direct_p = info->mode == XIDirectTouch;
+		      }
+#endif
+		    default:
+		      break;
+		    }
+		}
+
+#ifdef XIScrollClass
+	      for (c = 0; c < device_changed->num_classes; ++c)
+		{
+		  if (device_changed->classes[c]->type == XIValuatorClass)
+		    {
+		      XIValuatorClassInfo *info;
+
+		      info = (XIValuatorClassInfo *) device_changed->classes[c];
+
+		      for (i = 0; i < device->scroll_valuator_count; ++i)
+			{
+			  if (device->valuators[i].number == info->number)
+			    {
+			      device->valuators[i].invalid_p = false;
+			      device->valuators[i].current_value = info->value;
+
+			      /* Make sure that this is reset if the
+				 pointer moves into a window of ours.
+
+				 Otherwise the valuator state could be
+				 left invalid if the DeviceChange
+				 event happened with the pointer
+				 outside any Emacs frame. */
+			      device->valuators[i].pending_enter_reset = true;
+			    }
+			}
+		    }
+		}
+#endif
+
+	      /* The device is no longer a DirectTouch device, so
+		 remove any touchpoints that we might have
+		 recorded.  */
+	      if (!device->direct_p)
+		{
+		  tem = device->touchpoints;
+
+		  while (tem)
+		    {
+		      last = tem;
+		      tem = tem->next;
+		      xfree (last);
+		    }
+
+		  device->touchpoints = NULL;
+		}
+
+	      goto XI_OTHER;
+	    }
 
 #ifdef XI_TouchBegin
 	  case XI_TouchBegin:
@@ -11886,7 +12184,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      XIGesturePinchEvent *pev = (XIGesturePinchEvent *) xi_event;
 	      struct xi_device_t *device = xi_device_from_id (dpyinfo, pev->deviceid);
 
-	      if (!device || !device->master_p)
+	      if (!device)
 		goto XI_OTHER;
 
 #ifdef HAVE_XWIDGETS
@@ -11923,8 +12221,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 	  case XI_GesturePinchEnd:
 	    {
-	      x_display_set_last_user_time (dpyinfo, xi_event->time);
-
 #if defined HAVE_XWIDGETS && HAVE_USABLE_XI_GESTURE_PINCH_EVENT
 	      XIGesturePinchEvent *pev = (XIGesturePinchEvent *) xi_event;
 	      struct xwidget_view *xvw = xwidget_view_from_window (pev->event);
@@ -12048,7 +12344,6 @@ handle_one_xevent (struct x_display_info *dpyinfo,
   /* Sometimes event processing draws to the frame outside redisplay.
      To ensure that these changes become visible, draw them here.  */
   flush_dirty_back_buffers ();
-  SAFE_FREE ();
   return count;
 }
 
@@ -12777,7 +13072,7 @@ x_connection_closed (Display *dpy, const char *error_message, bool ioerror)
 {
   struct x_display_info *dpyinfo = x_display_info_for_display (dpy);
   Lisp_Object frame, tail;
-  ptrdiff_t idx = SPECPDL_INDEX ();
+  specpdl_ref idx = SPECPDL_INDEX ();
 
   error_msg = alloca (strlen (error_message) + 1);
   strcpy (error_msg, error_message);
@@ -13301,7 +13596,7 @@ x_calc_absolute_position (struct frame *f)
    which means, do adjust for borders but don't change the gravity.  */
 
 static void
-x_set_offset (struct frame *f, register int xoff, register int yoff, int change_gravity)
+x_set_offset (struct frame *f, int xoff, int yoff, int change_gravity)
 {
   int modified_top, modified_left;
 #ifdef USE_GTK
@@ -14400,6 +14695,11 @@ xembed_send_message (struct frame *f, Time t, enum xembed_message msg,
 void
 x_make_frame_visible (struct frame *f)
 {
+#ifndef USE_GTK
+  struct x_display_info *dpyinfo;
+  struct x_output *output;
+#endif
+
   if (FRAME_PARENT_FRAME (f))
     {
       if (!FRAME_VISIBLE_P (f))
@@ -14424,6 +14724,10 @@ x_make_frame_visible (struct frame *f)
 
   gui_set_bitmap_icon (f);
 
+#ifndef USE_GTK
+  dpyinfo = FRAME_DISPLAY_INFO (f);
+#endif
+
   if (! FRAME_VISIBLE_P (f))
     {
       /* We test asked_for_visible here to make sure we don't
@@ -14434,6 +14738,60 @@ x_make_frame_visible (struct frame *f)
 	  && ! FRAME_X_EMBEDDED_P (f)
 	  && ! f->output_data.x->asked_for_visible)
 	x_set_offset (f, f->left_pos, f->top_pos, 0);
+
+#ifndef USE_GTK
+      output = FRAME_X_OUTPUT (f);
+
+      if (!x_wm_supports (f, dpyinfo->Xatom_net_wm_user_time_window))
+	{
+	  if (output->user_time_window == None)
+	    output->user_time_window = FRAME_OUTER_WINDOW (f);
+	  else if (output->user_time_window != FRAME_OUTER_WINDOW (f))
+	    {
+	      XDestroyWindow (dpyinfo->display,
+			      output->user_time_window);
+	      XDeleteProperty (dpyinfo->display,
+			       FRAME_OUTER_WINDOW (f),
+			       dpyinfo->Xatom_net_wm_user_time_window);
+	      output->user_time_window = FRAME_OUTER_WINDOW (f);
+	    }
+	}
+      else
+	{
+	  if (output->user_time_window == FRAME_OUTER_WINDOW (f)
+	      || output->user_time_window == None)
+	    {
+	      XSetWindowAttributes attrs;
+	      memset (&attrs, 0, sizeof attrs);
+
+	      output->user_time_window
+		= XCreateWindow (dpyinfo->display, FRAME_X_WINDOW (f),
+				 -1, -1, 1, 1, 0, 0, InputOnly,
+				 CopyFromParent, 0, &attrs);
+
+	      XDeleteProperty (dpyinfo->display,
+			       FRAME_OUTER_WINDOW (f),
+			       dpyinfo->Xatom_net_wm_user_time);
+	      XChangeProperty (dpyinfo->display,
+			       FRAME_OUTER_WINDOW (f),
+			       dpyinfo->Xatom_net_wm_user_time_window,
+			       XA_WINDOW, 32, PropModeReplace,
+			       (unsigned char *) &output->user_time_window,
+			       1);
+	    }
+	}
+
+      if (dpyinfo->last_user_time)
+	XChangeProperty (dpyinfo->display,
+			 output->user_time_window,
+			 dpyinfo->Xatom_net_wm_user_time,
+			 XA_CARDINAL, 32, PropModeReplace,
+			 (unsigned char *) &dpyinfo->last_user_time, 1);
+      else
+	XDeleteProperty (dpyinfo->display,
+			 output->user_time_window,
+			 dpyinfo->Xatom_net_wm_user_time);
+#endif
 
       f->output_data.x->asked_for_visible = true;
 
@@ -14708,7 +15066,7 @@ x_iconify_frame (struct frame *f)
     msg.xclient.data.l[0] = IconicState;
 
     if (! XSendEvent (FRAME_X_DISPLAY (f),
-		      DefaultRootWindow (FRAME_X_DISPLAY (f)),
+		      FRAME_DISPLAY_INFO (f)->root_window,
 		      False,
 		      SubstructureRedirectMask | SubstructureNotifyMask,
 		      &msg))
@@ -14959,7 +15317,8 @@ x_wm_set_size_hint (struct frame *f, long flags, bool user_position)
 #ifdef USE_X_TOOLKIT
   if (f->output_data.x->widget)
     {
-      widget_update_wm_size_hints (f->output_data.x->widget);
+      widget_update_wm_size_hints (f->output_data.x->widget,
+				   f->output_data.x->edit_widget);
       return;
     }
 #endif
@@ -15682,6 +16041,18 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 #else
   dpyinfo->display->db = xrdb;
 #endif
+
+#ifdef HAVE_XRENDER
+  int event_base, error_base;
+  dpyinfo->xrender_supported_p
+    = XRenderQueryExtension (dpyinfo->display, &event_base, &error_base);
+
+  if (dpyinfo->xrender_supported_p)
+    dpyinfo->xrender_supported_p
+      = XRenderQueryVersion (dpyinfo->display, &dpyinfo->xrender_major,
+			     &dpyinfo->xrender_minor);
+#endif
+
   /* Put the rdb where we can find it in a way that works on
      all versions.  */
   dpyinfo->rdb = xrdb;
@@ -15697,19 +16068,12 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
   reset_mouse_highlight (&dpyinfo->mouse_highlight);
 
 #ifdef HAVE_XRENDER
-  int event_base, error_base;
-  dpyinfo->xrender_supported_p
-    = XRenderQueryExtension (dpyinfo->display, &event_base, &error_base);
-
-  if (dpyinfo->xrender_supported_p)
-    {
-      if (!XRenderQueryVersion (dpyinfo->display, &dpyinfo->xrender_major,
-				&dpyinfo->xrender_minor))
-	dpyinfo->xrender_supported_p = false;
-      else
-	dpyinfo->pict_format = XRenderFindVisualFormat (dpyinfo->display,
-							dpyinfo->visual);
-    }
+  if (dpyinfo->xrender_supported_p
+      /* This could already have been initialized by
+	 `select_visual'.  */
+      && !dpyinfo->pict_format)
+    dpyinfo->pict_format = XRenderFindVisualFormat (dpyinfo->display,
+						    dpyinfo->visual);
 #endif
 
 #ifdef HAVE_XSYNC
@@ -15739,6 +16103,13 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
       dpyinfo->xsync_supported_p = false;
   }
 #endif
+
+#ifdef HAVE_XINERAMA
+  int xin_event_base, xin_error_base;
+  dpyinfo->xinerama_supported_p
+    = XineramaQueryExtension (dpy, &xin_event_base, &xin_error_base);
+#endif
+
   /* See if a private colormap is requested.  */
   if (dpyinfo->visual == DefaultVisualOfScreen (dpyinfo->screen))
     {
@@ -15983,6 +16354,7 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
       ATOM_REFS_INIT ("WM_CONFIGURE_DENIED", Xatom_wm_configure_denied)
       ATOM_REFS_INIT ("WM_MOVED", Xatom_wm_window_moved)
       ATOM_REFS_INIT ("WM_CLIENT_LEADER", Xatom_wm_client_leader)
+      ATOM_REFS_INIT ("WM_TRANSIENT_FOR", Xatom_wm_transient_for)
       ATOM_REFS_INIT ("Editres", Xatom_editres)
       ATOM_REFS_INIT ("CLIPBOARD", Xatom_CLIPBOARD)
       ATOM_REFS_INIT ("TIMESTAMP", Xatom_TIMESTAMP)
@@ -16036,6 +16408,8 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
       ATOM_REFS_INIT ("_NET_WM_SYNC_REQUEST", Xatom_net_wm_sync_request)
       ATOM_REFS_INIT ("_NET_WM_SYNC_REQUEST_COUNTER", Xatom_net_wm_sync_request_counter)
       ATOM_REFS_INIT ("_NET_WM_FRAME_DRAWN", Xatom_net_wm_frame_drawn)
+      ATOM_REFS_INIT ("_NET_WM_USER_TIME", Xatom_net_wm_user_time)
+      ATOM_REFS_INIT ("_NET_WM_USER_TIME_WINDOW", Xatom_net_wm_user_time_window)
       /* Session management */
       ATOM_REFS_INIT ("SM_CLIENT_ID", Xatom_SM_CLIENT_ID)
       ATOM_REFS_INIT ("_XSETTINGS_SETTINGS", Xatom_xsettings_prop)
@@ -16262,6 +16636,11 @@ x_delete_display (struct x_display_info *dpyinfo)
   xfree (dpyinfo->x_dnd_atoms);
   xfree (dpyinfo->color_cells);
   xfree (dpyinfo);
+
+#ifdef HAVE_XINPUT2
+  if (dpyinfo->supports_xi2)
+    x_free_xi_devices (dpyinfo);
+#endif
 }
 
 #ifdef USE_X_TOOLKIT
@@ -16407,10 +16786,6 @@ x_delete_terminal (struct terminal *terminal)
       if (dpyinfo->xkb_desc)
 	XkbFreeKeyboard (dpyinfo->xkb_desc, XkbAllComponentsMask, True);
 #endif
-#ifdef HAVE_XINPUT2
-      if (dpyinfo->supports_xi2)
-	x_free_xi_devices (dpyinfo);
-#endif
 #ifdef USE_GTK
       xg_display_close (dpyinfo->display);
 #else
@@ -16420,6 +16795,9 @@ x_delete_terminal (struct terminal *terminal)
       XCloseDisplay (dpyinfo->display);
 #endif
 #endif /* ! USE_GTK */
+
+      if (dpyinfo->modmap)
+	XFreeModifiermap (dpyinfo->modmap);
       /* Do not close the connection here because it's already closed
 	 by X(t)CloseDisplay (Bug#18403).  */
       dpyinfo->display = NULL;
@@ -16574,7 +16952,11 @@ init_xterm (void)
   /* Emacs can handle only core input events when built without XI2
      support, so make sure Gtk doesn't use Xinput or Xinput2
      extensions.  */
+#ifndef HAVE_GTK3
   xputenv ("GDK_CORE_DEVICE_EVENTS=1");
+#else
+  gdk_disable_multidevice ();
+#endif
 #endif
 }
 #endif

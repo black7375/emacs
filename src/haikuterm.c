@@ -406,7 +406,7 @@ haiku_new_focus_frame (struct frame *frame)
 
       x_display_list->focused_frame = frame;
 
-      if (frame && frame->auto_raise)
+      if (frame && frame->auto_raise && !popup_activated_p)
 	haiku_frame_raise_lower (frame, 1);
     }
   unblock_input ();
@@ -2292,8 +2292,12 @@ haiku_define_fringe_bitmap (int which, unsigned short *bits,
 	fringe_bmps[i++] = NULL;
     }
 
+  block_input ();
   fringe_bmps[which] = BBitmap_new (wd, h, 1);
-  BBitmap_import_mono_bits (fringe_bmps[which], bits, wd, h);
+  if (!fringe_bmps[which])
+    memory_full (SIZE_MAX);
+  BBitmap_import_fringe_bitmap (fringe_bmps[which], bits, wd, h);
+  unblock_input ();
 }
 
 static void
@@ -2698,7 +2702,8 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 		ASCII_KEYSTROKE_EVENT;
 
 	    inev.timestamp = b->time / 1000;
-	    inev.modifiers = haiku_modifiers_to_emacs (b->modifiers);
+	    inev.modifiers = (haiku_modifiers_to_emacs (b->modifiers)
+			      | extra_keyboard_modifiers);
 	    XSETFRAME (inev.frame_or_window, f);
 	    break;
 	  }
@@ -2724,14 +2729,43 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 
 	    break;
 	  }
+	case MENU_BAR_LEFT:
+	  {
+	    struct haiku_menu_bar_left_event *b = buf;
+	    struct frame *f = haiku_window_to_frame (b->window);
+
+	    if (!f)
+	      continue;
+
+	    if (b->y > 0 && b->y <= FRAME_PIXEL_HEIGHT (f)
+		&& b->x > 0 && b->x <= FRAME_PIXEL_WIDTH (f))
+	      break;
+
+	    if (f->auto_lower && !popup_activated_p)
+	      haiku_frame_raise_lower (f, 0);
+
+	    break;
+	  }
 	case MOUSE_MOTION:
 	  {
 	    struct haiku_mouse_motion_event *b = buf;
 	    struct frame *f = haiku_window_to_frame (b->window);
 	    Mouse_HLInfo *hlinfo = &x_display_list->mouse_highlight;
 
-	    if (!f || FRAME_TOOLTIP_P (f))
+	    if (!f)
 	      continue;
+
+	    if (FRAME_TOOLTIP_P (f))
+	      {
+		/* Dismiss the tooltip if the mouse moves onto a
+		   tooltip frame.  FIXME: for some reason we don't get
+		   leave notification events for this.  */
+
+		if (any_help_event_p)
+		  do_help = -1;
+
+		break;
+	      }
 
 	    Lisp_Object frame;
 	    XSETFRAME (frame, f);
@@ -2757,6 +2791,18 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 		    hlinfo->mouse_face_mouse_frame = 0;
 
 		    need_flush = 1;
+		  }
+
+		if (f->auto_lower && !popup_activated_p)
+		  {
+		    /* If we're leaving towards the menu bar, don't
+		       auto-lower here, and wait for a exit
+		       notification from the menu bar instead.  */
+		    if (b->x > FRAME_PIXEL_WIDTH (f)
+			|| b->y >= FRAME_MENU_BAR_HEIGHT (f)
+			|| b->x < 0
+			|| b->y < 0)
+		      haiku_frame_raise_lower (f, 0);
 		  }
 
 		haiku_new_focus_frame (x_display_list->focused_frame);
@@ -3369,6 +3415,94 @@ haiku_free_pixmap (struct frame *f, Emacs_Pixmap pixmap)
 }
 
 static void
+haiku_flash (struct frame *f)
+{
+  /* Get the height not including a menu bar widget.  */
+  int height = FRAME_PIXEL_HEIGHT (f);
+  /* Height of each line to flash.  */
+  int flash_height = FRAME_LINE_HEIGHT (f);
+  /* These will be the left and right margins of the rectangles.  */
+  int flash_left = FRAME_INTERNAL_BORDER_WIDTH (f);
+  int flash_right = FRAME_PIXEL_WIDTH (f) - FRAME_INTERNAL_BORDER_WIDTH (f);
+  int width = flash_right - flash_left;
+  void *view = FRAME_HAIKU_VIEW (f);
+  struct timespec delay, wakeup, current, timeout;
+
+  delay = make_timespec (0, 150 * 1000 * 1000);
+  wakeup = timespec_add (current_timespec (), delay);
+
+  BView_draw_lock (view);
+  BView_StartClip (view);
+  /* If window is tall, flash top and bottom line.  */
+  if (height > 3 * FRAME_LINE_HEIGHT (f))
+    {
+      BView_InvertRect (view, flash_left,
+			(FRAME_INTERNAL_BORDER_WIDTH (f)
+			 + FRAME_TOP_MARGIN_HEIGHT (f)),
+			width, flash_height);
+
+      BView_InvertRect (view, flash_left,
+			(height - flash_height
+			 - FRAME_INTERNAL_BORDER_WIDTH (f)),
+			width, flash_height);
+    }
+  else
+    /* If it is short, flash it all.  */
+    BView_InvertRect (view, flash_left, FRAME_INTERNAL_BORDER_WIDTH (f),
+		      width, height - 2 * FRAME_INTERNAL_BORDER_WIDTH (f));
+  BView_EndClip (view);
+  BView_draw_unlock (view);
+
+  flush_frame (f);
+
+  if (EmacsView_double_buffered_p (view))
+    haiku_flip_buffers (f);
+
+  /* Keep waiting until past the time wakeup or any input gets
+     available.  */
+  while (!detect_input_pending ())
+    {
+      current = current_timespec ();
+
+      /* Break if result would not be positive.  */
+      if (timespec_cmp (wakeup, current) <= 0)
+	break;
+
+      /* How long `select' should wait.  */
+      timeout = make_timespec (0, 10 * 1000 * 1000);
+
+      /* Try to wait that long--but we might wake up sooner.  */
+      pselect (0, NULL, NULL, NULL, &timeout, NULL);
+    }
+
+  BView_draw_lock (view);
+  BView_StartClip (view);
+  /* If window is tall, flash top and bottom line.  */
+  if (height > 3 * FRAME_LINE_HEIGHT (f))
+    {
+      BView_InvertRect (view, flash_left,
+			(FRAME_INTERNAL_BORDER_WIDTH (f)
+			 + FRAME_TOP_MARGIN_HEIGHT (f)),
+			width, flash_height);
+
+      BView_InvertRect (view, flash_left,
+			(height - flash_height
+			 - FRAME_INTERNAL_BORDER_WIDTH (f)),
+			width, flash_height);
+    }
+  else
+    /* If it is short, flash it all.  */
+    BView_InvertRect (view, flash_left, FRAME_INTERNAL_BORDER_WIDTH (f),
+		      width, height - 2 * FRAME_INTERNAL_BORDER_WIDTH (f));
+  BView_EndClip (view);
+  BView_draw_unlock (view);
+
+  flush_frame (f);
+  if (EmacsView_double_buffered_p (view))
+    haiku_flip_buffers (f);
+}
+
+static void
 haiku_beep (struct frame *f)
 {
   if (visible_bell)
@@ -3377,21 +3511,7 @@ haiku_beep (struct frame *f)
       if (view)
 	{
 	  block_input ();
-	  BView_draw_lock (view);
-	  if (!EmacsView_double_buffered_p (view))
-	    {
-	      BView_SetHighColorForVisibleBell (view, FRAME_FOREGROUND_PIXEL (f));
-	      BView_FillRectangleForVisibleBell (view, 0, 0, FRAME_PIXEL_WIDTH (f),
-						 FRAME_PIXEL_HEIGHT (f));
-	      SET_FRAME_GARBAGED (f);
-	      expose_frame (f, 0, 0, 0, 0);
-	    }
-	  else
-	    {
-	      EmacsView_do_visible_bell (view, FRAME_FOREGROUND_PIXEL (f));
-	      haiku_flip_buffers (f);
-	    }
-	  BView_draw_unlock (view);
+	  haiku_flash (f);
 	  unblock_input ();
 	}
     }
@@ -3496,7 +3616,7 @@ haiku_term_init (void)
   Lisp_Object color_file, color_map;
 
   block_input ();
-  Fset_input_interrupt_mode (Qnil);
+  Fset_input_interrupt_mode (Qt);
 
   baud_rate = 19200;
 

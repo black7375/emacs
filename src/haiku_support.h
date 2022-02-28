@@ -87,7 +87,8 @@ enum haiku_event_type
     ZOOM_EVENT,
     REFS_EVENT,
     APP_QUIT_REQUESTED_EVENT,
-    DUMMY_EVENT
+    DUMMY_EVENT,
+    MENU_BAR_LEFT
   };
 
 struct haiku_quit_requested_event
@@ -158,6 +159,12 @@ struct haiku_mouse_motion_event
   int x;
   int y;
   bigtime_t time;
+};
+
+struct haiku_menu_bar_left_event
+{
+  void *window;
+  int x, y;
 };
 
 struct haiku_button_event
@@ -348,6 +355,24 @@ struct haiku_menu_bar_state_event
 #define BE_RECT_WIDTH(rect) (ceil (((rect).right - (rect).left) + 1))
 #endif /* __cplusplus */
 
+/* C++ code cannot include lisp.h, but file dialogs need to be able
+   to bind to the specpdl and handle quitting correctly.  */
+
+#ifdef __cplusplus
+
+#if SIZE_MAX > 0xffffffff
+#define WRAP_SPECPDL_REF 1
+#endif
+#ifdef WRAP_SPECPDL_REF
+typedef struct { ptrdiff_t bytes; } specpdl_ref;
+#else
+typedef ptrdiff_t specpdl_ref;
+#endif
+
+#else
+#include "lisp.h"
+#endif
+
 #ifdef __cplusplus
 extern "C"
 {
@@ -473,10 +498,6 @@ extern "C"
   BView_SetHighColorForVisibleBell (void *view, uint32_t color);
 
   extern void
-  BView_FillRectangleForVisibleBell (void *view, int x, int y, int width,
-				     int height);
-
-  extern void
   BView_SetLowColor (void *view, uint32_t color);
 
   extern void
@@ -537,6 +558,9 @@ extern "C"
 		  int x, int y, int width, int height,
 		  int vx, int vy, int vwidth, int vheight,
 		  uint32_t color);
+
+  extern void
+  BView_InvertRect (void *view, int x, int y, int width, int height);
 
   extern void *
   BBitmap_transform_bitmap (void *bitmap, void *mask, uint32_t m_color,
@@ -613,6 +637,10 @@ extern "C"
 
   extern void
   BView_mouse_up (void *view, int x, int y);
+
+  extern void
+  BBitmap_import_fringe_bitmap (void *bitmap, unsigned short *bits,
+				int wd, int h);
 
   extern void
   BBitmap_import_mono_bits (void *bitmap, void *bits, int wd, int h);
@@ -726,8 +754,14 @@ extern "C"
   extern void *
   BAlert_add_button (void *alert, const char *text);
 
-  extern int32_t
-  BAlert_go (void *alert);
+  extern void
+  BAlert_set_offset_spacing (void *alert);
+
+  extern int32
+  BAlert_go (void *alert,
+	     void (*block_input_function) (void),
+	     void (*unblock_input_function) (void),
+	     void (*process_pending_signals_function) (void));
 
   extern void
   BButton_set_enabled (void *button, int enabled_p);
@@ -788,14 +822,10 @@ extern "C"
   extern void
   record_c_unwind_protect_from_cxx (void (*) (void *), void *);
 
-  extern ptrdiff_t
-  c_specpdl_idx_from_cxx (void);
+  extern specpdl_ref c_specpdl_idx_from_cxx (void);
 
   extern void
-  c_unbind_to_nil_from_cxx (ptrdiff_t idx);
-
-  extern void
-  EmacsView_do_visible_bell (void *view, uint32_t color);
+  c_unbind_to_nil_from_cxx (specpdl_ref idx);
 
   extern void
   BWindow_zoom (void *window);
@@ -882,6 +912,9 @@ extern "C"
 
   extern void
   EmacsWindow_signal_menu_update_complete (void *window);
+
+  extern haiku_font_family_or_style *
+  be_list_font_families (size_t *length);
 
 #ifdef __cplusplus
   extern void *

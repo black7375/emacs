@@ -1065,6 +1065,9 @@ of the default face.  Value is FACE."
 
 (defvar crm-separator) ; from crm.el
 
+(defconst read-face-name-sample-text "SAMPLE"
+  "Text string to display as the sample text for `read-face-name'.")
+
 (defun read-face-name (prompt &optional default multiple)
   "Read one or more face names, prompting with PROMPT.
 PROMPT should not end in a space or a colon.
@@ -1114,10 +1117,11 @@ returned.  Otherwise, DEFAULT is returned verbatim."
              (lambda (faces)
                (mapcar
                 (lambda (face)
-                  (list (concat (propertize "SAMPLE" 'face face)
+                  (list face
+                        (concat (propertize read-face-name-sample-text
+                                            'face face)
                                 "\t")
-                        ""
-                        face))
+                        ""))
                 faces))))
           aliasfaces nonaliasfaces faces)
       ;; Build up the completion tables.

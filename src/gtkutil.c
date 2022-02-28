@@ -76,6 +76,17 @@ typedef struct pgtk_output xp_output;
 #define XG_TEXT_OPEN   GTK_STOCK_OPEN
 #endif
 
+#ifdef HAVE_GTK3
+static void emacs_menu_bar_get_preferred_width (GtkWidget *, gint *, gint *);
+
+struct _EmacsMenuBar
+{
+  GtkMenuBar parent;
+};
+
+G_DEFINE_TYPE (EmacsMenuBar, emacs_menu_bar, GTK_TYPE_MENU_BAR)
+#endif
+
 #ifndef HAVE_PGTK
 static void xg_im_context_commit (GtkIMContext *, gchar *, gpointer);
 static void xg_im_context_preedit_changed (GtkIMContext *, gpointer);
@@ -126,6 +137,45 @@ bool xg_gtk_initialized;        /* Used to make sure xwidget calls are possible 
 #endif
 
 static GtkWidget * xg_get_widget_from_map (ptrdiff_t idx);
+
+
+
+#ifdef HAVE_GTK3
+static void
+emacs_menu_bar_init (EmacsMenuBar *menu_bar)
+{
+  return;
+}
+
+static void
+emacs_menu_bar_class_init (EmacsMenuBarClass *klass)
+{
+  GtkWidgetClass *widget_class;
+
+  widget_class = GTK_WIDGET_CLASS (klass);
+  widget_class->get_preferred_width = emacs_menu_bar_get_preferred_width;
+}
+
+static void
+emacs_menu_bar_get_preferred_width (GtkWidget *widget,
+				    gint *minimum, gint *natural)
+{
+  GtkWidgetClass *widget_class;
+
+  widget_class = GTK_WIDGET_CLASS (emacs_menu_bar_parent_class);
+  widget_class->get_preferred_width (widget, minimum, natural);
+
+  if (minimum)
+    *minimum = 0;
+}
+
+static GtkWidget *
+emacs_menu_bar_new (void)
+{
+  return GTK_WIDGET (g_object_new (emacs_menu_bar_get_type (), NULL));
+}
+
+#endif
 
 
 /***********************************************************************
@@ -2382,7 +2432,7 @@ xg_maybe_add_timer (gpointer data)
 static int
 xg_dialog_run (struct frame *f, GtkWidget *w)
 {
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   struct xg_dialog_data dd;
 
   xg_set_screen (w, f);
@@ -3287,7 +3337,12 @@ create_menus (widget_value *data,
       }
       else
         {
+#ifndef HAVE_GTK3
           wmenu = gtk_menu_bar_new ();
+#else
+	  wmenu = emacs_menu_bar_new ();
+#endif
+
 #ifdef HAVE_PGTK
 	  g_signal_connect (G_OBJECT (wmenu), "button-press-event",
 			    G_CALLBACK (menu_bar_button_pressed_cb), f);
@@ -6095,29 +6150,29 @@ xg_im_context_commit (GtkIMContext *imc, gchar *str,
 {
   struct frame *f = user_data;
   struct input_event ie;
-  gunichar *ucs4_str;
 
-  ucs4_str = g_utf8_to_ucs4_fast (str, -1, NULL);
+  EVENT_INIT (ie);
+  /* This used to use g_utf8_to_ucs4_fast, which led to bad results
+     when STR wasn't actually a UTF-8 string, which some input method
+     modules commit.  */
 
-  if (!ucs4_str)
-    return;
+  ie.kind = MULTIBYTE_CHAR_KEYSTROKE_EVENT;
+  ie.arg = decode_string_utf_8 (Qnil, str, strlen (str),
+				Qnil, false, Qnil, Qnil);
 
-  for (gunichar *c = ucs4_str; *c; c++)
-    {
-      EVENT_INIT (ie);
-      ie.kind = (SINGLE_BYTE_CHAR_P (*c)
-		 ? ASCII_KEYSTROKE_EVENT
-		 : MULTIBYTE_CHAR_KEYSTROKE_EVENT);
-      ie.arg = Qnil;
-      ie.code = *c;
-      XSETFRAME (ie.frame_or_window, f);
-      ie.modifiers = 0;
-      ie.timestamp = 0;
+  /* STR is invalid and not really encoded in UTF-8.  */
+  if (NILP (ie.arg))
+    ie.arg = build_unibyte_string (str);
 
-      kbd_buffer_store_event (&ie);
-    }
+  Fput_text_property (make_fixnum (0),
+		      make_fixnum (SCHARS (ie.arg)),
+		      Qcoding, Qt, ie.arg);
 
-  g_free (ucs4_str);
+  XSETFRAME (ie.frame_or_window, f);
+  ie.modifiers = 0;
+  ie.timestamp = 0;
+
+  kbd_buffer_store_event (&ie);
 }
 
 static void

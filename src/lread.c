@@ -1169,6 +1169,13 @@ compute_found_effective (Lisp_Object found)
   return concat2 (src_name, build_string ("c"));
 }
 
+static void
+loadhist_initialize (Lisp_Object filename)
+{
+  eassert (STRINGP (filename) || NILP (filename));
+  specbind (Qcurrent_load_list, Fcons (filename, Qnil));
+}
+
 DEFUN ("load", Fload, Sload, 1, 5, 0,
        doc: /* Execute a file of Lisp code named FILE.
 First try FILE with `.elc' appended, then try with `.el', then try
@@ -1219,8 +1226,8 @@ Return t if the file exists and loads successfully.  */)
 {
   FILE *stream UNINIT;
   int fd;
-  int fd_index UNINIT;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref fd_index UNINIT;
+  specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object found, efound, hist_file_name;
   /* True means we printed the ".el is newer" message.  */
   bool newer = 0;
@@ -1552,8 +1559,7 @@ Return t if the file exists and loads successfully.  */)
   if (is_module)
     {
 #ifdef HAVE_MODULES
-      specbind (Qcurrent_load_list, Qnil);
-      LOADHIST_ATTACH (found);
+      loadhist_initialize (found);
       Fmodule_load (found);
       build_load_history (found, true);
 #else
@@ -1564,8 +1570,7 @@ Return t if the file exists and loads successfully.  */)
   else if (is_native_elisp)
     {
 #ifdef HAVE_NATIVE_COMP
-      specbind (Qcurrent_load_list, Qnil);
-      LOADHIST_ATTACH (hist_file_name);
+      loadhist_initialize (hist_file_name);
       Fnative_elisp_load (found, Qnil);
       build_load_history (hist_file_name, true);
 #else
@@ -1628,7 +1633,7 @@ save_match_data_load (Lisp_Object file, Lisp_Object noerror,
 		      Lisp_Object nomessage, Lisp_Object nosuffix,
 		      Lisp_Object must_suffix)
 {
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   record_unwind_save_match_data ();
   Lisp_Object result = Fload (file, noerror, nomessage, nosuffix, must_suffix);
   return unbind_to (count, result);
@@ -2164,7 +2169,7 @@ readevalloop (Lisp_Object readcharfun,
 {
   int c;
   Lisp_Object val;
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   struct buffer *b = 0;
   bool continue_reading_p;
   Lisp_Object lex_bound;
@@ -2173,6 +2178,9 @@ readevalloop (Lisp_Object readcharfun,
   /* True on the first time around.  */
   bool first_sexp = 1;
   Lisp_Object macroexpand = intern ("internal-macroexpand-for-load");
+
+  if (!NILP (sourcename))
+    CHECK_STRING (sourcename);
 
   if (NILP (Ffboundp (macroexpand))
       || (STRINGP (sourcename) && suffix_p (sourcename, ".elc")))
@@ -2197,7 +2205,6 @@ readevalloop (Lisp_Object readcharfun,
     emacs_abort ();
 
   specbind (Qstandard_input, readcharfun);
-  specbind (Qcurrent_load_list, Qnil);
   record_unwind_protect_int (readevalloop_1, load_convert_to_unibyte);
   load_convert_to_unibyte = !NILP (unibyte);
 
@@ -2215,12 +2222,12 @@ readevalloop (Lisp_Object readcharfun,
       && !NILP (sourcename) && !NILP (Ffile_name_absolute_p (sourcename)))
     sourcename = Fexpand_file_name (sourcename, Qnil);
 
-  LOADHIST_ATTACH (sourcename);
+  loadhist_initialize (sourcename);
 
   continue_reading_p = 1;
   while (continue_reading_p)
     {
-      ptrdiff_t count1 = SPECPDL_INDEX ();
+      specpdl_ref count1 = SPECPDL_INDEX ();
 
       if (b != 0 && !BUFFER_LIVE_P (b))
 	error ("Reading from killed buffer");
@@ -2375,7 +2382,7 @@ will be evaluated without lexical binding.
 This function preserves the position of point.  */)
   (Lisp_Object buffer, Lisp_Object printflag, Lisp_Object filename, Lisp_Object unibyte, Lisp_Object do_allow_print)
 {
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object tem, buf;
 
   if (NILP (buffer))
@@ -2420,7 +2427,7 @@ This function does not move point.  */)
   (Lisp_Object start, Lisp_Object end, Lisp_Object printflag, Lisp_Object read_function)
 {
   /* FIXME: Do the eval-sexp-add-defvars dance!  */
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
   Lisp_Object tem, cbuf;
 
   cbuf = Fcurrent_buffer ();
@@ -2595,7 +2602,7 @@ read0 (Lisp_Object readcharfun, bool locate_syms)
 
 static char *
 grow_read_buffer (char *buf, ptrdiff_t offset,
-		  char **buf_addr, ptrdiff_t *buf_size, ptrdiff_t count)
+		  char **buf_addr, ptrdiff_t *buf_size, specpdl_ref count)
 {
   char *p = xpalloc (*buf_addr, buf_size, MAX_MULTIBYTE_LENGTH, -1, 1);
   if (!*buf_addr)
@@ -2948,7 +2955,7 @@ read_integer (Lisp_Object readcharfun, int radix,
   char *p = read_buffer;
   char *heapbuf = NULL;
   int valid = -1; /* 1 if valid, 0 if not, -1 if incomplete.  */
-  ptrdiff_t count = SPECPDL_INDEX ();
+  specpdl_ref count = SPECPDL_INDEX ();
 
   int c = READCHAR;
   if (c == '-' || c == '+')
@@ -3608,7 +3615,7 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list, bool locate_syms)
 
     case '"':
       {
-	ptrdiff_t count = SPECPDL_INDEX ();
+	specpdl_ref count = SPECPDL_INDEX ();
 	char *read_buffer = stackbuf;
 	ptrdiff_t read_buffer_size = sizeof stackbuf;
 	char *heapbuf = NULL;
@@ -3752,7 +3759,7 @@ read1 (Lisp_Object readcharfun, int *pch, bool first_in_list, bool locate_syms)
 
     read_symbol:
       {
-	ptrdiff_t count = SPECPDL_INDEX ();
+	specpdl_ref count = SPECPDL_INDEX ();
 	char *read_buffer = stackbuf;
 	ptrdiff_t read_buffer_size = sizeof stackbuf;
 	char *heapbuf = NULL;
@@ -4626,7 +4633,9 @@ oblookup (Lisp_Object obarray, register const char *ptr, ptrdiff_t size, ptrdiff
   if (EQ (bucket, make_fixnum (0)))
     ;
   else if (!SYMBOLP (bucket))
-    error ("Bad data in guts of obarray"); /* Like CADR error message.  */
+    /* Like CADR error message.  */
+    xsignal2 (Qwrong_type_argument, Qobarrayp,
+	      build_string ("Bad data in guts of obarray"));
   else
     for (tail = bucket; ; XSETSYMBOL (tail, XSYMBOL (tail)->u.s.next))
       {
@@ -5438,6 +5447,7 @@ This variable's value can only be set via file-local variables.
 See Info node `(elisp)Shorthands' for more details.  */);
   Vread_symbol_shorthands = Qnil;
   DEFSYM (Qobarray_cache, "obarray-cache");
+  DEFSYM (Qobarrayp, "obarrayp");
 
   DEFSYM (Qmacroexp__dynvars, "macroexp--dynvars");
   DEFVAR_LISP ("macroexp--dynvars", Vmacroexp__dynvars,

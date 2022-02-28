@@ -29,6 +29,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "fontset.h"
 #include "haikuterm.h"
 #include "character.h"
+#include "coding.h"
 #include "font.h"
 #include "termchar.h"
 #include "pdumper.h"
@@ -439,35 +440,35 @@ haikufont_spec_or_entity_to_pattern (Lisp_Object ent,
     }
 
   tem = FONT_SLANT_SYMBOLIC (ent);
-  if (!NILP (tem))
+  if (!NILP (tem) && !EQ (tem, Qunspecified))
     {
       ptn->specified |= FSPEC_SLANT;
       ptn->slant = haikufont_lisp_to_slant (tem);
     }
 
   tem = FONT_WEIGHT_SYMBOLIC (ent);
-  if (!NILP (tem))
+  if (!NILP (tem) && !EQ (tem, Qunspecified))
     {
       ptn->specified |= FSPEC_WEIGHT;
       ptn->weight = haikufont_lisp_to_weight (tem);
     }
 
   tem = FONT_WIDTH_SYMBOLIC (ent);
-  if (!NILP (tem))
+  if (!NILP (tem) && !EQ (tem, Qunspecified))
     {
       ptn->specified |= FSPEC_WIDTH;
       ptn->width = haikufont_lisp_to_width (tem);
     }
 
   tem = AREF (ent, FONT_SPACING_INDEX);
-  if (FIXNUMP (tem))
+  if (!NILP (tem) && !EQ (tem, Qunspecified))
     {
       ptn->specified |= FSPEC_SPACING;
       ptn->mono_spacing_p = XFIXNUM (tem) != FONT_SPACING_PROPORTIONAL;
     }
 
   tem = AREF (ent, FONT_FAMILY_INDEX);
-  if (!NILP (tem) &&
+  if (!NILP (tem) && !EQ (tem, Qunspecified) &&
       (list_p && !haikufont_maybe_handle_special_family (tem, ptn)))
     {
       ptn->specified |= FSPEC_FAMILY;
@@ -1023,6 +1024,34 @@ haikufont_draw (struct glyph_string *s, int from, int to,
   return 1;
 }
 
+static Lisp_Object
+haikufont_list_family (struct frame *f)
+{
+  Lisp_Object list = Qnil;
+  size_t length;
+  ptrdiff_t idx;
+  haiku_font_family_or_style *styles;
+
+  block_input ();
+  styles = be_list_font_families (&length);
+  unblock_input ();
+
+  if (!styles)
+    return list;
+
+  block_input ();
+  for (idx = 0; idx < length; ++idx)
+    {
+      if (styles[idx][0])
+	list = Fcons (intern ((char *) &styles[idx]), list);
+    }
+
+  free (styles);
+  unblock_input ();
+
+  return list;
+}
+
 struct font_driver const haikufont_driver =
   {
     .type = LISPSYM_INITIALLY (Qhaiku),
@@ -1036,7 +1065,8 @@ struct font_driver const haikufont_driver =
     .prepare_face = haikufont_prepare_face,
     .encode_char = haikufont_encode_char,
     .text_extents = haikufont_text_extents,
-    .shape = haikufont_shape
+    .shape = haikufont_shape,
+    .list_family = haikufont_list_family
   };
 
 void
