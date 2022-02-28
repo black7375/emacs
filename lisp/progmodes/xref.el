@@ -1107,6 +1107,13 @@ Return an alist of the form ((GROUP . (XREF ...)) ...)."
              (cdr pair)))
      alist)))
 
+(defun xref--ensure-default-directory (dd buffer)
+  ;; We might be in a let-binding which will restore the current value
+  ;; to a previous one (bug#53626).  So do this later.
+  (run-with-timer
+   0 nil
+   (lambda () (with-current-buffer buffer (setq default-directory dd)))))
+
 (defun xref--show-xref-buffer (fetcher alist)
   (cl-assert (functionp fetcher))
   (let* ((xrefs
@@ -1117,7 +1124,7 @@ Return an alist of the form ((GROUP . (XREF ...)) ...)."
          (dd default-directory)
          buf)
     (with-current-buffer (get-buffer-create xref-buffer-name)
-      (setq default-directory dd)
+      (xref--ensure-default-directory dd (current-buffer))
       (xref--xref-buffer-mode)
       (xref--show-common-initialize xref-alist fetcher alist)
       (pop-to-buffer (current-buffer))
@@ -1216,7 +1223,7 @@ local keymap that binds `RET' to `xref-quit-and-goto-xref'."
                             (assoc-default 'display-action alist)))
      (t
       (with-current-buffer (get-buffer-create xref-buffer-name)
-        (setq default-directory dd)
+        (xref--ensure-default-directory dd (current-buffer))
         (xref--transient-buffer-mode)
         (xref--show-common-initialize (xref--analyze xrefs) fetcher alist)
         (pop-to-buffer (current-buffer)
@@ -1707,7 +1714,7 @@ IGNORES is a list of glob patterns for files to ignore."
     (ripgrep
      .
      ;; '!*/' is there to filter out dirs (e.g. submodules).
-     "xargs -0 rg <C> --null -nH --no-messages -g '!*/' -e <R>"
+     "xargs -0 rg <C> --null -nH --no-heading --no-messages -g '!*/' -e <R>"
      ))
   "Associative list mapping program identifiers to command templates.
 
@@ -1916,21 +1923,22 @@ Such as the current syntax table and the applied syntax properties."
 
 (defvar xref--last-file-buffer nil)
 (defvar xref--temp-buffer-file-name nil)
+(defvar xref--hits-remote-id nil)
 
 (defun xref--convert-hits (hits regexp)
   (let (xref--last-file-buffer
         (tmp-buffer (generate-new-buffer " *xref-temp*"))
-        (remote-id (file-remote-p default-directory))
+        (xref--hits-remote-id (file-remote-p default-directory))
         (syntax-needed (xref--regexp-syntax-dependent-p regexp)))
     (unwind-protect
         (mapcan (lambda (hit)
-                  (xref--collect-matches hit regexp tmp-buffer remote-id syntax-needed))
+                  (xref--collect-matches hit regexp tmp-buffer syntax-needed))
                 hits)
       (kill-buffer tmp-buffer))))
 
-(defun xref--collect-matches (hit regexp tmp-buffer remote-id syntax-needed)
+(defun xref--collect-matches (hit regexp tmp-buffer syntax-needed)
   (pcase-let* ((`(,line ,file ,text) hit)
-               (file (and file (concat remote-id file)))
+               (file (and file (concat xref--hits-remote-id file)))
                (buf (xref--find-file-buffer file))
                (inhibit-modification-hooks t))
     (if buf
@@ -2003,10 +2011,17 @@ Such as the current syntax table and the applied syntax properties."
 
 (defun xref--find-file-buffer (file)
   (unless (equal (car xref--last-file-buffer) file)
-    (setq xref--last-file-buffer
-          ;; `find-buffer-visiting' is considerably slower,
-          ;; especially on remote files.
-          (cons file (get-file-buffer file))))
+    ;; `find-buffer-visiting' is considerably slower,
+    ;; especially on remote files.
+    (let ((buf (get-file-buffer file)))
+      (when (and buf
+                 (or
+                  (buffer-modified-p buf)
+                  (unless xref--hits-remote-id
+                    (not (verify-visited-file-modtime (current-buffer))))))
+        ;; We can't use buffers whose contents diverge from disk (bug#54025).
+        (setq buf nil))
+      (setq xref--last-file-buffer (cons file buf))))
   (cdr xref--last-file-buffer))
 
 (provide 'xref)
