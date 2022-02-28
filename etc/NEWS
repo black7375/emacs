@@ -232,6 +232,11 @@ resource "synchronizeResize" to "off".
 This controls the opacity of the text background when running on a
 composited display.
 
++++
+** New frame parameter 'shaded'.
+With window managers which support this, it controls whether or not a
+frame's contents will be hidden, leaving only the title bar on display.
+
 ---
 ** New user option 'x-gtk-use-native-input'.
 This controls whether or not GTK input methods are used by Emacs,
@@ -1152,6 +1157,12 @@ functions.
 
 
 * Lisp Changes in Emacs 29.1
+
+---
+** New function 'ietf-drums-parse-date-string'.
+This function parses RFC5322 (and RFC822) date strings, and should be
+used instead of 'parse-time-string' when parsing data that's standards
+compliant.
 
 +++
 ** New macro 'setopt'.
