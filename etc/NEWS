@@ -158,6 +158,14 @@ beginning.
 An autoload definition appears just as a '(defun . NAME)' and the
 '(t . NAME)' entries are not generated any more.
 
+---
+** The Tamil input methods no longer insert Tamil digits.
+The input methods 'tamil-itrans' and 'tamil-inscript' no longer insert
+the Tamil digits, as those digit characters are not used nowadays by
+speakers of the Tamil language.  To get back the previous behavior,
+use the new 'tamil-itrans-digits' and 'tamil-inscript-digits' input
+methods instead.
+
 
 * Changes in Emacs 29.1
 
@@ -630,6 +638,22 @@ header before sending a message.
 *** 'texinfo-mode' now has a specialised 'narrow-to-defun' definition.
 It narrows to the current node.
 
+** EUDC
+
++++
+*** 'eudc-expansion-overwrites-query' to 'eudc-expansion-save-query-as-kill'.
+Rename 'eudc-expansion-overwrites-query' to
+'eudc-expansion-save-query-as-kill' to reflect the actual behaviour of
+the customization variable.
+
++++
+*** New command 'eudc-expand-try-all'.
+This command can be used in place of 'eudc-expand-inline'.  It takes a
+prefix argument that causes 'eudc-expand-try-all' to return matches
+from all servers instead of just the matches from the first server to
+return any.  This is useful for example, if one wants to search LDAP
+for a name that happens to match a contact in one's BBDB.
+
 ** eww/shr
 
 +++
@@ -1051,6 +1075,22 @@ Emacs buffers, like indentation and the like.  The new ert function
 
 
 * Incompatible Lisp Changes in Emacs 29.1
+
+---
+** 'prin1' doesn't always escape "." and "?" in symbols any more.
+Previously, symbols like 'foo.bar' would be printed by 'prin1' as
+"foo\.bar".  This now prints as "foo.bar" instead.  The Emacs Lisp
+reader interprets these strings as referring to the same symbol, so
+this is virtually always backwards-compatible, but there may
+theoretically be code out there that expects a specific printed
+representation.
+
+The same is the case with the "?" character: The 'foo?' symbol is now
+printed as "foo?" instead of "foo\?".
+
+If the "." and "?" characters are the first character in the symbol,
+they will still be escaped, so the '.foo' symbol is still printed as
+"\.foo" and the '?bar' symbol is still printed as "\?bar".
 
 +++
 ** Remapping 'mode-line' no longer works as expected.
@@ -1639,6 +1679,15 @@ when used as part of a property list specification for the
 
 ** 'defalias' records a more precise history of definitions.
 This is recorded in the `function-history` symbol property.
+
+---
+** 'indian-tml-base-table' no longer translates digits.
+Use 'indian-tml-base-digits-table' if you want digits translation.
+
+--
+** 'indian-tml-itrans-v5-hash' no longer translates digits.
+Use 'indian-tml-itrans-digits-v5-hash' if you want digits
+translation.
 
 
 * Changes in Emacs 29.1 on Non-Free Operating Systems
