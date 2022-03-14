@@ -33,6 +33,13 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include "sysselect.h"		/* FIXME */
 #include "systhread.h"
 
+/* Byte-code interpreter thread state.  */
+struct bc_thread_state {
+  Lisp_Object *fp;		/* current frame pointer (see bytecode.c) */
+  Lisp_Object *stack;
+  Lisp_Object *stack_end;
+};
+
 struct thread_state
 {
   union vectorlike_header header;
@@ -92,13 +99,13 @@ struct thread_state
   struct handler *m_handlerlist_sentinel;
 #define handlerlist_sentinel (current_thread->m_handlerlist_sentinel)
 
-  /* Current number of specbindings allocated in specpdl.  */
-  ptrdiff_t m_specpdl_size;
-#define specpdl_size (current_thread->m_specpdl_size)
-
   /* Pointer to beginning of specpdl.  */
   union specbinding *m_specpdl;
 #define specpdl (current_thread->m_specpdl)
+
+  /* End of specpld (just beyond the last element).  */
+  union specbinding *m_specpdl_end;
+#define specpdl_end (current_thread->m_specpdl_end)
 
   /* Pointer to first unused element in specpdl.  */
   union specbinding *m_specpdl_ptr;
@@ -181,6 +188,8 @@ struct thread_state
 
   /* Threads are kept on a linked list.  */
   struct thread_state *next_thread;
+
+  struct bc_thread_state bc;
 } GCALIGNED_STRUCT;
 
 INLINE bool
