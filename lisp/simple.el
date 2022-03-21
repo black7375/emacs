@@ -2840,6 +2840,7 @@ Intended to be added to `minibuffer-setup-hook'."
               #'minibuffer-history-isearch-wrap)
   (setq-local isearch-push-state-function
               #'minibuffer-history-isearch-push-state)
+  (setq-local isearch-lazy-count nil)
   (add-hook 'isearch-mode-end-hook 'minibuffer-history-isearch-end nil t))
 
 (defun minibuffer-history-isearch-end ()
@@ -6545,9 +6546,11 @@ is set to the buffer displayed in that window.")
         (with-current-buffer (window-buffer win)
           (run-hook-with-args 'pre-redisplay-functions win))))))
 
-(add-function :before pre-redisplay-function
-              #'redisplay--pre-redisplay-functions)
-
+(when (eq pre-redisplay-function #'ignore)
+  ;; Override the default set in the C code.
+  ;; This is not done using `add-function' so as to loosen the bootstrap
+  ;; dependencies.
+  (setq pre-redisplay-function #'redisplay--pre-redisplay-functions))
 
 (defvar-local mark-ring nil
   "The list of former marks of the current buffer, most recent first.")

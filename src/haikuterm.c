@@ -115,7 +115,25 @@ haiku_toolkit_position (struct frame *f, int x, int y,
 static void
 haiku_delete_terminal (struct terminal *terminal)
 {
-  emacs_abort ();
+  struct haiku_display_info *dpyinfo = terminal->display_info.haiku;
+  struct terminal *t;
+
+  if (!terminal->name)
+    return;
+
+  block_input ();
+  be_app_quit ();
+
+  /* Close all frames and delete the generic struct terminal.  */
+  for (t = terminal_list; t; t = t->next_terminal)
+    {
+      if (t->type == output_haiku && t->display_info.haiku == dpyinfo)
+	{
+	  delete_terminal (t);
+	  break;
+	}
+    }
+  unblock_input ();
 }
 
 static const char *
@@ -3545,27 +3563,25 @@ haiku_read_socket (struct terminal *terminal, struct input_event *hold_quit)
 	    haiku_make_fullscreen_consistent (f);
 	    break;
 	  }
-	case REFS_EVENT:
+	case DRAG_AND_DROP_EVENT:
 	  {
-	    struct haiku_refs_event *b = buf;
+	    struct haiku_drag_and_drop_event *b = buf;
 	    struct frame *f = haiku_window_to_frame (b->window);
 
 	    if (!f)
 	      {
-		free (b->ref);
+		BMessage_delete (b->message);
 		continue;
 	      }
 
 	    inev.kind = DRAG_N_DROP_EVENT;
-	    inev.arg = build_string_from_utf8 (b->ref);
+	    inev.arg = haiku_message_to_lisp (b->message);
 
 	    XSETINT (inev.x, b->x);
 	    XSETINT (inev.y, b->y);
 	    XSETFRAME (inev.frame_or_window, f);
 
-	    /* There should be no problem with calling free here.
-	       free on Haiku is thread-safe.  */
-	    free (b->ref);
+	    BMessage_delete (b->message);
 	    break;
 	  }
 	case APP_QUIT_REQUESTED_EVENT:
@@ -3781,6 +3797,13 @@ haiku_toggle_invisible_pointer (struct frame *f, bool invisible_p)
 static void
 haiku_fullscreen (struct frame *f)
 {
+  /* When FRAME_OUTPUT_DATA (f)->configury_done is false, the frame is
+     being created, and its regular width and height have not yet been
+     set.  This function will be called again by haiku_create_frame,
+     so do nothing.  */
+  if (!FRAME_OUTPUT_DATA (f)->configury_done)
+    return;
+
   if (f->want_fullscreen == FULLSCREEN_MAXIMIZED)
     {
       EmacsWindow_make_fullscreen (FRAME_HAIKU_WINDOW (f), 0);

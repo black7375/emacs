@@ -170,6 +170,11 @@ methods instead.
 * Changes in Emacs 29.1
 
 +++
+** New user option 'mouse-drag-and-drop-region-cross-program'.
+If non-nil, this option allows dragging text in the region from Emacs
+to another program.
+
++++
 ** New function 'command-query'.
 This function makes its argument command prompt the user for
 confirmation before executing.
@@ -264,11 +269,21 @@ defaults to t, which makes Emacs use the toolkit tooltips.  The
 existing GTK-specific option 'x-gtk-use-system-tooltips' is now an
 alias of this new option.
 
+** Connection-local variables
+
 +++
-** Some connection-local variables are now user options.
+*** Some connection-local variables are now user options.
 The variables 'connection-local-profile-alist' and
 'connection-local-criteria-alist' are now user options, in order to
 make it more convenient to inspect and modify them.
+
++++
+*** The default connection-local application can be changed temporarily.
+Running 'with-connection-local-variables' defaults to application
+'tramp'.  This can be changed by let-binding
+'connection-local-default-application' to another symbol.  This is
+useful when running code in a buffer, where Tramp has already set some
+connection local variables.
 
 ---
 ** New minor mode 'pixel-scroll-precision-mode'.
@@ -642,7 +657,7 @@ It narrows to the current node.
 
 +++
 *** 'eudc-expansion-overwrites-query' to 'eudc-expansion-save-query-as-kill'.
-Rename 'eudc-expansion-overwrites-query' to
+'eudc-expansion-overwrites-query' is renamed to
 'eudc-expansion-save-query-as-kill' to reflect the actual behaviour of
 the customization variable.
 
@@ -927,6 +942,12 @@ the thumbnail file.
 
 ** Dired
 
++++
+*** New user option 'dired-mouse-drag-files'.
+If non-nil, dragging file names with the mouse in a Dired buffer will
+initiate a drag-and-drop session allowing them to be opened in other
+programs.
+
 *** New user option 'dired-free-space'.
 Dired will now, by default, include the free space in the first line
 instead of having it on a separate line.  To get the previous behavior
@@ -990,7 +1011,7 @@ and friends.
 
 ---
 *** Tramp supports abbreviating remote home directories now.
-When calling 'abbreviate-file-name' on a Tramp filename, the result
+When calling 'abbreviate-file-name' on a Tramp file name, the result
 will abbreviate the user's home directory, for example by abbreviating
 "/ssh:user@host:/home/user" to "/ssh:user@host:~".
 
@@ -1203,6 +1224,11 @@ functions.
 
 * Lisp Changes in Emacs 29.1
 
++++
+** New function 'x-begin-drag'.
+This function initiates a drag-and-drop request with the contents of
+the selection 'XdndSelection', and returns when a drop occurs.
+
 ---
 ** New function 'ietf-drums-parse-date-string'.
 This function parses RFC5322 (and RFC822) date strings, and should be
@@ -1410,6 +1436,12 @@ platforms.
 ** New command 'yank-media-types'.
 This command lets you examine all data in the current selection and
 the clipboard, and insert it into the buffer.
+
+---
+** New hook 'minibuffer-lazy-highlight-setup'.
+This hook is intended to be added to 'minibuffer-setup-hook'.
+It sets up the minibuffer for lazy highlighting of matches
+in the original window.
 
 +++
 ** New text property 'inhibit-isearch'.
