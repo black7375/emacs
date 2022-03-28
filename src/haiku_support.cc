@@ -37,6 +37,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <interface/Alert.h>
 #include <interface/Button.h>
 #include <interface/ControlLook.h>
+#include <interface/Deskbar.h>
 
 #include <locale/UnicodeChar.h>
 
@@ -403,9 +404,9 @@ public:
   BRect pre_zoom_rect;
   int x_before_zoom = INT_MIN;
   int y_before_zoom = INT_MIN;
-  int fullscreen_p = 0;
-  int zoomed_p = 0;
-  int shown_flag = 0;
+  bool fullscreen_p = false;
+  bool zoomed_p = false;
+  bool shown_flag = false;
   volatile int was_shown_p = 0;
   bool menu_bar_active_p = false;
   bool override_redirect_p = false;
@@ -421,6 +422,10 @@ public:
 			    B_NORMAL_WINDOW_FEEL, B_NO_SERVER_SIDE_WINDOW_MODIFIERS)
   {
     window_id = current_window_id++;
+
+    /* This pulse rate is used by scroll bars for repeating a button
+       action while a button is held down.  */
+    SetPulseRate (30000);
   }
 
   ~EmacsWindow ()
@@ -444,6 +449,77 @@ public:
 
     pthread_cond_destroy (&menu_update_cv);
     pthread_mutex_destroy (&menu_update_mutex);
+  }
+
+  BRect
+  CalculateZoomRect (void)
+  {
+    BScreen screen (this);
+    BDeskbar deskbar;
+    BRect screen_frame;
+    BRect frame;
+    BRect deskbar_frame;
+    BRect window_frame;
+    BRect decorator_frame;
+
+    if (!screen.IsValid ())
+      gui_abort ("Failed to calculate screen rect");
+
+    screen_frame = frame = screen.Frame ();
+    deskbar_frame = deskbar.Frame ();
+
+    if (!(modifiers () & B_SHIFT_KEY)
+	&& !deskbar.IsAutoHide ())
+      {
+	switch (deskbar.Location ())
+	  {
+	  case B_DESKBAR_TOP:
+	    frame.top = deskbar_frame.bottom + 2;
+	    break;
+
+	  case B_DESKBAR_BOTTOM:
+	  case B_DESKBAR_LEFT_BOTTOM:
+	  case B_DESKBAR_RIGHT_BOTTOM:
+	    frame.bottom = deskbar_frame.bottom - 2;
+	    break;
+
+	  case B_DESKBAR_LEFT_TOP:
+	    if (deskbar.IsExpanded ())
+	      frame.top = deskbar_frame.bottom + 2;
+	    else
+	      frame.left = deskbar_frame.right + 2;
+	    break;
+
+	  default:
+	    if (deskbar.IsExpanded ()
+		&& !deskbar.IsAlwaysOnTop ()
+		&& !deskbar.IsAutoRaise ())
+	      frame.right = deskbar_frame.left - 2;
+	  }
+      }
+
+    window_frame = Frame ();
+    decorator_frame = DecoratorFrame ();
+
+    frame.top += (window_frame.top
+		  - decorator_frame.top);
+    frame.bottom -= (decorator_frame.bottom
+		     - window_frame.bottom);
+    frame.left += (window_frame.left
+		   - decorator_frame.left);
+    frame.right -= (decorator_frame.right
+		    - window_frame.right);
+
+    if (frame.top > deskbar_frame.bottom
+	|| frame.bottom < deskbar_frame.top)
+      {
+	frame.left = screen_frame.left + (window_frame.left
+					  - decorator_frame.left);
+	frame.right = screen_frame.right - (decorator_frame.right
+					    - window_frame.left);
+      }
+
+    return frame;
   }
 
   void
@@ -649,17 +725,16 @@ public:
 	    && windowid == this->window_id)
 	  return;
 
-	if (msg->FindPoint ("_drop_point_", &whereto) == B_OK)
-	  {
-	    this->ConvertFromScreen (&whereto);
+	whereto = msg->DropPoint ();
 
-	    rq.window = this;
-	    rq.message = DetachCurrentMessage ();;
-	    rq.x = whereto.x;
-	    rq.y = whereto.y;
+	this->ConvertFromScreen (&whereto);
 
-	    haiku_write (DRAG_AND_DROP_EVENT, &rq);
-	  }
+	rq.window = this;
+	rq.message = DetachCurrentMessage ();
+	rq.x = whereto.x;
+	rq.y = whereto.y;
+
+	haiku_write (DRAG_AND_DROP_EVENT, &rq);
       }
     else if (msg->GetPointer ("menuptr"))
       {
@@ -989,33 +1064,29 @@ public:
   Zoom (BPoint o, float w, float h)
   {
     struct haiku_zoom_event rq;
+    BRect rect;
     rq.window = this;
-
-    rq.x = o.x;
-    rq.y = o.y;
-
-    rq.width = w + 1;
-    rq.height = h + 1;
 
     if (fullscreen_p)
       MakeFullscreen (0);
 
-    if (o.x != x_before_zoom ||
-	o.y != y_before_zoom)
+    if (!zoomed_p)
       {
-	x_before_zoom = Frame ().left;
-	y_before_zoom = Frame ().top;
 	pre_zoom_rect = Frame ();
-	zoomed_p = 1;
-	haiku_write (ZOOM_EVENT, &rq);
+	zoomed_p = true;
+	rect = CalculateZoomRect ();
       }
     else
       {
-	zoomed_p = 0;
-	x_before_zoom = y_before_zoom = INT_MIN;
+	zoomed_p = false;
+	rect = pre_zoom_rect;
       }
 
-    BWindow::Zoom (o, w, h);
+    rq.zoomed = zoomed_p;
+    haiku_write (ZOOM_EVENT, &rq);
+
+    BWindow::Zoom (rect.LeftTop (), BE_RECT_WIDTH (rect) - 1,
+		   BE_RECT_HEIGHT (rect) - 1);
   }
 
   void
@@ -1023,11 +1094,8 @@ public:
   {
     if (!zoomed_p)
       return;
-    zoomed_p = 0;
 
-    EmacsMoveTo (pre_zoom_rect.left, pre_zoom_rect.top);
-    ResizeTo (BE_RECT_WIDTH (pre_zoom_rect) - 1,
-	      BE_RECT_HEIGHT (pre_zoom_rect) - 1);
+    BWindow::Zoom ();
   }
 
   void
@@ -1082,6 +1150,8 @@ public:
 
     if (!screen.IsValid ())
       gui_abort ("Trying to make a window fullscreen without a screen");
+
+    UnZoom ();
 
     if (make_fullscreen_p == fullscreen_p)
       return;
@@ -1699,10 +1769,35 @@ public:
   }
 
   void
+  Pulse (void)
+  {
+    struct haiku_scroll_bar_part_event rq;
+    BPoint point;
+    uint32 buttons;
+
+    if (!dragging)
+      {
+	SetFlags (Flags () & ~B_PULSE_NEEDED);
+	return;
+      }
+
+    GetMouse (&point, &buttons, false);
+
+    if (ButtonRegionFor (current_part).Contains (point))
+      {
+	rq.scroll_bar = this;
+	rq.window = Window ();
+	rq.part = current_part;
+	haiku_write (SCROLL_BAR_PART_EVENT, &rq);
+      }
+
+    BScrollBar::Pulse ();
+  }
+
+  void
   ValueChanged (float new_value)
   {
     struct haiku_scroll_bar_value_event rq;
-    struct haiku_scroll_bar_part_event part;
 
     new_value = Value ();
 
@@ -1713,11 +1808,7 @@ public:
 	    if (dragging > 1)
 	      {
 		SetValue (old_value);
-
-		part.scroll_bar = this;
-		part.window = Window ();
-		part.part = current_part;
-		haiku_write (SCROLL_BAR_PART_EVENT, &part);
+		SetFlags (Flags () | B_PULSE_NEEDED);
 	      }
 	    else
 	      dragging++;
@@ -1857,6 +1948,12 @@ public:
 	    dragging = 1;
 	    current_part = HAIKU_SCROLL_BAR_DOWN_BUTTON;
 
+	    if (Value () == max_value)
+	      {
+		SetFlags (Flags () | B_PULSE_NEEDED);
+		dragging = 2;
+	      }
+
 	    haiku_write (SCROLL_BAR_PART_EVENT, &part);
 	    goto out;
 	  }
@@ -1900,7 +1997,7 @@ public:
     rq.window = Window ();
 
     haiku_write (SCROLL_BAR_DRAG_EVENT, &rq);
-    dragging = false;
+    dragging = 0;
 
     BScrollBar::MouseUp (pt);
   }
@@ -3328,6 +3425,8 @@ void
 be_get_version_string (char *version, int len)
 {
   std::strncpy (version, "Unknown Haiku release", len - 1);
+  version[len - 1] = '\0';
+
   BPath path;
   if (find_directory (B_BEOS_LIB_DIRECTORY, &path) == B_OK)
     {
@@ -3341,7 +3440,10 @@ be_get_version_string (char *version, int len)
           && appFileInfo.GetVersionInfo (&versionInfo,
                                          B_APP_VERSION_KIND) == B_OK
           && versionInfo.short_info[0] != '\0')
-	std::strncpy (version, versionInfo.short_info, len - 1);
+	{
+	  std::strncpy (version, versionInfo.short_info, len - 1);
+	  version[len - 1] = '\0';
+	}
     }
 }
 
@@ -3965,7 +4067,7 @@ be_drag_message_thread_entry (void *thread_data)
 }
 
 bool
-be_drag_message (void *view, void *message,
+be_drag_message (void *view, void *message, bool allow_same_view,
 		 void (*block_input_function) (void),
 		 void (*unblock_input_function) (void),
 		 void (*process_pending_signals_function) (void),
@@ -3980,7 +4082,12 @@ be_drag_message (void *view, void *message,
   ssize_t stat;
 
   block_input_function ();
-  msg->AddInt32 ("emacs:window_id", window->window_id);
+
+  if (!allow_same_view &&
+      (msg->ReplaceInt32 ("emacs:window_id", window->window_id)
+       == B_NAME_NOT_FOUND))
+    msg->AddInt32 ("emacs:window_id", window->window_id);
+
   if (!vw->LockLooper ())
     gui_abort ("Failed to lock view looper for drag");
 

@@ -2670,7 +2670,7 @@ or it might return the position of the end of the line."
   (interactive "p")
   (if (eobp)
       (insert
-       (with-current-buffer (cadr (buffer-list))
+       (with-minibuffer-selected-window
          (buffer-substring-no-properties
           (point) (progn (forward-char arg) (point)))))
     (forward-char arg)))
@@ -4342,11 +4342,12 @@ Attempt to do the search exactly the way the pending Isearch would."
 		  (setq isearch-lazy-count-current
 			(gethash opoint isearch-lazy-count-hash 0))
                   (when (and isearch-mode (null isearch-message-function))
-                    (isearch-message))
-		  (run-hooks 'lazy-count-update-hook))
+                    (isearch-message)))
 	      (setq isearch-lazy-highlight-timer
 		    (run-at-time lazy-highlight-interval nil
-				 'isearch-lazy-highlight-buffer-update)))))))))
+				 'isearch-lazy-highlight-buffer-update)))))
+        (when (and nomore isearch-lazy-count)
+          (run-hooks 'lazy-count-update-hook))))))
 
 
 ;; Reading from minibuffer with lazy highlight and match count
