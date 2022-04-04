@@ -433,7 +433,11 @@ struct x_display_info
   /* Atom used to determine whether or not the screen is composited.  */
   Atom Xatom_NET_WM_CM_Sn;
 
-  Atom Xatom_MOTIF_WM_HINTS;
+  Atom Xatom_MOTIF_WM_HINTS, Xatom_MOTIF_DRAG_WINDOW,
+    Xatom_MOTIF_DRAG_TARGETS, Xatom_MOTIF_DRAG_AND_DROP_MESSAGE,
+    Xatom_MOTIF_DRAG_INITIATOR_INFO, Xatom_MOTIF_DRAG_RECEIVER_INFO;
+
+  Atom Xatom_XmTRANSFER_SUCCESS, Xatom_XmTRANSFER_FAILURE;
 
   /* The frame (if any) which has the X window that has keyboard focus.
      Zero if none.  This is examined by Ffocus_frame in xfns.c.  Note
@@ -1385,7 +1389,7 @@ extern void x_scroll_bar_configure (GdkEvent *);
 #endif
 
 extern Lisp_Object x_dnd_begin_drag_and_drop (struct frame *, Time, Atom,
-					      bool, Atom *, const char **,
+					      Lisp_Object, Atom *, const char **,
 					      size_t, bool);
 extern void x_set_dnd_targets (Atom *, int);
 
