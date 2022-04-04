@@ -496,7 +496,44 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
   compositing manager that the contents of the window now accurately
   reflect the new size.  The compositing manager will then display the
   contents of the window, and the window manager might also postpone
-  updating the window decorations until this moment.  */
+  updating the window decorations until this moment.
+
+  DRAG AND DROP
+
+  Drag and drop in Emacs is implemented in two ways, depending on
+  which side initiated the drag-and-drop operation.  When another X
+  client initiates a drag, and the user drops something on Emacs, a
+  `drag-n-drop-event' is sent with the contents of the ClientMessage,
+  and further processing (i.e. retrieving selection contents and
+  replying to the initiating client) is performed from Lisp inside
+  `x-dnd.el'.
+
+  However, dragging contents from Emacs is implemented entirely in C.
+  X Windows has several competing drag-and-drop protocols, of which
+  Emacs supports two: the XDND protocol (see
+  https://freedesktop.org/wiki/Specifications/XDND) and the Motif drag
+  and drop protocols.  These protocols are based on the initiator
+  owning a special selection, specifying an action the recipient
+  should perform, grabbing the mouse, and sending various different
+  client messages to the toplevel window underneath the mouse as it
+  moves, or when buttons are released.
+
+  The Lisp interface to drag-and-drop is synchronous, and involves
+  running a nested event loop with some global state until the drag
+  finishes.  When the mouse moves, Emacs looks up the toplevel window
+  underneath the pointer (the target window) either using a cache
+  provided by window managers that support the
+  _NET_WM_CLIENT_LIST_STACKING root window property, or by calling
+  XTranslateCoordinates in a loop until a toplevel window is found,
+  and sends various entry, exit, or motion events to the window
+  containing a list of targets the special selection can be converted
+  to, and the chosen action that the recipient should perform.  The
+  recipient can then send messages in reply detailing the action it
+  has actually chosen to perform.  Finally, when the mouse buttons are
+  released over the recipient window, Emacs sends a "drop" message to
+  the target window, waits for a reply, and returns the action
+  selected by the recipient to the Lisp code that initiated the
+  drag-and-drop operation.  */
 
 #include <config.h>
 #include <stdlib.h>
@@ -567,6 +604,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <fcntl.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <flexmember.h>
 #include "character.h"
 #include "coding.h"
 #include "composite.h"
@@ -807,6 +845,15 @@ static int x_filter_event (struct x_display_info *, XEvent *);
 
 static bool x_dnd_in_progress;
 static bool x_dnd_waiting_for_finish;
+/* 0 means nothing has happened.  1 means an XmDROP_START message was
+   sent to the target, but no response has yet been received.  2 means
+   a response to our XmDROP_START message was received and the target
+   accepted the drop, so Emacs should start waiting for the drop
+   target to convert one of the special selections XmTRANSFER_SUCCESS
+   or XmTRANSFER_FAILURE.  */
+static int x_dnd_waiting_for_motif_finish;
+static bool x_dnd_xm_use_help;
+static bool x_dnd_motif_setup_p;
 static Window x_dnd_pending_finish_target;
 static int x_dnd_waiting_for_finish_proto;
 static bool x_dnd_allow_current_frame;
@@ -822,6 +869,7 @@ static struct frame *x_dnd_return_frame_object;
 static Window x_dnd_last_seen_window;
 static Window x_dnd_end_window;
 static int x_dnd_last_protocol_version;
+static int x_dnd_last_motif_style;
 static Time x_dnd_selection_timestamp;
 
 static Window x_dnd_mouse_rect_target;
@@ -846,6 +894,12 @@ struct x_client_list_window
   unsigned long wm_state;
 
   struct x_client_list_window *next;
+  uint8_t xm_protocol_style;
+
+  int frame_extents_left;
+  int frame_extents_right;
+  int frame_extents_top;
+  int frame_extents_bottom;
 
 #ifdef HAVE_XSHAPE
   int border_width;
@@ -860,6 +914,842 @@ struct x_client_list_window
 
 static struct x_client_list_window *x_dnd_toplevels = NULL;
 static bool x_dnd_use_toplevels;
+
+/* Motif drag-and-drop protocol support.  */
+
+typedef enum xm_targets_table_byte_order
+  {
+    XM_TARGETS_TABLE_LSB = 'l',
+    XM_TARGETS_TABLE_MSB = 'B',
+#ifndef WORDS_BIGENDIAN
+    XM_TARGETS_TABLE_CUR = 'l',
+#else
+    XM_TARGETS_TABLE_CUR = 'B',
+#endif
+  } xm_targets_table_byte_order;
+
+#define SWAPCARD32(l)				\
+  {						\
+    struct { unsigned t : 32; } bit32;		\
+    char n, *tp = (char *) &bit32;		\
+    bit32.t = l;				\
+    n = tp[0]; tp[0] = tp[3]; tp[3] = n;	\
+    n = tp[1]; tp[1] = tp[2]; tp[2] = n;	\
+    l = bit32.t;				\
+  }
+
+#define SWAPCARD16(s)				\
+  {						\
+    struct { unsigned t : 16; } bit16;		\
+    char n, *tp = (char *) &bit16;		\
+    bit16.t = s;				\
+    n = tp[0]; tp[0] = tp[1]; tp[1] = n;	\
+    s = bit16.t;				\
+  }
+
+typedef struct xm_targets_table_header
+{
+  /* BYTE   */ uint8_t byte_order;
+  /* BYTE   */ uint8_t protocol;
+
+  /* CARD16 */ uint16_t target_list_count;
+  /* CARD32 */ uint32_t total_data_size;
+} xm_targets_table_header;
+
+typedef struct xm_targets_table_rec
+{
+  /* CARD16 */ uint16_t n_targets;
+  /* CARD32 */ uint32_t targets[FLEXIBLE_ARRAY_MEMBER];
+} xm_targets_table_rec;
+
+typedef struct xm_drop_start_message
+{
+  /* BYTE   */ uint8_t reason;
+  /* BYTE   */ uint8_t byte_order;
+
+  /* CARD16 */ uint16_t side_effects;
+  /* CARD32 */ uint32_t timestamp;
+  /* CARD16 */ uint16_t x, y;
+  /* CARD32 */ uint32_t index_atom;
+  /* CARD32 */ uint32_t source_window;
+} xm_drop_start_message;
+
+typedef struct xm_drop_start_reply
+{
+  /* BYTE   */ uint8_t reason;
+  /* BYTE   */ uint8_t byte_order;
+
+  /* CARD16 */ uint16_t side_effects;
+  /* CARD16 */ uint16_t better_x;
+  /* CARD16 */ uint16_t better_y;
+} xm_drop_start_reply;
+
+typedef struct xm_drag_initiator_info
+{
+  /* BYTE   */ uint8_t byteorder;
+  /* BYTE   */ uint8_t protocol;
+
+  /* CARD16 */ uint16_t table_index;
+  /* CARD32 */ uint32_t selection;
+} xm_drag_initiator_info;
+
+typedef struct xm_drag_receiver_info
+{
+  /* BYTE   */ uint8_t byteorder;
+  /* BYTE   */ uint8_t protocol;
+
+  /* BYTE   */ uint8_t protocol_style;
+  /* BYTE   */ uint8_t unspecified0;
+  /* CARD32 */ uint32_t unspecified1;
+  /* CARD32 */ uint32_t unspecified2;
+  /* CARD32 */ uint32_t unspecified3;
+} xm_drag_receiver_info;
+
+typedef struct xm_top_level_enter_message
+{
+  /* BYTE   */ uint8_t reason;
+  /* BYTE   */ uint8_t byteorder;
+
+  /* CARD16 */ uint16_t zero;
+  /* CARD32 */ uint32_t timestamp;
+  /* CARD32 */ uint32_t source_window;
+  /* CARD32 */ uint32_t index_atom;
+} xm_top_level_enter_message;
+
+typedef struct xm_drag_motion_message
+{
+  /* BYTE   */ uint8_t reason;
+  /* BYTE   */ uint8_t byteorder;
+
+  /* CARD16 */ uint16_t side_effects;
+  /* CARD32 */ uint32_t timestamp;
+  /* CARD16 */ uint16_t x, y;
+} xm_drag_motion_message;
+
+typedef struct xm_top_level_leave_message
+{
+  /* BYTE   */ uint8_t reason;
+  /* BYTE   */ uint8_t byteorder;
+
+  /* CARD16 */ uint16_t zero;
+  /* CARD32 */ uint32_t timestamp;
+  /* CARD32 */ uint32_t source_window;
+} xm_top_level_leave_message;
+
+#define XM_DRAG_SIDE_EFFECT(op, site, ops, act)		\
+  ((op) | ((site) << 4) | ((ops) << 8) | ((act) << 12))
+
+/* Some of the macros below are temporarily unused.  */
+
+#define XM_DRAG_SIDE_EFFECT_OPERATION(effect)	((effect) & 0xf)
+#define XM_DRAG_SIDE_EFFECT_SITE_STATUS(effect)	(((effect) & 0xf0) >> 4)
+/* #define XM_DRAG_SIDE_EFFECT_OPERATIONS(effect)	(((effect) & 0xf00) >> 8) */
+#define XM_DRAG_SIDE_EFFECT_DROP_ACTION(effect)	(((effect) & 0xf000) >> 12)
+
+#define XM_DRAG_NOOP 0
+#define XM_DRAG_MOVE (1L << 0)
+#define XM_DRAG_COPY (1L << 1)
+#define XM_DRAG_LINK (1L << 2)
+
+#define XM_DROP_ACTION_DROP		0
+#define XM_DROP_ACTION_DROP_HELP	1
+#define XM_DROP_ACTION_DROP_CANCEL	2
+
+#define XM_DRAG_REASON(originator, code)	((code) | ((originator) << 7))
+#define XM_DRAG_REASON_ORIGINATOR(reason)	(((reason) & 0x80) ? 1 : 0)
+#define XM_DRAG_REASON_CODE(reason)		((reason) & 0x7f)
+
+#define XM_DRAG_REASON_DROP_START	5
+#define XM_DRAG_REASON_TOP_LEVEL_ENTER	0
+#define XM_DRAG_REASON_TOP_LEVEL_LEAVE	1
+#define XM_DRAG_REASON_DRAG_MOTION	2
+#define XM_DRAG_ORIGINATOR_INITIATOR	0
+#define XM_DRAG_ORIGINATOR_RECEIVER	1
+
+#define XM_DRAG_STYLE_NONE		0
+
+#define XM_DRAG_STYLE_DROP_ONLY		1
+#define XM_DRAG_STYLE_DROP_ONLY_REC	3
+
+#define XM_DRAG_STYLE_DYNAMIC		5
+#define XM_DRAG_STYLE_DYNAMIC_REC	2
+#define XM_DRAG_STYLE_DYNAMIC_REC1	4
+
+#define XM_DRAG_STYLE_IS_DROP_ONLY(n)	((n) == XM_DRAG_STYLE_DROP_ONLY	\
+					 || (n) == XM_DRAG_STYLE_DROP_ONLY_REC)
+#define XM_DRAG_STYLE_IS_DYNAMIC(n)	((n) == XM_DRAG_STYLE_DYNAMIC	\
+					 || (n) == XM_DRAG_STYLE_DYNAMIC_REC \
+					 || (n) == XM_DRAG_STYLE_DYNAMIC_REC1)
+
+#define XM_DROP_SITE_VALID	3
+/* #define XM_DROP_SITE_INVALID	2 */
+#define XM_DROP_SITE_NONE	1
+
+static uint8_t
+xm_side_effect_from_action (struct x_display_info *dpyinfo, Atom action)
+{
+  if (action == dpyinfo->Xatom_XdndActionCopy)
+    return XM_DRAG_COPY;
+  else if (action == dpyinfo->Xatom_XdndActionMove)
+    return XM_DRAG_MOVE;
+  else if (action == dpyinfo->Xatom_XdndActionLink)
+    return XM_DRAG_LINK;
+
+  return XM_DRAG_NOOP;
+}
+
+static int
+xm_read_targets_table_header (uint8_t *bytes, ptrdiff_t length,
+			      xm_targets_table_header *header_return,
+			      xm_targets_table_byte_order *byteorder_return)
+{
+  if (length < 8)
+    return -1;
+
+  header_return->byte_order = *byteorder_return = *(bytes++);
+  header_return->protocol = *(bytes++);
+
+  header_return->target_list_count = *(uint16_t *) bytes;
+  header_return->total_data_size = *(uint32_t *) (bytes + 2);
+
+  if (header_return->byte_order != XM_TARGETS_TABLE_CUR)
+    {
+      SWAPCARD16 (header_return->target_list_count);
+      SWAPCARD32 (header_return->total_data_size);
+    }
+
+  header_return->byte_order = XM_TARGETS_TABLE_CUR;
+
+  return 8;
+}
+
+static xm_targets_table_rec *
+xm_read_targets_table_rec (uint8_t *bytes, ptrdiff_t length,
+			   xm_targets_table_byte_order byteorder)
+{
+  uint16_t nitems, i;
+  xm_targets_table_rec *rec;
+
+  if (length < 2)
+    return NULL;
+
+  nitems = *(uint16_t *) bytes;
+
+  if (length < 2 + nitems * 4)
+    return NULL;
+
+  if (byteorder != XM_TARGETS_TABLE_CUR)
+    SWAPCARD16 (nitems);
+
+  rec = xmalloc (FLEXSIZEOF (struct xm_targets_table_rec,
+			     targets, nitems * 4));
+  rec->n_targets = nitems;
+
+  for (i = 0; i < nitems; ++i)
+    {
+      rec->targets[i] = ((uint32_t *) (bytes + 2))[i];
+
+      if (byteorder != XM_TARGETS_TABLE_CUR)
+	SWAPCARD32 (rec->targets[i]);
+    }
+
+  return rec;
+}
+
+static int
+xm_find_targets_table_idx (xm_targets_table_header *header,
+			   xm_targets_table_rec **recs,
+			   Atom *sorted_targets, int ntargets)
+{
+  int j;
+  uint16_t i;
+  uint32_t *targets;
+
+  targets = alloca (sizeof *targets * ntargets);
+
+  for (j = 0; j < ntargets; ++j)
+    targets[j] = sorted_targets[j];
+
+  for (i = 0; i < header->target_list_count; ++i)
+    {
+      if (recs[i]->n_targets == ntargets
+	  && !memcmp (&recs[i]->targets, targets,
+		      sizeof *targets * ntargets))
+	return i;
+    }
+
+  return -1;
+}
+
+static int
+x_atoms_compare (const void *a, const void *b)
+{
+  return *(Atom *) a - *(Atom *) b;
+}
+
+static void
+xm_write_targets_table (Display *dpy, Window wdesc,
+			Atom targets_table_atom,
+			xm_targets_table_header *header,
+			xm_targets_table_rec **recs)
+{
+  uint8_t *header_buffer, *ptr, *rec_buffer;
+  ptrdiff_t rec_buffer_size;
+  uint16_t i, j;
+
+  header_buffer = alloca (8);
+  ptr = header_buffer;
+
+  *(header_buffer++) = header->byte_order;
+  *(header_buffer++) = header->protocol;
+  *((uint16_t *) header_buffer) = header->target_list_count;
+  *((uint32_t *) (header_buffer + 2)) = header->total_data_size;
+
+  rec_buffer = xmalloc (600);
+  rec_buffer_size = 600;
+
+  XGrabServer (dpy);
+  XChangeProperty (dpy, wdesc, targets_table_atom,
+		   targets_table_atom, 8, PropModeReplace,
+		   (unsigned char *) ptr, 8);
+
+  for (i = 0; i < header->target_list_count; ++i)
+    {
+      if (rec_buffer_size < 2 + recs[i]->n_targets * 4)
+	{
+	  rec_buffer_size = 2 + recs[i]->n_targets * 4;
+	  rec_buffer = xrealloc (rec_buffer, rec_buffer_size);
+	}
+
+      *((uint16_t *) rec_buffer) = recs[i]->n_targets;
+
+      for (j = 0; j < recs[i]->n_targets; ++j)
+	((uint32_t *) (rec_buffer + 2))[j] = recs[i]->targets[j];
+
+      XChangeProperty (dpy, wdesc, targets_table_atom,
+		       targets_table_atom, 8, PropModeAppend,
+		       (unsigned char *) rec_buffer,
+		       2 + recs[i]->n_targets * 4);
+    }
+  XUngrabServer (dpy);
+
+  xfree (rec_buffer);
+}
+
+static void
+xm_write_drag_initiator_info (Display *dpy, Window wdesc,
+			      Atom prop_name, Atom type_name,
+			      xm_drag_initiator_info *info)
+{
+  uint8_t *buf;
+
+  buf = alloca (8);
+  buf[0] = info->byteorder;
+  buf[1] = info->protocol;
+
+  *((uint16_t *) (buf + 2)) = info->table_index;
+  *((uint32_t *) (buf + 4)) = info->selection;
+
+  XChangeProperty (dpy, wdesc, prop_name, type_name, 8,
+		   PropModeReplace, (unsigned char *) buf, 8);
+}
+
+static Window
+xm_get_drag_window (struct x_display_info *dpyinfo)
+{
+  Atom actual_type;
+  int rc, actual_format;
+  unsigned long nitems, bytes_remaining;
+  unsigned char *tmp_data = NULL;
+  Window drag_window;
+  XSetWindowAttributes attrs;
+  XWindowAttributes wattrs;
+  Display *temp_display;
+
+  drag_window = None;
+  rc = XGetWindowProperty (dpyinfo->display, dpyinfo->root_window,
+			   dpyinfo->Xatom_MOTIF_DRAG_WINDOW,
+			   0, 1, False, XA_WINDOW, &actual_type,
+			   &actual_format, &nitems, &bytes_remaining,
+			   &tmp_data) == Success;
+
+  if (rc)
+    {
+      if (actual_type == XA_WINDOW
+	  && actual_format == 32 && nitems == 1)
+	{
+	  drag_window = *(Window *) tmp_data;
+	  x_catch_errors (dpyinfo->display);
+	  XGetWindowAttributes (dpyinfo->display,
+				drag_window, &wattrs);
+	  rc = !x_had_errors_p (dpyinfo->display);
+	  x_uncatch_errors_after_check ();
+
+	  if (!rc)
+	    drag_window = None;
+	}
+
+      if (tmp_data)
+	XFree (tmp_data);
+    }
+
+  if (drag_window == None)
+    {
+      unrequest_sigio ();
+      temp_display = XOpenDisplay (XDisplayString (dpyinfo->display));
+      request_sigio ();
+
+      if (!temp_display)
+	return None;
+
+      XSetCloseDownMode (temp_display, RetainPermanent);
+      attrs.override_redirect = True;
+      drag_window = XCreateWindow (temp_display, DefaultRootWindow (temp_display),
+				   -1, -1, 1, 1, 0, CopyFromParent, InputOnly,
+				   CopyFromParent, CWOverrideRedirect, &attrs);
+      XChangeProperty (temp_display, DefaultRootWindow (temp_display),
+		       XInternAtom (temp_display,
+				    "_MOTIF_DRAG_WINDOW", False),
+		       XA_WINDOW, 32, PropModeReplace,
+		       (unsigned char *) &drag_window, 1);
+      XCloseDisplay (temp_display);
+
+      /* Make sure the drag window created is actually valid for the
+	 current display, and the XOpenDisplay above didn't
+	 accidentally connect to some other display.  */
+      x_catch_errors (dpyinfo->display);
+      XGetWindowAttributes (dpyinfo->display,
+			    drag_window, &wattrs);
+      rc = !x_had_errors_p (dpyinfo->display);
+      x_uncatch_errors_after_check ();
+
+      /* We connected to the wrong display, so just give up.  */
+      if (!rc)
+	drag_window = None;
+    }
+
+  return drag_window;
+}
+
+/* TODO: overflow checks when inserting targets.  */
+static int
+xm_setup_dnd_targets (struct x_display_info *dpyinfo,
+		      Atom *targets, int ntargets)
+{
+  Window drag_window;
+  Atom *targets_sorted, actual_type;
+  unsigned char *tmp_data = NULL;
+  unsigned long nitems, bytes_remaining;
+  int rc, actual_format, idx;
+  xm_targets_table_header header;
+  xm_targets_table_rec **recs;
+  xm_targets_table_byte_order byteorder;
+  uint8_t *data;
+  ptrdiff_t total_bytes, total_items, i;
+
+  drag_window = xm_get_drag_window (dpyinfo);
+
+  if (drag_window == None || ntargets > 64)
+    return -1;
+
+  targets_sorted = xmalloc (sizeof *targets * ntargets);
+  memcpy (targets_sorted, targets,
+	  sizeof *targets * ntargets);
+  qsort (targets_sorted, ntargets,
+	 sizeof (Atom), x_atoms_compare);
+
+  XGrabServer (dpyinfo->display);
+  rc = XGetWindowProperty (dpyinfo->display, drag_window,
+			   dpyinfo->Xatom_MOTIF_DRAG_TARGETS,
+			   /* Do larger values occur in practice? */
+			   0L, 20000L, False,
+			   dpyinfo->Xatom_MOTIF_DRAG_TARGETS,
+			   &actual_type, &actual_format, &nitems,
+			   &bytes_remaining, &tmp_data) == Success;
+
+  if (rc && tmp_data && !bytes_remaining
+      && actual_type == dpyinfo->Xatom_MOTIF_DRAG_TARGETS
+      && actual_format == 8)
+    {
+      data = (uint8_t *) tmp_data;
+      if (xm_read_targets_table_header ((uint8_t *) tmp_data,
+					nitems, &header,
+					&byteorder) == 8)
+	{
+	  data += 8;
+	  nitems -= 8;
+	  total_bytes = 0;
+	  total_items = 0;
+
+	  /* The extra rec is used to store a new target list if a
+	     preexisting one doesn't already exist.  */
+	  recs = xmalloc ((header.target_list_count + 1)
+			  * sizeof *recs);
+
+	  while (total_items < header.target_list_count)
+	    {
+	      recs[total_items] = xm_read_targets_table_rec (data + total_bytes,
+							     nitems, byteorder);
+
+	      if (!recs[total_items])
+		break;
+
+	      total_bytes += 2 + recs[total_items]->n_targets * 4;
+	      nitems -= 2 + recs[total_items]->n_targets * 4;
+	      total_items++;
+	    }
+
+	  if (header.target_list_count != total_items
+	      || header.total_data_size != 8 + total_bytes)
+	    {
+	      for (i = 0; i < total_items; ++i)
+		{
+		  if (recs[i])
+		      xfree (recs[i]);
+		  else
+		    break;
+		}
+
+	      xfree (recs);
+
+	      rc = false;
+	    }
+	}
+      else
+	rc = false;
+    }
+  else
+    rc = false;
+
+  if (tmp_data)
+    XFree (tmp_data);
+
+  /* Now rc means whether or not the target lists weren't updated and
+     shouldn't be written to the drag window.  */
+
+  if (!rc)
+    {
+      header.byte_order = XM_TARGETS_TABLE_CUR;
+      header.protocol = 0;
+      header.target_list_count = 1;
+      header.total_data_size = 8 + 2 + ntargets * 4;
+
+      recs = xmalloc (sizeof *recs);
+      recs[0] = xmalloc (FLEXSIZEOF (struct xm_targets_table_rec,
+				     targets, ntargets * 4));
+
+      recs[0]->n_targets = ntargets;
+
+      for (i = 0; i < ntargets; ++i)
+	recs[0]->targets[i] = targets_sorted[i];
+
+      idx = 0;
+    }
+  else
+    {
+      idx = xm_find_targets_table_idx (&header, recs,
+				       targets_sorted,
+				       ntargets);
+
+      if (idx == -1)
+	{
+	  header.target_list_count++;
+	  header.total_data_size += 2 + ntargets * 4;
+
+	  recs[header.target_list_count - 1]
+	    = xmalloc (FLEXSIZEOF (struct xm_targets_table_rec,
+				   targets, ntargets * 4));
+	  recs[header.target_list_count - 1]->n_targets = ntargets;
+
+	  for (i = 0; i < ntargets; ++i)
+	    recs[header.target_list_count - 1]->targets[i] = targets_sorted[i];
+
+	  idx = header.target_list_count - 1;
+	  rc = false;
+	}
+    }
+
+  if (!rc)
+    xm_write_targets_table (dpyinfo->display, drag_window,
+			    dpyinfo->Xatom_MOTIF_DRAG_TARGETS,
+			    &header, recs);
+
+  XUngrabServer (dpyinfo->display);
+
+  for (i = 0; i < header.target_list_count; ++i)
+    xfree (recs[i]);
+
+  xfree (recs);
+  xfree (targets_sorted);
+
+  return idx;
+}
+
+static void
+xm_setup_drag_info (struct x_display_info *dpyinfo,
+		    struct frame *source_frame)
+{
+  xm_drag_initiator_info drag_initiator_info;
+  int idx;
+
+  idx = xm_setup_dnd_targets (dpyinfo, x_dnd_targets,
+			      x_dnd_n_targets);
+
+  if (idx != -1)
+    {
+      drag_initiator_info.byteorder = XM_TARGETS_TABLE_CUR;
+      drag_initiator_info.protocol = 0;
+      drag_initiator_info.table_index = idx;
+      drag_initiator_info.selection = dpyinfo->Xatom_XdndSelection;
+
+      xm_write_drag_initiator_info (dpyinfo->display, FRAME_X_WINDOW (source_frame),
+				    dpyinfo->Xatom_XdndSelection,
+				    dpyinfo->Xatom_MOTIF_DRAG_INITIATOR_INFO,
+				    &drag_initiator_info);
+
+      x_dnd_motif_setup_p = true;
+    }
+}
+
+static void
+xm_send_drop_message (struct x_display_info *dpyinfo, Window source,
+		      Window target, xm_drop_start_message *dmsg)
+{
+  XEvent msg;
+
+  msg.xclient.type = ClientMessage;
+  msg.xclient.message_type
+    = dpyinfo->Xatom_MOTIF_DRAG_AND_DROP_MESSAGE;
+  msg.xclient.format = 8;
+  msg.xclient.window = target;
+  msg.xclient.data.b[0] = dmsg->reason;
+  msg.xclient.data.b[1] = dmsg->byte_order;
+  *((uint16_t *) &msg.xclient.data.b[2]) = dmsg->side_effects;
+  *((uint32_t *) &msg.xclient.data.b[4]) = dmsg->timestamp;
+  *((uint16_t *) &msg.xclient.data.b[8]) = dmsg->x;
+  *((uint16_t *) &msg.xclient.data.b[10]) = dmsg->y;
+  *((uint32_t *) &msg.xclient.data.b[12]) = dmsg->index_atom;
+  *((uint32_t *) &msg.xclient.data.b[16]) = dmsg->source_window;
+
+  x_catch_errors (dpyinfo->display);
+  XSendEvent (dpyinfo->display, target, False, NoEventMask, &msg);
+  x_uncatch_errors ();
+}
+
+static void
+xm_send_top_level_enter_message (struct x_display_info *dpyinfo, Window source,
+				 Window target, xm_top_level_enter_message *dmsg)
+{
+  XEvent msg;
+
+  msg.xclient.type = ClientMessage;
+  msg.xclient.message_type
+    = dpyinfo->Xatom_MOTIF_DRAG_AND_DROP_MESSAGE;
+  msg.xclient.format = 8;
+  msg.xclient.window = target;
+  msg.xclient.data.b[0] = dmsg->reason;
+  msg.xclient.data.b[1] = dmsg->byteorder;
+  *((uint16_t *) &msg.xclient.data.b[2]) = dmsg->zero;
+  *((uint32_t *) &msg.xclient.data.b[4]) = dmsg->timestamp;
+  *((uint32_t *) &msg.xclient.data.b[8]) = dmsg->source_window;
+  *((uint32_t *) &msg.xclient.data.b[12]) = dmsg->index_atom;
+  msg.xclient.data.b[16] = 0;
+  msg.xclient.data.b[17] = 0;
+  msg.xclient.data.b[18] = 0;
+  msg.xclient.data.b[19] = 0;
+
+  x_catch_errors (dpyinfo->display);
+  XSendEvent (dpyinfo->display, target, False, NoEventMask, &msg);
+  x_uncatch_errors ();
+}
+
+static void
+xm_send_drag_motion_message (struct x_display_info *dpyinfo, Window source,
+			     Window target, xm_drag_motion_message *dmsg)
+{
+  XEvent msg;
+
+  msg.xclient.type = ClientMessage;
+  msg.xclient.message_type
+    = dpyinfo->Xatom_MOTIF_DRAG_AND_DROP_MESSAGE;
+  msg.xclient.format = 8;
+  msg.xclient.window = target;
+  msg.xclient.data.b[0] = dmsg->reason;
+  msg.xclient.data.b[1] = dmsg->byteorder;
+  *((uint16_t *) &msg.xclient.data.b[2]) = dmsg->side_effects;
+  *((uint32_t *) &msg.xclient.data.b[4]) = dmsg->timestamp;
+  *((uint16_t *) &msg.xclient.data.b[8]) = dmsg->x;
+  *((uint16_t *) &msg.xclient.data.b[10]) = dmsg->y;
+  msg.xclient.data.b[12] = 0;
+  msg.xclient.data.b[13] = 0;
+  msg.xclient.data.b[14] = 0;
+  msg.xclient.data.b[15] = 0;
+  msg.xclient.data.b[16] = 0;
+  msg.xclient.data.b[17] = 0;
+  msg.xclient.data.b[18] = 0;
+  msg.xclient.data.b[19] = 0;
+
+  x_catch_errors (dpyinfo->display);
+  XSendEvent (dpyinfo->display, target, False, NoEventMask, &msg);
+  x_uncatch_errors ();
+}
+
+static void
+xm_send_top_level_leave_message (struct x_display_info *dpyinfo, Window source,
+				 Window target, xm_top_level_leave_message *dmsg)
+{
+  XEvent msg;
+  xm_drag_motion_message mmsg;
+
+  /* Motif support for TOP_LEVEL_LEAVE has bitrotted, since these days
+     it assumes every client supports the preregister protocol style,
+     but we only support drop-only and dynamic.  (Interestingly enough
+     LessTif works fine.)  Sending an event with impossible
+     coordinates serves to get rid of any active drop site that might
+     still be around in the target drag context.  */
+
+  if (x_dnd_fix_motif_leave)
+    {
+      mmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+				    XM_DRAG_REASON_DRAG_MOTION);
+      mmsg.byteorder = XM_TARGETS_TABLE_CUR;
+      mmsg.side_effects = XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (dpyinfo,
+									   x_dnd_wanted_action),
+					       XM_DROP_SITE_NONE, XM_DRAG_NOOP,
+					       XM_DROP_ACTION_DROP_CANCEL);
+      mmsg.timestamp = dmsg->timestamp;
+      mmsg.x = 65535;
+      mmsg.y = 65535;
+
+      xm_send_drag_motion_message (dpyinfo, source, target, &mmsg);
+    }
+
+  msg.xclient.type = ClientMessage;
+  msg.xclient.message_type
+    = dpyinfo->Xatom_MOTIF_DRAG_AND_DROP_MESSAGE;
+  msg.xclient.format = 8;
+  msg.xclient.window = target;
+  msg.xclient.data.b[0] = dmsg->reason;
+  msg.xclient.data.b[1] = dmsg->byteorder;
+  *((uint16_t *) &msg.xclient.data.b[2]) = dmsg->zero;
+  *((uint32_t *) &msg.xclient.data.b[4]) = dmsg->timestamp;
+  *((uint32_t *) &msg.xclient.data.b[8]) = dmsg->source_window;
+  msg.xclient.data.b[12] = 0;
+  msg.xclient.data.b[13] = 0;
+  msg.xclient.data.b[14] = 0;
+  msg.xclient.data.b[15] = 0;
+  msg.xclient.data.b[16] = 0;
+  msg.xclient.data.b[17] = 0;
+  msg.xclient.data.b[18] = 0;
+  msg.xclient.data.b[19] = 0;
+
+  x_catch_errors (dpyinfo->display);
+  XSendEvent (dpyinfo->display, target, False, NoEventMask, &msg);
+  x_uncatch_errors ();
+}
+
+static int
+xm_read_drop_start_reply (const XEvent *msg, xm_drop_start_reply *reply)
+{
+  const uint8_t *data;
+
+  data = (const uint8_t *) &msg->xclient.data.b[0];
+
+  if ((XM_DRAG_REASON_ORIGINATOR (data[0])
+       != XM_DRAG_ORIGINATOR_RECEIVER)
+      || (XM_DRAG_REASON_CODE (data[0])
+	  != XM_DRAG_REASON_DROP_START))
+    return 1;
+
+  reply->reason = *(data++);
+  reply->byte_order = *(data++);
+  reply->side_effects = *(uint16_t *) data;
+  reply->better_x = *(uint16_t *) (data + 2);
+  reply->better_y = *(uint16_t *) (data + 4);
+
+  if (reply->byte_order != XM_TARGETS_TABLE_CUR)
+    {
+      SWAPCARD16 (reply->side_effects);
+      SWAPCARD16 (reply->better_x);
+      SWAPCARD16 (reply->better_y);
+    }
+
+  reply->byte_order = XM_TARGETS_TABLE_CUR;
+
+  return 0;
+}
+
+static int
+xm_read_drag_receiver_info (struct x_display_info *dpyinfo,
+			    Window wdesc, xm_drag_receiver_info *rec)
+{
+  Atom actual_type;
+  int rc, actual_format;
+  unsigned long nitems, bytes_remaining;
+  unsigned char *tmp_data = NULL;
+  uint8_t *data;
+
+  x_catch_errors (dpyinfo->display);
+  rc = XGetWindowProperty (dpyinfo->display, wdesc,
+			   dpyinfo->Xatom_MOTIF_DRAG_RECEIVER_INFO,
+			   0, 4, False,
+			   dpyinfo->Xatom_MOTIF_DRAG_RECEIVER_INFO,
+			   &actual_type, &actual_format, &nitems,
+			   &bytes_remaining,
+			   &tmp_data) == Success;
+
+  if (x_had_errors_p (dpyinfo->display)
+      || actual_format != 8 || nitems < 16 || !tmp_data
+      || actual_type != dpyinfo->Xatom_MOTIF_DRAG_RECEIVER_INFO)
+    rc = 0;
+  x_uncatch_errors_after_check ();
+
+  if (rc)
+    {
+      data = (uint8_t *) tmp_data;
+
+      rec->byteorder = data[0];
+      rec->protocol = data[1];
+      rec->protocol_style = data[2];
+      rec->unspecified0 = data[3];
+      rec->unspecified1 = *(uint32_t *) &data[4];
+      rec->unspecified2 = *(uint32_t *) &data[8];
+      rec->unspecified3 = *(uint32_t *) &data[12];
+
+      if (rec->byteorder != XM_TARGETS_TABLE_CUR)
+	{
+	  SWAPCARD32 (rec->unspecified1);
+	  SWAPCARD32 (rec->unspecified2);
+	  SWAPCARD32 (rec->unspecified3);
+	}
+
+      rec->byteorder = XM_TARGETS_TABLE_CUR;
+    }
+
+  if (tmp_data)
+    XFree (tmp_data);
+
+  return !rc;
+}
+
+static void
+x_dnd_send_xm_leave_for_drop (struct x_display_info *dpyinfo,
+			      struct frame *f, Window wdesc,
+			      Time timestamp)
+{
+  xm_top_level_leave_message lmsg;
+
+  lmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+				XM_DRAG_REASON_TOP_LEVEL_LEAVE);
+  lmsg.byteorder = XM_TARGETS_TABLE_CUR;
+  lmsg.zero = 0;
+  lmsg.timestamp = timestamp;
+  lmsg.source_window = FRAME_X_WINDOW (f);
+
+  if (x_dnd_motif_setup_p)
+    xm_send_top_level_leave_message (dpyinfo, FRAME_X_WINDOW (f),
+				     wdesc, &lmsg);
+}
 
 static void
 x_dnd_free_toplevels (void)
@@ -902,23 +1792,30 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
   unsigned long nitems, bytes_after;
   unsigned long i;
   unsigned char *data = NULL;
+  int frame_extents[4];
 
 #ifndef USE_XCB
   int dest_x, dest_y;
   unsigned long *wmstate;
-  unsigned long wmstate_items;
-  unsigned char *wmstate_data = NULL;
+  unsigned long wmstate_items, extent_items;
+  unsigned char *wmstate_data = NULL, *extent_data = NULL;
   XWindowAttributes attrs;
   Window child;
+  xm_drag_receiver_info xm_info;
 #else
-  uint32_t *wmstate;
+  uint32_t *wmstate, *fextents;
+  uint8_t *xmdata;
   xcb_get_window_attributes_cookie_t *window_attribute_cookies;
   xcb_translate_coordinates_cookie_t *translate_coordinate_cookies;
   xcb_get_property_cookie_t *get_property_cookies;
+  xcb_get_property_cookie_t *xm_property_cookies;
+  xcb_get_property_cookie_t *extent_property_cookies;
   xcb_get_geometry_cookie_t *get_geometry_cookies;
   xcb_get_window_attributes_reply_t attrs, *attrs_reply;
   xcb_translate_coordinates_reply_t *coordinates_reply;
   xcb_get_property_reply_t *property_reply;
+  xcb_get_property_reply_t *xm_property_reply;
+  xcb_get_property_reply_t *extent_property_reply;
   xcb_get_geometry_reply_t *geometry_reply;
   xcb_generic_error_t *error;
 #endif
@@ -964,6 +1861,10 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
     = alloca (sizeof *translate_coordinate_cookies * nitems);
   get_property_cookies
     = alloca (sizeof *get_property_cookies * nitems);
+  xm_property_cookies
+    = alloca (sizeof *xm_property_cookies * nitems);
+  extent_property_cookies
+    = alloca (sizeof *extent_property_cookies * nitems);
   get_geometry_cookies
     = alloca (sizeof *get_geometry_cookies * nitems);
 
@@ -991,6 +1892,16 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
 	= xcb_get_property (dpyinfo->xcb_connection, 0, (xcb_window_t) toplevels[i],
 			    (xcb_atom_t) dpyinfo->Xatom_wm_state, XCB_ATOM_ANY,
 			    0, 2);
+      xm_property_cookies[i]
+	= xcb_get_property (dpyinfo->xcb_connection, 0, (xcb_window_t) toplevels[i],
+			    (xcb_atom_t) dpyinfo->Xatom_MOTIF_DRAG_RECEIVER_INFO,
+			    (xcb_atom_t) dpyinfo->Xatom_MOTIF_DRAG_RECEIVER_INFO,
+			    0, 4);
+      extent_property_cookies[i]
+	= xcb_get_property (dpyinfo->xcb_connection, 0,
+			    (xcb_window_t) toplevels[i],
+			    (xcb_atom_t) dpyinfo->Xatom_net_frame_extents,
+			    XCB_ATOM_CARDINAL, 0, 4);
       get_geometry_cookies[i]
 	= xcb_get_geometry (dpyinfo->xcb_connection, (xcb_window_t) toplevels[i]);
 
@@ -1017,6 +1928,11 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
      order.  */
   for (i = 0; i < nitems; ++i)
     {
+      frame_extents[0] = 0;
+      frame_extents[1] = 0;
+      frame_extents[2] = 0;
+      frame_extents[3] = 0;
+
 #ifndef USE_XCB
       x_catch_errors (dpyinfo->display);
       rc = (XGetWindowAttributes (dpyinfo->display,
@@ -1039,7 +1955,25 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
 	       == Success)
 	      && !x_had_errors_p (dpyinfo->display)
 	      && wmstate_data && wmstate_items == 2 && format == 32);
-      x_uncatch_errors_after_check ();
+
+      if (XGetWindowProperty (dpyinfo->display, toplevels[i],
+			      dpyinfo->Xatom_net_frame_extents,
+			      0, 4, False, XA_CARDINAL, &type,
+			      &format, &extent_items, &bytes_after,
+			      &extent_data) == Success
+	  && !x_had_errors_p (dpyinfo->display)
+	  && extent_data && extent_items >= 4 && format == 32)
+	{
+	  frame_extents[0] = ((unsigned long *) extent_data)[0];
+	  frame_extents[1] = ((unsigned long *) extent_data)[1];
+	  frame_extents[2] = ((unsigned long *) extent_data)[2];
+	  frame_extents[3] = ((unsigned long *) extent_data)[3];
+	}
+
+      if (extent_data)
+	XFree (extent_data);
+
+      x_uncatch_errors ();
 #else
       rc = true;
 
@@ -1075,6 +2009,38 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
 	  free (error);
 	}
 
+      /* These requests don't set rc on failure because they aren't
+	 required.  */
+
+      xm_property_reply = xcb_get_property_reply (dpyinfo->xcb_connection,
+						  xm_property_cookies[i],
+						  &error);
+
+      if (!xm_property_reply)
+	free (error);
+
+      extent_property_reply = xcb_get_property_reply (dpyinfo->xcb_connection,
+						      extent_property_cookies[i],
+						      &error);
+
+      if (!extent_property_reply)
+	free (error);
+      else
+	{
+	  if (xcb_get_property_value_length (extent_property_reply) == 16
+	      && extent_property_reply->format == 32
+	      && extent_property_reply->type == XCB_ATOM_CARDINAL)
+	    {
+	      fextents = xcb_get_property_value (extent_property_reply);
+	      frame_extents[0] = fextents[0];
+	      frame_extents[1] = fextents[1];
+	      frame_extents[2] = fextents[2];
+	      frame_extents[3] = fextents[3];
+	    }
+
+	  free (extent_property_reply);
+	}
+
       if (property_reply
 	  && (xcb_get_property_value_length (property_reply) != 8
 	      || property_reply->format != 32))
@@ -1103,6 +2069,11 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
 	  tem = xmalloc (sizeof *tem);
 	  tem->window = toplevels[i];
 	  tem->dpy = dpyinfo->display;
+	  tem->frame_extents_left = frame_extents[0];
+	  tem->frame_extents_right = frame_extents[1];
+	  tem->frame_extents_top = frame_extents[2];
+	  tem->frame_extents_bottom = frame_extents[3];
+
 #ifndef USE_XCB
 	  tem->x = dest_x;
 	  tem->y = dest_y;
@@ -1123,9 +2094,20 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
 	  tem->next = x_dnd_toplevels;
 	  tem->previous_event_mask = attrs.your_event_mask;
 	  tem->wm_state = wmstate[0];
+	  tem->xm_protocol_style = XM_DRAG_STYLE_NONE;
 
 #ifndef USE_XCB
-	  XFree (wmstate_data);
+	  if (!xm_read_drag_receiver_info (dpyinfo, toplevels[i], &xm_info))
+	    tem->xm_protocol_style = xm_info.protocol_style;
+#else
+	  if (xm_property_reply
+	      && xm_property_reply->format == 8
+	      && xm_property_reply->type == dpyinfo->Xatom_MOTIF_DRAG_RECEIVER_INFO
+	      && xcb_get_property_value_length (xm_property_reply) >= 4)
+	    {
+	      xmdata = xcb_get_property_value (xm_property_reply);
+	      tem->xm_protocol_style = xmdata[2];
+	    }
 #endif
 
 #ifdef HAVE_XSHAPE
@@ -1278,6 +2260,30 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
 	      xfree (tem->input_rects);
 	      tem->n_input_rects = -1;
 	    }
+
+	  /* And the common case where there is no input rect and the
+	     bouding rect equals the window dimensions.  */
+
+	  if (tem->n_input_rects == -1
+	      && tem->n_bounding_rects == 1
+#ifdef USE_XCB
+	      && tem->bounding_rects[0].width == (geometry_reply->width
+						  + geometry_reply->border_width)
+	      && tem->bounding_rects[0].height == (geometry_reply->height
+						   + geometry_reply->border_width)
+	      && tem->bounding_rects[0].x == -geometry_reply->border_width
+	      && tem->bounding_rects[0].y == -geometry_reply->border_width
+#else
+	      && tem->bounding_rects[0].width == attrs.width + attrs.border_width
+	      && tem->bounding_rects[0].height == attrs.height + attrs.border_width
+	      && tem->bounding_rects[0].x == -attrs.border_width
+	      && tem->bounding_rects[0].y == -attrs.border_width
+#endif
+	      )
+	    {
+	      xfree (tem->bounding_rects);
+	      tem->n_bounding_rects = -1;
+	    }
 #endif
 
 	  x_catch_errors (dpyinfo->display);
@@ -1333,8 +2339,19 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
       if (property_reply)
 	free (property_reply);
 
+      if (xm_property_reply)
+	free (xm_property_reply);
+
       if (geometry_reply)
 	free (geometry_reply);
+#endif
+
+#ifndef USE_XCB
+      if (wmstate_data)
+	{
+	  XFree (wmstate_data);
+	  wmstate_data = NULL;
+	}
 #endif
     }
 
@@ -1346,6 +2363,7 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
 
 static int x_dnd_get_window_proto (struct x_display_info *, Window);
 static Window x_dnd_get_window_proxy (struct x_display_info *, Window);
+static void x_dnd_update_state (struct x_display_info *, Time);
 
 #ifdef USE_XCB
 static void
@@ -1437,17 +2455,54 @@ x_dnd_get_target_window_2 (XRectangle *rects, int nrects,
 
 static Window
 x_dnd_get_target_window_1 (struct x_display_info *dpyinfo,
-			   int root_x, int root_y)
+			   int root_x, int root_y, int *motif_out,
+			   bool *extents_p)
 {
-  struct x_client_list_window *tem;
+  struct x_client_list_window *tem, *chosen = NULL;
 
   /* Loop through x_dnd_toplevels until we find the toplevel where
      root_x and root_y are.  */
 
+  *motif_out = XM_DRAG_STYLE_NONE;
   for (tem = x_dnd_toplevels; tem; tem = tem->next)
     {
       if (!tem->mapped_p || tem->wm_state != NormalState)
 	continue;
+
+      /* Test if the coordinates are inside the window's frame
+	 extents, and return None in that case.  */
+
+      *extents_p = true;
+      if (root_x > tem->x - tem->frame_extents_left
+	  && root_x < tem->x
+	  && root_y > tem->y - tem->frame_extents_top
+	  && root_y < (tem->y + tem->height - 1
+		       + tem->frame_extents_bottom))
+	return None;
+
+      if (root_x > tem->x + tem->width
+	  && root_x < (tem->x + tem->width - 1
+		       + tem->frame_extents_right)
+	  && root_y > tem->y - tem->frame_extents_top
+	  && root_y < (tem->y + tem->height - 1
+		       + tem->frame_extents_bottom))
+	return None;
+
+      if (root_y > tem->y - tem->frame_extents_top
+	  && root_y < tem->y
+	  && root_x > tem->x - tem->frame_extents_left
+	  && root_x < (tem->x + tem->width - 1
+		       + tem->frame_extents_right))
+	return None;
+
+      if (root_y > tem->y + tem->height
+	  && root_y < (tem->y + tem->height - 1
+		       + tem->frame_extents_bottom)
+	  && root_x >= tem->x - tem->frame_extents_left
+	  && root_x < (tem->x + tem->width - 1
+		       + tem->frame_extents_right))
+	return None;
+      *extents_p = false;
 
       if (root_x >= tem->x && root_y >= tem->y
 	  && root_x < tem->x + tem->width
@@ -1456,7 +2511,10 @@ x_dnd_get_target_window_1 (struct x_display_info *dpyinfo,
 #ifdef HAVE_XSHAPE
 	  if (tem->n_bounding_rects == -1)
 #endif
-	    return tem->window;
+	    {
+	      chosen = tem;
+	      break;
+	    }
 
 #ifdef HAVE_XSHAPE
 	  if (x_dnd_get_target_window_2 (tem->bounding_rects,
@@ -1469,34 +2527,174 @@ x_dnd_get_target_window_1 (struct x_display_info *dpyinfo,
 						tem->n_input_rects,
 						tem->border_width + root_x - tem->x,
 						tem->border_width + root_y - tem->y))
-		return tem->window;
+		{
+		  chosen = tem;
+		  break;
+		}
 	    }
 #endif
 	}
     }
 
+  if (chosen)
+    {
+      *motif_out = chosen->xm_protocol_style;
+      return chosen->window;
+    }
+  else
+    *motif_out = XM_DRAG_STYLE_NONE;
+
   return None;
+}
+
+static int
+x_dnd_get_wm_state_and_proto (struct x_display_info *dpyinfo,
+			      Window window, int *wmstate_out,
+			      int *proto_out, int *motif_out)
+{
+#ifndef USE_XCB
+  Atom type;
+  int format;
+  unsigned long nitems, bytes_after;
+  unsigned char *data = NULL;
+  xm_drag_receiver_info xm_info;
+#else
+  xcb_get_property_cookie_t wmstate_cookie;
+  xcb_get_property_cookie_t xdnd_proto_cookie;
+  xcb_get_property_cookie_t xm_style_cookie;
+  xcb_get_property_reply_t *reply;
+  xcb_generic_error_t *error;
+  uint8_t *xmdata;
+#endif
+  int rc;
+
+#ifndef USE_XCB
+  x_catch_errors (dpyinfo->display);
+  rc = ((XGetWindowProperty (dpyinfo->display, window,
+			     dpyinfo->Xatom_wm_state,
+			     0, 2, False, AnyPropertyType,
+			     &type, &format, &nitems,
+			     &bytes_after, &data)
+	 == Success)
+	&& !x_had_errors_p (dpyinfo->display)
+	&& data && nitems == 2 && format == 32);
+  x_uncatch_errors ();
+
+  if (rc)
+    *wmstate_out = *(unsigned long *) data;
+
+  *proto_out = x_dnd_get_window_proto (dpyinfo, window);
+
+  if (!xm_read_drag_receiver_info (dpyinfo, window, &xm_info))
+    *motif_out = xm_info.protocol_style;
+  else
+    *motif_out = XM_DRAG_STYLE_NONE;
+
+  if (data)
+    XFree (data);
+#else
+  rc = true;
+
+  wmstate_cookie = xcb_get_property (dpyinfo->xcb_connection, 0,
+				     (xcb_window_t) window,
+				     (xcb_atom_t) dpyinfo->Xatom_wm_state,
+				     XCB_ATOM_ANY, 0, 2);
+  xdnd_proto_cookie = xcb_get_property (dpyinfo->xcb_connection, 0,
+					(xcb_window_t) window,
+					(xcb_atom_t) dpyinfo->Xatom_XdndAware,
+					XCB_ATOM_ATOM, 0, 1);
+  xm_style_cookie = xcb_get_property (dpyinfo->xcb_connection, 0,
+				      (xcb_window_t) window,
+				      (xcb_atom_t) dpyinfo->Xatom_MOTIF_DRAG_RECEIVER_INFO,
+				      (xcb_atom_t) dpyinfo->Xatom_MOTIF_DRAG_RECEIVER_INFO,
+				      0, 4);
+
+  reply = xcb_get_property_reply (dpyinfo->xcb_connection,
+				  wmstate_cookie, &error);
+
+  if (!reply)
+    free (error), rc = false;
+  else
+    {
+      if (reply->format != 32
+	  || xcb_get_property_value_length (reply) != 8)
+	rc = false;
+      else
+	*wmstate_out = *(uint32_t *) xcb_get_property_value (reply);
+
+      free (reply);
+    }
+
+  reply = xcb_get_property_reply (dpyinfo->xcb_connection,
+				  xdnd_proto_cookie, &error);
+
+  *proto_out = -1;
+  if (!reply)
+    free (error);
+  else
+    {
+      if (reply->format == 32
+	  && xcb_get_property_value_length (reply) >= 4)
+	*proto_out = *(uint32_t *) xcb_get_property_value (reply);
+
+      free (reply);
+    }
+
+  *motif_out = XM_DRAG_STYLE_NONE;
+
+  reply = xcb_get_property_reply (dpyinfo->xcb_connection,
+				  xm_style_cookie, &error);
+
+  if (!reply)
+    free (error);
+ else
+   {
+     if (reply->format == 8
+	 && reply->type == dpyinfo->Xatom_MOTIF_DRAG_RECEIVER_INFO
+	 && xcb_get_property_value_length (reply) >= 4)
+       {
+	 xmdata = xcb_get_property_value (reply);
+	 *motif_out = xmdata[2];
+       }
+
+     free (reply);
+   }
+#endif
+
+  return rc;
 }
 
 static Window
 x_dnd_get_target_window (struct x_display_info *dpyinfo,
-			 int root_x, int root_y, int *proto_out)
+			 int root_x, int root_y, int *proto_out,
+			 int *motif_out)
 {
   Window child_return, child, dummy, proxy;
-  int dest_x_return, dest_y_return, rc, proto;
+  int dest_x_return, dest_y_return, rc, proto, motif;
+  bool extents_p;
 #if defined HAVE_XCOMPOSITE && (XCOMPOSITE_MAJOR > 0 || XCOMPOSITE_MINOR > 2)
   Window overlay_window;
   XWindowAttributes attrs;
 #endif
+  int wmstate;
+
   child_return = dpyinfo->root_window;
   dest_x_return = root_x;
   dest_y_return = root_y;
 
   proto = -1;
+  *motif_out = XM_DRAG_STYLE_NONE;
 
   if (x_dnd_use_toplevels)
     {
-      child = x_dnd_get_target_window_1 (dpyinfo, root_x, root_y);
+      extents_p = false;
+      child = x_dnd_get_target_window_1 (dpyinfo, root_x,
+					 root_y, motif_out,
+					 &extents_p);
+
+      if (!x_dnd_allow_current_frame
+	  && FRAME_X_WINDOW (x_dnd_frame) == child)
+	*motif_out = XM_DRAG_STYLE_NONE;
 
       if (child != None)
 	{
@@ -1521,6 +2719,14 @@ x_dnd_get_target_window (struct x_display_info *dpyinfo,
 	  *proto_out = x_dnd_get_window_proto (dpyinfo, child);
 #endif
 	  return child;
+	}
+
+      if (extents_p)
+	{
+	  *proto_out = -1;
+	  *motif_out = XM_DRAG_STYLE_NONE;
+
+	  return None;
 	}
 
       /* Then look at the composite overlay window.  */
@@ -1564,8 +2770,23 @@ x_dnd_get_target_window (struct x_display_info *dpyinfo,
 	}
 #endif
 
-      /* No toplevel was found and the overlay window was not a proxy,
-	 so return None.  */
+      /* Now look for an XdndProxy on the root window.  */
+
+      proxy = x_dnd_get_window_proxy (dpyinfo, dpyinfo->root_window);
+
+      if (proxy != None)
+	{
+	  proto = x_dnd_get_window_proto (dpyinfo, dpyinfo->root_window);
+
+	  if (proto != -1)
+	    {
+	      *proto_out = proto;
+	      return proxy;
+	    }
+	}
+
+      /* No toplevel was found and the overlay and root windows were
+	 not proxies, so return None.  */
       *proto_out = -1;
       return None;
     }
@@ -1607,11 +2828,14 @@ x_dnd_get_target_window (struct x_display_info *dpyinfo,
 
       if (child_return)
 	{
-	  proto = x_dnd_get_window_proto (dpyinfo, child_return);
-
-	  if (proto != -1)
+	  if (x_dnd_get_wm_state_and_proto (dpyinfo, child_return,
+					    &wmstate, &proto, &motif)
+	      /* `proto' and `motif' are set by x_dnd_get_wm_state
+		 even if getting the wm state failed.  */
+	      || proto != -1 || motif != XM_DRAG_STYLE_NONE)
 	    {
 	      *proto_out = proto;
+	      *motif_out = motif;
 	      x_uncatch_errors ();
 
 	      return child_return;
@@ -1638,6 +2862,22 @@ x_dnd_get_target_window (struct x_display_info *dpyinfo,
   if (child != dpyinfo->root_window)
     {
 #endif
+      if (child != None)
+	{
+	  proxy = x_dnd_get_window_proxy (dpyinfo, child);
+
+	  if (proxy)
+	    {
+	      proto = x_dnd_get_window_proto (dpyinfo, proxy);
+
+	      if (proto != -1)
+		{
+		  *proto_out = proto;
+		  return proxy;
+		}
+	    }
+	}
+
       *proto_out = x_dnd_get_window_proto (dpyinfo, child);
       return child;
 #if defined HAVE_XCOMPOSITE && (XCOMPOSITE_MAJOR > 0 || XCOMPOSITE_MINOR > 2)
@@ -1681,6 +2921,22 @@ x_dnd_get_target_window (struct x_display_info *dpyinfo,
 	}
     }
 
+  if (child != None)
+    {
+      proxy = x_dnd_get_window_proxy (dpyinfo, child);
+
+      if (proxy)
+	{
+	  proto = x_dnd_get_window_proto (dpyinfo, proxy);
+
+	  if (proto != -1)
+	    {
+	      *proto_out = proto;
+	      return proxy;
+	    }
+	}
+    }
+
   *proto_out = x_dnd_get_window_proto (dpyinfo, child);
   return child;
 #endif
@@ -1691,7 +2947,7 @@ x_dnd_get_window_proxy (struct x_display_info *dpyinfo, Window wdesc)
 {
   int rc, actual_format;
   unsigned long actual_size, bytes_remaining;
-  unsigned char *tmp_data;
+  unsigned char *tmp_data = NULL;
   XWindowAttributes attrs;
   Atom actual_type;
   Window proxy;
@@ -1707,12 +2963,12 @@ x_dnd_get_window_proxy (struct x_display_info *dpyinfo, Window wdesc)
 
   if (!x_had_errors_p (dpyinfo->display)
       && rc == Success
+      && tmp_data
       && actual_type == XA_WINDOW
       && actual_format == 32
       && actual_size == 1)
     {
       proxy = *(Window *) tmp_data;
-      XFree (tmp_data);
 
       /* Verify the proxy window exists.  */
       XGetWindowAttributes (dpyinfo->display, proxy, &attrs);
@@ -1720,6 +2976,9 @@ x_dnd_get_window_proxy (struct x_display_info *dpyinfo, Window wdesc)
       if (x_had_errors_p (dpyinfo->display))
 	proxy = None;
     }
+
+  if (tmp_data)
+    XFree (tmp_data);
   x_uncatch_errors_after_check ();
 
   return proxy;
@@ -1729,7 +2988,7 @@ static int
 x_dnd_get_window_proto (struct x_display_info *dpyinfo, Window wdesc)
 {
   Atom actual, value;
-  unsigned char *tmp_data;
+  unsigned char *tmp_data = NULL;
   int rc, format;
   unsigned long n, left;
   bool had_errors;
@@ -1745,8 +3004,13 @@ x_dnd_get_window_proto (struct x_display_info *dpyinfo, Window wdesc)
   had_errors = x_had_errors_p (dpyinfo->display);
   x_uncatch_errors_after_check ();
 
-  if (had_errors || rc != Success || actual != XA_ATOM || format != 32 || n < 1)
-    return -1;
+  if (had_errors || rc != Success || actual != XA_ATOM || format != 32 || n < 1
+      || !tmp_data)
+    {
+      if (tmp_data)
+	XFree (tmp_data);
+      return -1;
+    }
 
   value = (int) *(Atom *) tmp_data;
   XFree (tmp_data);
@@ -1878,6 +3142,10 @@ x_dnd_send_drop (struct frame *f, Window target, Time timestamp,
 
   if (self_frame)
     {
+      if (!x_dnd_allow_current_frame
+	  && self_frame == x_dnd_frame)
+	return false;
+
       /* Send a special drag-and-drop event when dropping on top of an
 	 Emacs frame to avoid all the overhead involved with sending
 	 client events.  */
@@ -1960,6 +3228,7 @@ static void
 x_dnd_cleanup_drag_and_drop (void *frame)
 {
   struct frame *f = frame;
+  xm_drop_start_message dmsg;
 
   if (!x_dnd_unwind_flag)
     return;
@@ -1973,6 +3242,33 @@ x_dnd_cleanup_drag_and_drop (void *frame)
 	  && x_dnd_last_protocol_version != -1)
 	x_dnd_send_leave (x_dnd_frame,
 			  x_dnd_last_seen_window);
+      else if (x_dnd_last_seen_window != None
+	       && !XM_DRAG_STYLE_IS_DROP_ONLY (x_dnd_last_motif_style)
+	       && x_dnd_last_motif_style != XM_DRAG_STYLE_NONE
+	       && x_dnd_motif_setup_p)
+	{
+	  dmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+					XM_DRAG_REASON_DROP_START);
+	  dmsg.byte_order = XM_TARGETS_TABLE_CUR;
+	  dmsg.timestamp = FRAME_DISPLAY_INFO (f)->last_user_time;
+	  dmsg.side_effects
+	    = XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (FRAME_DISPLAY_INFO (f),
+							       x_dnd_wanted_action),
+				   XM_DROP_SITE_VALID,
+				   xm_side_effect_from_action (FRAME_DISPLAY_INFO (f),
+							       x_dnd_wanted_action),
+				   XM_DROP_ACTION_DROP_CANCEL);
+	  dmsg.x = 0;
+	  dmsg.y = 0;
+	  dmsg.index_atom = FRAME_DISPLAY_INFO (f)->Xatom_XdndSelection;
+	  dmsg.source_window = FRAME_X_WINDOW (f);
+
+	  x_dnd_send_xm_leave_for_drop (FRAME_DISPLAY_INFO (f), f,
+					x_dnd_last_seen_window,
+					FRAME_DISPLAY_INFO (f)->last_user_time);
+	  xm_send_drop_message (FRAME_DISPLAY_INFO (f), FRAME_X_WINDOW (f),
+				x_dnd_last_seen_window, &dmsg);
+	}
       unblock_input ();
 
       x_dnd_end_window = x_dnd_last_seen_window;
@@ -3521,7 +4817,7 @@ x_set_frame_alpha (struct frame *f)
 
   /* return unless necessary */
   {
-    unsigned char *data;
+    unsigned char *data = NULL;
     Atom actual;
     int rc, format;
     unsigned long n, left;
@@ -3531,16 +4827,19 @@ x_set_frame_alpha (struct frame *f)
 			     &actual, &format, &n, &left,
 			     &data);
 
-    if (rc == Success && actual != None)
+    if (rc == Success && actual != None && data)
       {
-        unsigned long value = *(unsigned long *)data;
-	XFree (data);
+        unsigned long value = *(unsigned long *) data;
 	if (value == opac)
 	  {
 	    x_uncatch_errors ();
+	    XFree (data);
 	    return;
 	  }
       }
+
+    if (data)
+      XFree (data);
   }
 
   XChangeProperty (dpy, win, dpyinfo->Xatom_net_wm_window_opacity,
@@ -7751,9 +9050,9 @@ x_top_window_to_frame (struct x_display_info *dpyinfo, int wdesc)
 
 Lisp_Object
 x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
-			   bool return_frame_p, Atom *ask_action_list,
-			   const char **ask_action_names,
-			   size_t n_ask_actions, bool allow_current_frame)
+			   Lisp_Object return_frame, Atom *ask_action_list,
+			   const char **ask_action_names, size_t n_ask_actions,
+			   bool allow_current_frame)
 {
 #ifndef USE_GTK
   XEvent next_event;
@@ -7767,6 +9066,7 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
   specpdl_ref ref;
   ptrdiff_t i, end, fill;
   XTextProperty prop;
+  xm_drop_start_message dmsg;
 
   if (!FRAME_VISIBLE_P (f))
     error ("Frame is invisible");
@@ -7839,11 +9139,15 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
   x_dnd_frame = f;
   x_dnd_last_seen_window = None;
   x_dnd_last_protocol_version = -1;
+  x_dnd_last_motif_style = XM_DRAG_STYLE_NONE;
   x_dnd_mouse_rect_target = None;
   x_dnd_action = None;
   x_dnd_wanted_action = xaction;
   x_dnd_return_frame = 0;
   x_dnd_waiting_for_finish = false;
+  x_dnd_waiting_for_motif_finish = 0;
+  x_dnd_xm_use_help = false;
+  x_dnd_motif_setup_p = false;
   x_dnd_end_window = None;
   x_dnd_use_toplevels
     = x_wm_supports (f, FRAME_DISPLAY_INFO (f)->Xatom_net_client_list_stacking);
@@ -7859,8 +9163,11 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 	}
     }
 
-  if (return_frame_p)
+  if (!NILP (return_frame))
     x_dnd_return_frame = 1;
+
+  if (EQ (return_frame, Qnow))
+    x_dnd_return_frame = 2;
 
 #ifdef USE_GTK
   current_count = 0;
@@ -7880,6 +9187,9 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 		root_window_attrs.your_event_mask
 		| SubstructureNotifyMask
 		| PropertyChangeMask);
+
+  if (EQ (return_frame, Qnow))
+    x_dnd_update_state (FRAME_DISPLAY_INFO (f), CurrentTime);
 
   while (x_dnd_in_progress || x_dnd_waiting_for_finish)
     {
@@ -7941,6 +9251,33 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 	      if (x_dnd_last_seen_window != None
 		  && x_dnd_last_protocol_version != -1)
 		x_dnd_send_leave (f, x_dnd_last_seen_window);
+	      else if (x_dnd_last_seen_window != None
+		       && !XM_DRAG_STYLE_IS_DROP_ONLY (x_dnd_last_motif_style)
+		       && x_dnd_last_motif_style != XM_DRAG_STYLE_NONE
+		       && x_dnd_motif_setup_p)
+		{
+		  dmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+						XM_DRAG_REASON_DROP_START);
+		  dmsg.byte_order = XM_TARGETS_TABLE_CUR;
+		  dmsg.timestamp = hold_quit.timestamp;
+		  dmsg.side_effects
+		    = XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (FRAME_DISPLAY_INFO (f),
+								       x_dnd_wanted_action),
+					   XM_DROP_SITE_VALID,
+					   xm_side_effect_from_action (FRAME_DISPLAY_INFO (f),
+								       x_dnd_wanted_action),
+					   XM_DROP_ACTION_DROP_CANCEL);
+		  dmsg.x = 0;
+		  dmsg.y = 0;
+		  dmsg.index_atom = FRAME_DISPLAY_INFO (f)->Xatom_XdndSelection;
+		  dmsg.source_window = FRAME_X_WINDOW (f);
+
+		  x_dnd_send_xm_leave_for_drop (FRAME_DISPLAY_INFO (f), f,
+						x_dnd_last_seen_window,
+						hold_quit.timestamp);
+		  xm_send_drop_message (FRAME_DISPLAY_INFO (f), FRAME_X_WINDOW (f),
+					x_dnd_last_seen_window, &dmsg);
+		}
 
 	      x_dnd_end_window = x_dnd_last_seen_window;
 	      x_dnd_last_seen_window = None;
@@ -7998,7 +9335,7 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
   if (x_dnd_end_window != None
       && (any = x_any_window_to_frame (FRAME_DISPLAY_INFO (f),
 				       x_dnd_end_window))
-      && (any != f))
+      && (allow_current_frame || any != f))
     return QXdndActionPrivate;
 
   if (x_dnd_action != None)
@@ -8629,7 +9966,8 @@ XTmouse_position (struct frame **fp, int insist, Lisp_Object *bar_window,
 
 	x_catch_errors (FRAME_X_DISPLAY (*fp));
 
-	if (gui_mouse_grabbed (dpyinfo) && !EQ (track_mouse, Qdropping))
+	if (gui_mouse_grabbed (dpyinfo) && !EQ (track_mouse, Qdropping)
+	    && !EQ (track_mouse, Qdrag_source))
 	  {
 	    /* If mouse was grabbed on a frame, give coords for that frame
 	       even if the mouse is now outside it.  */
@@ -8718,7 +10056,8 @@ XTmouse_position (struct frame **fp, int insist, Lisp_Object *bar_window,
 	  }
 
 	if ((!f1 || FRAME_TOOLTIP_P (f1))
-	    && EQ (track_mouse, Qdropping)
+	    && (EQ (track_mouse, Qdropping)
+		|| EQ (track_mouse, Qdrag_source))
 	    && gui_mouse_grabbed (dpyinfo))
 	  {
 	    /* When dropping then if we didn't get a frame or only a
@@ -8734,12 +10073,28 @@ XTmouse_position (struct frame **fp, int insist, Lisp_Object *bar_window,
 				   root_x, root_y, &win_x, &win_y,
 				   /* Child of win.  */
 				   &child);
-	    f1 = dpyinfo->last_mouse_frame;
+
+	    if (!EQ (track_mouse, Qdrag_source)
+		/* Don't let tooltips interfere.  */
+		|| (f1 && FRAME_TOOLTIP_P (f1)))
+	      f1 = dpyinfo->last_mouse_frame;
+	    else
+	      {
+		/* Don't set FP but do set WIN_X and WIN_Y in this
+		   case, so make_lispy_movement knows which
+		   coordinates to report.  */
+		*bar_window = Qnil;
+		*part = 0;
+		*fp = NULL;
+		XSETINT (*x, win_x);
+		XSETINT (*y, win_y);
+		*timestamp = dpyinfo->last_mouse_movement_time;
+	      }
 	  }
 	else if (f1 && FRAME_TOOLTIP_P (f1))
 	  f1 = NULL;
 
-	if (x_had_errors_p (FRAME_X_DISPLAY (*fp)))
+	if (x_had_errors_p (dpyinfo->display))
 	  f1 = NULL;
 
 	x_uncatch_errors_after_check ();
@@ -8749,7 +10104,7 @@ XTmouse_position (struct frame **fp, int insist, Lisp_Object *bar_window,
 	  {
 	    struct scroll_bar *bar;
 
-            bar = x_window_to_scroll_bar (FRAME_X_DISPLAY (*fp), win, 2);
+            bar = x_window_to_scroll_bar (dpyinfo->display, win, 2);
 
 	    if (bar)
 	      {
@@ -11553,7 +12908,8 @@ mouse_or_wdesc_frame (struct x_display_info *dpyinfo, int wdesc)
 			? dpyinfo->last_mouse_frame
 			: NULL);
 
-  if (lm_f && !EQ (track_mouse, Qdropping))
+  if (lm_f && !EQ (track_mouse, Qdropping)
+      && !EQ (track_mouse, Qdrag_source))
     return lm_f;
   else
     {
@@ -11572,11 +12928,15 @@ mouse_or_wdesc_frame (struct x_display_info *dpyinfo, int wdesc)
 /* Get the window underneath the pointer, see if it moved, and update
    the DND state accordingly.  */
 static void
-x_dnd_update_state (struct x_display_info *dpyinfo)
+x_dnd_update_state (struct x_display_info *dpyinfo, Time timestamp)
 {
-  int root_x, root_y, dummy_x, dummy_y, target_proto;
+  int root_x, root_y, dummy_x, dummy_y, target_proto, motif_style;
   unsigned int dummy_mask;
   Window dummy, dummy_child, target;
+  xm_top_level_leave_message lmsg;
+  xm_top_level_enter_message emsg;
+  xm_drag_motion_message dmsg;
+  xm_drop_start_message dsmsg;
 
   if (XQueryPointer (dpyinfo->display,
 		     dpyinfo->root_window,
@@ -11586,18 +12946,37 @@ x_dnd_update_state (struct x_display_info *dpyinfo)
 		     &dummy_mask))
     {
       target = x_dnd_get_target_window (dpyinfo, root_x,
-					root_y, &target_proto);
+					root_y, &target_proto,
+					&motif_style);
 
       if (target != x_dnd_last_seen_window)
 	{
+	  if (target != FRAME_OUTER_WINDOW (x_dnd_frame)
+	      && x_dnd_return_frame == 1)
+	    x_dnd_return_frame = 2;
+
 	  if (x_dnd_last_seen_window != None
 	      && x_dnd_last_protocol_version != -1
 	      && x_dnd_last_seen_window != FRAME_OUTER_WINDOW (x_dnd_frame))
 	    x_dnd_send_leave (x_dnd_frame, x_dnd_last_seen_window);
+	  else if (x_dnd_last_seen_window != None
+		   && XM_DRAG_STYLE_IS_DYNAMIC (x_dnd_last_motif_style)
+		   && x_dnd_last_seen_window != FRAME_OUTER_WINDOW (x_dnd_frame))
+	    {
+	      if (!x_dnd_motif_setup_p)
+		xm_setup_drag_info (dpyinfo, x_dnd_frame);
 
-	  if (target != FRAME_OUTER_WINDOW (x_dnd_frame)
-	      && x_dnd_return_frame == 1)
-	    x_dnd_return_frame = 2;
+	      lmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+					    XM_DRAG_REASON_TOP_LEVEL_LEAVE);
+	      lmsg.byteorder = XM_TARGETS_TABLE_CUR;
+	      lmsg.zero = 0;
+	      lmsg.timestamp = timestamp;
+	      lmsg.source_window = FRAME_X_WINDOW (x_dnd_frame);
+
+	      if (x_dnd_motif_setup_p)
+		xm_send_top_level_leave_message (dpyinfo, FRAME_X_WINDOW (x_dnd_frame),
+						 x_dnd_last_seen_window, &lmsg);
+	    }
 
 	  if (x_dnd_return_frame == 2
 	      && x_any_window_to_frame (dpyinfo, target))
@@ -11615,10 +12994,28 @@ x_dnd_update_state (struct x_display_info *dpyinfo)
 	  x_dnd_action = None;
 	  x_dnd_last_seen_window = target;
 	  x_dnd_last_protocol_version = target_proto;
+	  x_dnd_last_motif_style = motif_style;
 
 	  if (target != None && x_dnd_last_protocol_version != -1)
 	    x_dnd_send_enter (x_dnd_frame, target,
 			      x_dnd_last_protocol_version);
+	  else if (target != None && XM_DRAG_STYLE_IS_DYNAMIC (x_dnd_last_motif_style))
+	    {
+	      if (!x_dnd_motif_setup_p)
+		xm_setup_drag_info (dpyinfo, x_dnd_frame);
+
+	      emsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+					    XM_DRAG_REASON_TOP_LEVEL_ENTER);
+	      emsg.byteorder = XM_TARGETS_TABLE_CUR;
+	      emsg.zero = 0;
+	      emsg.timestamp = timestamp;
+	      emsg.source_window = FRAME_X_WINDOW (x_dnd_frame);
+	      emsg.index_atom = dpyinfo->Xatom_XdndSelection;
+
+	      if (x_dnd_motif_setup_p)
+		xm_send_top_level_enter_message (dpyinfo, FRAME_X_WINDOW (x_dnd_frame),
+						 target, &emsg);
+	    }
 	}
 
       if (x_dnd_last_protocol_version != -1 && target != None)
@@ -11627,6 +13024,31 @@ x_dnd_update_state (struct x_display_info *dpyinfo)
 			     root_x, root_y,
 			     x_dnd_selection_timestamp,
 			     x_dnd_wanted_action);
+      else if (XM_DRAG_STYLE_IS_DYNAMIC (x_dnd_last_motif_style) && target != None)
+	{
+	  if (!x_dnd_motif_setup_p)
+	    xm_setup_drag_info (dpyinfo, x_dnd_frame);
+
+	  dmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+					XM_DRAG_REASON_DRAG_MOTION);
+	  dmsg.byteorder = XM_TARGETS_TABLE_CUR;
+	  dmsg.side_effects
+	    = XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (dpyinfo,
+							       x_dnd_wanted_action),
+				   XM_DROP_SITE_VALID,
+				   xm_side_effect_from_action (dpyinfo,
+							       x_dnd_wanted_action),
+				   (!x_dnd_xm_use_help
+				    ? XM_DROP_ACTION_DROP
+				    : XM_DROP_ACTION_DROP_HELP));
+	  dmsg.timestamp = timestamp;
+	  dmsg.x = root_x;
+	  dmsg.y = root_y;
+
+	  if (x_dnd_motif_setup_p)
+	    xm_send_drag_motion_message (dpyinfo, FRAME_X_WINDOW (x_dnd_frame),
+					 target, &dmsg);
+	}
     }
   /* The pointer moved out of the screen.  */
   else if (x_dnd_last_protocol_version != -1)
@@ -11635,6 +13057,33 @@ x_dnd_update_state (struct x_display_info *dpyinfo)
 	  && x_dnd_last_protocol_version != -1)
 	x_dnd_send_leave (x_dnd_frame,
 			  x_dnd_last_seen_window);
+      else if (x_dnd_last_seen_window != None
+	       && !XM_DRAG_STYLE_IS_DROP_ONLY (x_dnd_last_motif_style)
+	       && x_dnd_last_motif_style != XM_DRAG_STYLE_NONE
+	       && x_dnd_motif_setup_p)
+	{
+	  dsmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+					 XM_DRAG_REASON_DROP_START);
+	  dmsg.byteorder = XM_TARGETS_TABLE_CUR;
+	  dsmsg.timestamp = timestamp;
+	  dsmsg.side_effects
+	    = XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (dpyinfo,
+							       x_dnd_wanted_action),
+				   XM_DROP_SITE_VALID,
+				   xm_side_effect_from_action (dpyinfo,
+							       x_dnd_wanted_action),
+				   XM_DROP_ACTION_DROP_CANCEL);
+	  dsmsg.x = 0;
+	  dsmsg.y = 0;
+	  dsmsg.index_atom
+	    = FRAME_DISPLAY_INFO (x_dnd_frame)->Xatom_XdndSelection;
+	  dsmsg.source_window = FRAME_X_WINDOW (x_dnd_frame);
+
+	  x_dnd_send_xm_leave_for_drop (dpyinfo, x_dnd_frame,
+					x_dnd_last_seen_window, timestamp);
+	  xm_send_drop_message (dpyinfo, FRAME_X_WINDOW (x_dnd_frame),
+				x_dnd_last_seen_window, &dsmsg);
+	}
 
       x_dnd_end_window = x_dnd_last_seen_window;
       x_dnd_last_seen_window = None;
@@ -11753,7 +13202,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	  }
 
 	if (event->xclient.message_type == dpyinfo->Xatom_XdndFinished
-	    && x_dnd_waiting_for_finish
+	    && (x_dnd_waiting_for_finish && !x_dnd_waiting_for_motif_finish)
 	    && event->xclient.data.l[0] == x_dnd_pending_finish_target)
 	  {
 	    x_dnd_waiting_for_finish = false;
@@ -11764,6 +13213,60 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	    if (x_dnd_waiting_for_finish_proto >= 5
 		&& !(event->xclient.data.l[1] & 1))
 	      x_dnd_action = None;
+	  }
+
+	if ((event->xclient.message_type
+	     == dpyinfo->Xatom_MOTIF_DRAG_AND_DROP_MESSAGE)
+	    /* FIXME: There should probably be a check that the event
+	       comes from the same display where the drop event was
+	       sent, but there's no way to get that information here
+	       safely.  */
+	    && x_dnd_waiting_for_finish
+	    && x_dnd_waiting_for_motif_finish == 1)
+	  {
+	    xm_drop_start_reply reply;
+	    uint16_t operation, status, action;
+
+	    if (!xm_read_drop_start_reply (event, &reply))
+	      {
+		operation = XM_DRAG_SIDE_EFFECT_OPERATION (reply.side_effects);
+		status = XM_DRAG_SIDE_EFFECT_SITE_STATUS (reply.side_effects);
+		action = XM_DRAG_SIDE_EFFECT_DROP_ACTION (reply.side_effects);
+
+		if (operation != XM_DRAG_MOVE
+		    && operation != XM_DRAG_COPY
+		    && operation != XM_DRAG_LINK)
+		  {
+		    x_dnd_waiting_for_finish = false;
+		    goto OTHER;
+		  }
+
+		if (status != XM_DROP_SITE_VALID
+		    || (action == XM_DROP_ACTION_DROP_CANCEL
+			|| action == XM_DROP_ACTION_DROP_HELP))
+		  {
+		    x_dnd_waiting_for_finish = false;
+		    goto OTHER;
+		  }
+
+		switch (operation)
+		  {
+		  case XM_DRAG_MOVE:
+		    x_dnd_action = dpyinfo->Xatom_XdndActionMove;
+		    break;
+
+		  case XM_DRAG_COPY:
+		    x_dnd_action = dpyinfo->Xatom_XdndActionCopy;
+		    break;
+
+		  case XM_DRAG_LINK:
+		    x_dnd_action = dpyinfo->Xatom_XdndActionLink;
+		    break;
+		  }
+
+		x_dnd_waiting_for_motif_finish = 2;
+		goto OTHER;
+	      }
 	  }
 
         if (event->xclient.message_type == dpyinfo->Xatom_wm_protocols
@@ -12072,6 +13575,13 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	    *hold_quit = inev.ie;
 	    EVENT_INIT (inev.ie);
 	  }
+
+	if (x_dnd_waiting_for_finish
+	    && x_dnd_waiting_for_motif_finish == 2
+	    && eventp->selection == dpyinfo->Xatom_XdndSelection
+	    && (eventp->target == dpyinfo->Xatom_XmTRANSFER_SUCCESS
+		|| eventp->target == dpyinfo->Xatom_XmTRANSFER_FAILURE))
+	  x_dnd_waiting_for_finish = false;
       }
       break;
 
@@ -12120,16 +13630,16 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 		      if (!x_had_errors_p (dpyinfo->display) && rc == Success && data
 			  && nitems == 2 && actual_format == 32)
-			{
-			  tem->wm_state = ((unsigned long *) data)[0];
-			  XFree (data);
-			}
+			tem->wm_state = ((unsigned long *) data)[0];
 		      else
 			tem->wm_state = WithdrawnState;
+
+		      if (data)
+			XFree (data);
 		      x_uncatch_errors_after_check ();
 		    }
 
-		  x_dnd_update_state (dpyinfo);
+		  x_dnd_update_state (dpyinfo, event->xproperty.time);
 		  break;
 		}
 	    }
@@ -12196,7 +13706,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		}
 	    }
 
-	  x_dnd_update_state (dpyinfo);
+	  x_dnd_update_state (dpyinfo, event->xproperty.time);
 	}
 
       x_handle_property_notify (&event->xproperty);
@@ -12428,7 +13938,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 #endif
 
       if (x_dnd_in_progress)
-	x_dnd_update_state (dpyinfo);
+	x_dnd_update_state (dpyinfo, dpyinfo->last_user_time);
 
       if (x_dnd_in_progress && x_dnd_use_toplevels
 	  && dpyinfo == FRAME_DISPLAY_INFO (x_dnd_frame))
@@ -12676,6 +14186,14 @@ handle_one_xevent (struct x_display_info *dpyinfo,
           nbytes = XLookupString (&xkey, (char *) copy_bufptr,
                                   copy_bufsiz, &keysym,
                                   &compose_status);
+#endif
+
+#ifdef XK_F1
+	  if (x_dnd_in_progress && keysym == XK_F1)
+	    {
+	      x_dnd_xm_use_help = true;
+	      goto done_keysym;
+	    }
 #endif
 
           /* If not using XIM/XIC, and a compose sequence is in progress,
@@ -13043,7 +14561,10 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	    && dpyinfo == FRAME_DISPLAY_INFO (x_dnd_frame))
 	  {
 	    Window target;
-	    int target_proto;
+	    int target_proto, motif_style;
+	    xm_top_level_leave_message lmsg;
+	    xm_top_level_enter_message emsg;
+	    xm_drag_motion_message dmsg;
 
 	    /* Sometimes the drag-and-drop operation starts with the
 	       pointer of a frame invisible due to input.  Since
@@ -13056,18 +14577,58 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	    target = x_dnd_get_target_window (dpyinfo,
 					      event->xmotion.x_root,
 					      event->xmotion.y_root,
-					      &target_proto);
+					      &target_proto,
+					      &motif_style);
 
 	    if (target != x_dnd_last_seen_window)
 	      {
+		if (target != FRAME_OUTER_WINDOW (x_dnd_frame)
+		    && x_dnd_return_frame == 1)
+		  x_dnd_return_frame = 2;
+
 		if (x_dnd_last_seen_window != None
 		    && x_dnd_last_protocol_version != -1
 		    && x_dnd_last_seen_window != FRAME_OUTER_WINDOW (x_dnd_frame))
 		  x_dnd_send_leave (x_dnd_frame, x_dnd_last_seen_window);
+		else if (x_dnd_last_seen_window != None
+			 && XM_DRAG_STYLE_IS_DYNAMIC (x_dnd_last_motif_style)
+			 && x_dnd_last_seen_window != FRAME_OUTER_WINDOW (x_dnd_frame))
+		  {
+		    if (!x_dnd_motif_setup_p)
+		      xm_setup_drag_info (dpyinfo, x_dnd_frame);
 
-		if (target != FRAME_OUTER_WINDOW (x_dnd_frame)
-		    && x_dnd_return_frame == 1)
-		  x_dnd_return_frame = 2;
+		    /* This is apparently required.  If we don't send
+		       a motion event with the current root window
+		       coordinates of the pointer before the top level
+		       leave, then Motif displays an ugly black border
+		       around the previous drop site.  */
+
+		    dmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+						  XM_DRAG_REASON_DRAG_MOTION);
+		    dmsg.byteorder = XM_TARGETS_TABLE_CUR;
+		    dmsg.side_effects = XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (dpyinfo,
+											 x_dnd_wanted_action),
+							     XM_DROP_SITE_NONE, XM_DRAG_NOOP,
+							     XM_DROP_ACTION_DROP_CANCEL);
+		    dmsg.timestamp = event->xmotion.time;
+		    dmsg.x = event->xmotion.x_root;
+		    dmsg.y = event->xmotion.y_root;
+
+		    lmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+						  XM_DRAG_REASON_TOP_LEVEL_LEAVE);
+		    lmsg.byteorder = XM_TARGETS_TABLE_CUR;
+		    lmsg.zero = 0;
+		    lmsg.timestamp = event->xbutton.time;
+		    lmsg.source_window = FRAME_X_WINDOW (x_dnd_frame);
+
+		    if (x_dnd_motif_setup_p)
+		      {
+			xm_send_drag_motion_message (dpyinfo, FRAME_X_WINDOW (x_dnd_frame),
+						     x_dnd_last_seen_window, &dmsg);
+			xm_send_top_level_leave_message (dpyinfo, FRAME_X_WINDOW (x_dnd_frame),
+							 x_dnd_last_seen_window, &lmsg);
+		      }
+		  }
 
 		if (x_dnd_return_frame == 2
 		    && x_any_window_to_frame (dpyinfo, target))
@@ -13085,10 +14646,28 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		x_dnd_action = None;
 		x_dnd_last_seen_window = target;
 		x_dnd_last_protocol_version = target_proto;
+		x_dnd_last_motif_style = motif_style;
 
 		if (target != None && x_dnd_last_protocol_version != -1)
 		  x_dnd_send_enter (x_dnd_frame, target,
 				    x_dnd_last_protocol_version);
+		else if (target != None && XM_DRAG_STYLE_IS_DYNAMIC (x_dnd_last_motif_style))
+		  {
+		    if (!x_dnd_motif_setup_p)
+		      xm_setup_drag_info (dpyinfo, x_dnd_frame);
+
+		    emsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+						  XM_DRAG_REASON_TOP_LEVEL_ENTER);
+		    emsg.byteorder = XM_TARGETS_TABLE_CUR;
+		    emsg.zero = 0;
+		    emsg.timestamp = event->xbutton.time;
+		    emsg.source_window = FRAME_X_WINDOW (x_dnd_frame);
+		    emsg.index_atom = dpyinfo->Xatom_XdndSelection;
+
+		    if (x_dnd_motif_setup_p)
+		      xm_send_top_level_enter_message (dpyinfo, FRAME_X_WINDOW (x_dnd_frame),
+						       target, &emsg);
+		  }
 	      }
 
 	    if (x_dnd_last_protocol_version != -1 && target != None)
@@ -13098,6 +14677,30 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 				   event->xmotion.y_root,
 				   x_dnd_selection_timestamp,
 				   x_dnd_wanted_action);
+	    else if (XM_DRAG_STYLE_IS_DYNAMIC (x_dnd_last_motif_style) && target != None)
+	      {
+		if (!x_dnd_motif_setup_p)
+		  xm_setup_drag_info (dpyinfo, x_dnd_frame);
+
+		dmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+					      XM_DRAG_REASON_DRAG_MOTION);
+		dmsg.byteorder = XM_TARGETS_TABLE_CUR;
+		dmsg.side_effects = XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (dpyinfo,
+										     x_dnd_wanted_action),
+							 XM_DROP_SITE_VALID,
+							 xm_side_effect_from_action (dpyinfo,
+										     x_dnd_wanted_action),
+							 (!x_dnd_xm_use_help
+							  ? XM_DROP_ACTION_DROP
+							  : XM_DROP_ACTION_DROP_HELP));
+		dmsg.timestamp = event->xbutton.time;
+		dmsg.x = event->xmotion.x_root;
+		dmsg.y = event->xmotion.y_root;
+
+		if (x_dnd_motif_setup_p)
+		  xm_send_drag_motion_message (dpyinfo, FRAME_X_WINDOW (x_dnd_frame),
+					       target, &dmsg);
+	      }
 
 	    goto OTHER;
 	  }
@@ -13477,7 +15080,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	}
 
       if (x_dnd_in_progress)
-	x_dnd_update_state (dpyinfo);
+	x_dnd_update_state (dpyinfo, dpyinfo->last_user_time);
       goto OTHER;
 
     case ButtonRelease:
@@ -13539,8 +15142,58 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 					 x_dnd_selection_timestamp,
 					 x_dnd_last_protocol_version);
 		  }
+		else if (x_dnd_last_seen_window != None)
+		  {
+		    xm_drop_start_message dmsg;
+		    xm_drag_receiver_info drag_receiver_info;
+
+		    if (!xm_read_drag_receiver_info (dpyinfo, x_dnd_last_seen_window,
+						     &drag_receiver_info)
+			&& drag_receiver_info.protocol_style != XM_DRAG_STYLE_NONE
+			&& (x_dnd_allow_current_frame
+			    || x_dnd_last_seen_window != FRAME_OUTER_WINDOW (x_dnd_frame)))
+		      {
+			if (!x_dnd_motif_setup_p)
+			  xm_setup_drag_info (dpyinfo, x_dnd_frame);
+
+			if (x_dnd_motif_setup_p)
+			  {
+			    memset (&dmsg, 0, sizeof dmsg);
+
+			    dmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+							  XM_DRAG_REASON_DROP_START);
+			    dmsg.byte_order = XM_TARGETS_TABLE_CUR;
+			    dmsg.side_effects
+			      = XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (dpyinfo,
+										 x_dnd_wanted_action),
+						     XM_DROP_SITE_VALID,
+						     xm_side_effect_from_action (dpyinfo,
+										 x_dnd_wanted_action),
+						     (!x_dnd_xm_use_help
+						      ? XM_DROP_ACTION_DROP
+						      : XM_DROP_ACTION_DROP_HELP));
+			    dmsg.timestamp = event->xbutton.time;
+			    dmsg.x = event->xbutton.x_root;
+			    dmsg.y = event->xbutton.y_root;
+			    dmsg.index_atom = dpyinfo->Xatom_XdndSelection;
+			    dmsg.source_window = FRAME_X_WINDOW (x_dnd_frame);
+
+			    if (!XM_DRAG_STYLE_IS_DROP_ONLY (drag_receiver_info.protocol_style))
+			      x_dnd_send_xm_leave_for_drop (FRAME_DISPLAY_INFO (x_dnd_frame),
+							    x_dnd_frame, x_dnd_last_seen_window,
+							    event->xbutton.time);
+
+			    xm_send_drop_message (dpyinfo, FRAME_X_WINDOW (x_dnd_frame),
+						  x_dnd_last_seen_window, &dmsg);
+
+			    x_dnd_waiting_for_finish = true;
+			    x_dnd_waiting_for_motif_finish = 1;
+			  }
+		      }
+		  }
 
 		x_dnd_last_protocol_version = -1;
+		x_dnd_last_motif_style = XM_DRAG_STYLE_NONE;
 		x_dnd_last_seen_window = None;
 		x_dnd_frame = NULL;
 		x_set_dnd_targets (NULL, 0);
@@ -13765,7 +15418,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
     case CirculateNotify:
       if (x_dnd_in_progress)
-	x_dnd_update_state (dpyinfo);
+	x_dnd_update_state (dpyinfo, dpyinfo->last_user_time);
       goto OTHER;
 
     case CirculateRequest:
@@ -14085,6 +15738,10 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 #endif
 	      /* A fake XMotionEvent for x_note_mouse_movement. */
 	      XMotionEvent ev;
+	      xm_top_level_leave_message lmsg;
+	      xm_top_level_enter_message emsg;
+	      xm_drag_motion_message dmsg;
+
 
 #ifdef HAVE_XINPUT2_1
 	      states = &xev->valuators;
@@ -14359,7 +16016,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		  && dpyinfo == FRAME_DISPLAY_INFO (x_dnd_frame))
 		{
 		  Window target;
-		  int target_proto;
+		  int target_proto, motif_style;
 
 		  /* Sometimes the drag-and-drop operation starts with the
 		     pointer of a frame invisible due to input.  Since
@@ -14372,18 +16029,60 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		  target = x_dnd_get_target_window (dpyinfo,
 						    xev->root_x,
 						    xev->root_y,
-						    &target_proto);
+						    &target_proto,
+						    &motif_style);
 
 		  if (target != x_dnd_last_seen_window)
 		    {
+		      if (target != FRAME_OUTER_WINDOW (x_dnd_frame)
+			  && x_dnd_return_frame == 1)
+			x_dnd_return_frame = 2;
+
 		      if (x_dnd_last_seen_window != None
 			  && x_dnd_last_protocol_version != -1
 			  && x_dnd_last_seen_window != FRAME_OUTER_WINDOW (x_dnd_frame))
 			x_dnd_send_leave (x_dnd_frame, x_dnd_last_seen_window);
+		      else if (x_dnd_last_seen_window != None
+			       && XM_DRAG_STYLE_IS_DYNAMIC (x_dnd_last_motif_style)
+			       && x_dnd_last_seen_window != FRAME_OUTER_WINDOW (x_dnd_frame))
+			{
+			  if (!x_dnd_motif_setup_p)
+			    xm_setup_drag_info (dpyinfo, x_dnd_frame);
 
-		      if (target != FRAME_OUTER_WINDOW (x_dnd_frame)
-			  && x_dnd_return_frame == 1)
-			x_dnd_return_frame = 2;
+			  /* This is apparently required.  If we don't
+			     send a motion event with the current root
+			     window coordinates of the pointer before
+			     the top level leave, then Motif displays
+			     an ugly black border around the previous
+			     drop site.  */
+
+			  dmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+							XM_DRAG_REASON_DRAG_MOTION);
+			  dmsg.byteorder = XM_TARGETS_TABLE_CUR;
+			  dmsg.side_effects
+			    = XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (dpyinfo,
+									       x_dnd_wanted_action),
+						   XM_DROP_SITE_NONE, XM_DRAG_NOOP,
+						   XM_DROP_ACTION_DROP_CANCEL);
+			  dmsg.timestamp = xev->time;
+			  dmsg.x = lrint (xev->root_x);
+			  dmsg.y = lrint (xev->root_y);
+
+			  lmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+							XM_DRAG_REASON_TOP_LEVEL_LEAVE);
+			  lmsg.byteorder = XM_TARGETS_TABLE_CUR;
+			  lmsg.zero = 0;
+			  lmsg.timestamp = xev->time;
+			  lmsg.source_window = FRAME_X_WINDOW (x_dnd_frame);
+
+			  if (x_dnd_motif_setup_p)
+			    {
+			      xm_send_drag_motion_message (dpyinfo, FRAME_X_WINDOW (x_dnd_frame),
+							   x_dnd_last_seen_window, &dmsg);
+			      xm_send_top_level_leave_message (dpyinfo, FRAME_X_WINDOW (x_dnd_frame),
+							       x_dnd_last_seen_window, &lmsg);
+			    }
+			}
 
 		      if (x_dnd_return_frame == 2
 			  && x_any_window_to_frame (dpyinfo, target))
@@ -14401,10 +16100,28 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		      x_dnd_action = None;
 		      x_dnd_last_seen_window = target;
 		      x_dnd_last_protocol_version = target_proto;
+		      x_dnd_last_motif_style = motif_style;
 
 		      if (target != None && x_dnd_last_protocol_version != -1)
 			x_dnd_send_enter (x_dnd_frame, target,
 					  x_dnd_last_protocol_version);
+		      else if (target != None && XM_DRAG_STYLE_IS_DYNAMIC (x_dnd_last_motif_style))
+			{
+			  if (!x_dnd_motif_setup_p)
+			    xm_setup_drag_info (dpyinfo, x_dnd_frame);
+
+			  emsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+							XM_DRAG_REASON_TOP_LEVEL_ENTER);
+			  emsg.byteorder = XM_TARGETS_TABLE_CUR;
+			  emsg.zero = 0;
+			  emsg.timestamp = xev->time;
+			  emsg.source_window = FRAME_X_WINDOW (x_dnd_frame);
+			  emsg.index_atom = dpyinfo->Xatom_XdndSelection;
+
+			  if (x_dnd_motif_setup_p)
+			    xm_send_top_level_enter_message (dpyinfo, FRAME_X_WINDOW (x_dnd_frame),
+							     target, &emsg);
+			}
 		    }
 
 		  if (x_dnd_last_protocol_version != -1 && target != None)
@@ -14413,6 +16130,31 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 					 xev->root_x, xev->root_y,
 					 x_dnd_selection_timestamp,
 					 x_dnd_wanted_action);
+		  else if (XM_DRAG_STYLE_IS_DYNAMIC (x_dnd_last_motif_style) && target != None)
+		    {
+		      if (!x_dnd_motif_setup_p)
+			xm_setup_drag_info (dpyinfo, x_dnd_frame);
+
+		      dmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+						    XM_DRAG_REASON_DRAG_MOTION);
+		      dmsg.byteorder = XM_TARGETS_TABLE_CUR;
+		      dmsg.side_effects
+			= XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (dpyinfo,
+									   x_dnd_wanted_action),
+					       XM_DROP_SITE_VALID,
+					       xm_side_effect_from_action (dpyinfo,
+									   x_dnd_wanted_action),
+					       (!x_dnd_xm_use_help
+						? XM_DROP_ACTION_DROP
+						: XM_DROP_ACTION_DROP_HELP));
+		      dmsg.timestamp = xev->time;
+		      dmsg.x = lrint (xev->root_x);
+		      dmsg.y = lrint (xev->root_y);
+
+		      if (x_dnd_motif_setup_p)
+			xm_send_drag_motion_message (dpyinfo, FRAME_X_WINDOW (x_dnd_frame),
+						     target, &dmsg);
+		    }
 
 		  goto XI_OTHER;
 		}
@@ -14538,8 +16280,67 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 					       x_dnd_selection_timestamp,
 					       x_dnd_last_protocol_version);
 			}
+		      else if (x_dnd_last_seen_window != None)
+			{
+			  xm_drop_start_message dmsg;
+			  xm_drag_receiver_info drag_receiver_info;
+
+			  if (!xm_read_drag_receiver_info (dpyinfo, x_dnd_last_seen_window,
+							   &drag_receiver_info)
+			      && drag_receiver_info.protocol_style != XM_DRAG_STYLE_NONE
+			      && (x_dnd_allow_current_frame
+				  || x_dnd_last_seen_window != FRAME_OUTER_WINDOW (x_dnd_frame)))
+			    {
+			      if (!x_dnd_motif_setup_p)
+				xm_setup_drag_info (dpyinfo, x_dnd_frame);
+
+			      if (x_dnd_motif_setup_p)
+				{
+				  memset (&dmsg, 0, sizeof dmsg);
+
+				  dmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+								XM_DRAG_REASON_DROP_START);
+				  dmsg.byte_order = XM_TARGETS_TABLE_CUR;
+				  dmsg.side_effects
+				    = XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (dpyinfo,
+										       x_dnd_wanted_action),
+							   XM_DROP_SITE_VALID,
+							   xm_side_effect_from_action (dpyinfo,
+										       x_dnd_wanted_action),
+							   (!x_dnd_xm_use_help
+							    ? XM_DROP_ACTION_DROP
+							    : XM_DROP_ACTION_DROP_HELP));
+				  dmsg.timestamp = xev->time;
+				  dmsg.x = lrint (xev->root_x);
+				  dmsg.y = lrint (xev->root_y);
+				  /* This atom technically has to be
+				     unique to each drag-and-drop
+				     operation, but that isn't easy to
+				     accomplish, since we cannot
+				     randomly move data around between
+				     selections.  Let's hope no two
+				     instances of Emacs try to drag
+				     into the same window at the same
+				     time.  */
+				  dmsg.index_atom = dpyinfo->Xatom_XdndSelection;
+				  dmsg.source_window = FRAME_X_WINDOW (x_dnd_frame);
+
+				  if (!XM_DRAG_STYLE_IS_DROP_ONLY (drag_receiver_info.protocol_style))
+				    x_dnd_send_xm_leave_for_drop (FRAME_DISPLAY_INFO (x_dnd_frame),
+								  x_dnd_frame, x_dnd_last_seen_window,
+								  xev->time);
+
+				  xm_send_drop_message (dpyinfo, FRAME_X_WINDOW (x_dnd_frame),
+							x_dnd_last_seen_window, &dmsg);
+
+				  x_dnd_waiting_for_finish = true;
+				  x_dnd_waiting_for_motif_finish = 1;
+				}
+			    }
+			}
 
 		      x_dnd_last_protocol_version = -1;
+		      x_dnd_last_motif_style = XM_DRAG_STYLE_NONE;
 		      x_dnd_last_seen_window = None;
 		      x_dnd_frame = NULL;
 		      x_set_dnd_targets (NULL, 0);
@@ -15133,6 +16934,14 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 						  NULL);
 			}
 		    }
+
+#ifdef XK_F1
+		  if (x_dnd_in_progress && keysym == XK_F1)
+		    {
+		      x_dnd_xm_use_help = true;
+		      goto xi_done_keysym;
+		    }
+#endif
 
 		  /* First deal with keysyms which have defined
 		     translations to characters.  */
@@ -15961,6 +17770,20 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		    {
 		      xfree (tem->input_rects);
 		      tem->n_input_rects = -1;
+		    }
+
+		  /* And the common case where there is no input rect and the
+		     bouding rect equals the window dimensions.  */
+
+		  if (tem->n_input_rects == -1
+		      && tem->n_bounding_rects == 1
+		      && tem->bounding_rects[0].width == tem->width
+		      && tem->bounding_rects[0].height == tem->height
+		      && tem->bounding_rects[0].x == -tem->border_width
+		      && tem->bounding_rects[0].y == -tem->border_width)
+		    {
+		      xfree (tem->bounding_rects);
+		      tem->n_bounding_rects = -1;
 		    }
 
 		  break;
@@ -18847,6 +20670,7 @@ x_free_frame_resources (struct frame *f)
   Lisp_Object bar;
   struct scroll_bar *b;
 #endif
+  xm_drop_start_message dmsg;
 
   if (x_dnd_in_progress && f == x_dnd_frame)
     {
@@ -18854,6 +20678,30 @@ x_free_frame_resources (struct frame *f)
       if (x_dnd_last_seen_window != None
 	  && x_dnd_last_protocol_version != -1)
 	x_dnd_send_leave (f, x_dnd_last_seen_window);
+      else if (x_dnd_last_seen_window != None
+	       && !XM_DRAG_STYLE_IS_DROP_ONLY (x_dnd_last_motif_style)
+	       && x_dnd_last_motif_style != XM_DRAG_STYLE_NONE
+	       && x_dnd_motif_setup_p)
+	{
+	  dmsg.reason = XM_DRAG_REASON (XM_DRAG_ORIGINATOR_INITIATOR,
+					XM_DRAG_REASON_DROP_START);
+	  dmsg.byte_order = XM_TARGETS_TABLE_CUR;
+	  dmsg.timestamp = 0;
+	  dmsg.side_effects
+	    = XM_DRAG_SIDE_EFFECT (xm_side_effect_from_action (dpyinfo,
+							       x_dnd_wanted_action),
+				   XM_DROP_SITE_VALID,
+				   xm_side_effect_from_action (dpyinfo,
+							       x_dnd_wanted_action),
+				   XM_DROP_ACTION_DROP_CANCEL);
+	  dmsg.x = 0;
+	  dmsg.y = 0;
+	  dmsg.index_atom = dpyinfo->Xatom_XdndSelection;
+	  dmsg.source_window = FRAME_X_WINDOW (f);
+
+	  xm_send_drop_message (dpyinfo, FRAME_X_WINDOW (f),
+				x_dnd_last_seen_window, &dmsg);
+	}
       unblock_input ();
 
       x_dnd_end_window = None;
@@ -20382,6 +22230,17 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
       ATOM_REFS_INIT ("XdndLeave", Xatom_XdndLeave)
       ATOM_REFS_INIT ("XdndDrop", Xatom_XdndDrop)
       ATOM_REFS_INIT ("XdndFinished", Xatom_XdndFinished)
+      /* Motif drop protocol support.  */
+      ATOM_REFS_INIT ("_MOTIF_DRAG_WINDOW", Xatom_MOTIF_DRAG_WINDOW)
+      ATOM_REFS_INIT ("_MOTIF_DRAG_TARGETS", Xatom_MOTIF_DRAG_TARGETS)
+      ATOM_REFS_INIT ("_MOTIF_DRAG_AND_DROP_MESSAGE",
+		      Xatom_MOTIF_DRAG_AND_DROP_MESSAGE)
+      ATOM_REFS_INIT ("_MOTIF_DRAG_INITIATOR_INFO",
+		      Xatom_MOTIF_DRAG_INITIATOR_INFO)
+      ATOM_REFS_INIT ("_MOTIF_DRAG_RECEIVER_INFO",
+		      Xatom_MOTIF_DRAG_RECEIVER_INFO)
+      ATOM_REFS_INIT ("XmTRANSFER_SUCCESS", Xatom_XmTRANSFER_SUCCESS)
+      ATOM_REFS_INIT ("XmTRANSFER_FAILURE", Xatom_XmTRANSFER_FAILURE)
     };
 
     int i;
@@ -20928,6 +22787,7 @@ syms_of_xterm (void)
 
   DEFSYM (Qvendor_specific_keysyms, "vendor-specific-keysyms");
   DEFSYM (Qlatin_1, "latin-1");
+  DEFSYM (Qnow, "now");
 
 #ifdef USE_GTK
   xg_default_icon_file = build_pure_c_string ("icons/hicolor/scalable/apps/emacs.svg");
@@ -21110,4 +22970,12 @@ reliably continue to receive updates even if the finger moves off the
 frame, but may cause crashes with some window managers and/or external
 programs.  */);
   x_input_grab_touch_events = true;
+
+  DEFVAR_BOOL ("x-dnd-fix-motif-leave", x_dnd_fix_motif_leave,
+	       doc: /* Work around Motif bug during drag-and-drop.
+When non-nil, Emacs will send a motion event containing impossible
+coordinates to a Motif drop receiver when the mouse moves outside it
+during a drag-and-drop session, to work around broken implementations
+of Motif.  */);
+  x_dnd_fix_motif_leave = true;
 }

@@ -1529,9 +1529,7 @@ public:
     rq.y = point.y;
     rq.window = this->Window ();
     rq.time = system_time ();
-
-    if (drag_msg && transit != B_EXITED_VIEW)
-      return;
+    rq.dnd_message = drag_msg != NULL;
 
     if (ToolTip ())
       ToolTip ()->SetMouseRelativeLocation (BPoint (-(point.x - tt_absl_pos.x),
