@@ -81,8 +81,13 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include "haiku_support.h"
 
-#define SCROLL_BAR_UPDATE 3000
-#define WAIT_FOR_RELEASE 3001
+enum
+  {
+    SCROLL_BAR_UPDATE	= 3000,
+    WAIT_FOR_RELEASE	= 3001,
+    RELEASE_NOW		= 3002,
+    CANCEL_DROP		= 3003,
+  };
 
 static color_space dpy_color_space = B_NO_COLOR_SPACE;
 static key_map *key_map = NULL;
@@ -122,6 +127,7 @@ static int current_window_id;
 
 static void *grab_view = NULL;
 static BLocker grab_view_locker;
+static bool drag_and_drop_in_progress;
 
 /* This could be a private API, but it's used by (at least) the Qt
    port, so it's probably here to stay.  */
@@ -1271,7 +1277,10 @@ public:
   ~EmacsView ()
   {
     if (wait_for_release_message)
-      gui_abort ("Wait for release message still exists");
+      {
+	wait_for_release_message->SendReply (wait_for_release_message);
+	delete wait_for_release_message;
+      }
 
     TearDownDoubleBuffering ();
 
@@ -1305,6 +1314,14 @@ public:
 	  msg->SendReply (msg);
 	else
 	  wait_for_release_message = looper->DetachCurrentMessage ();
+      }
+    else if (msg->what == RELEASE_NOW)
+      {
+	if (wait_for_release_message)
+	  wait_for_release_message->SendReply (msg);
+
+	delete wait_for_release_message;
+	wait_for_release_message = NULL;
       }
     else
       BView::MessageReceived (msg);
@@ -1523,13 +1540,23 @@ public:
   MouseMoved (BPoint point, uint32 transit, const BMessage *drag_msg)
   {
     struct haiku_mouse_motion_event rq;
+    int32 windowid;
+    EmacsWindow *window;
 
+    window = (EmacsWindow *) Window ();
     rq.just_exited_p = transit == B_EXITED_VIEW;
     rq.x = point.x;
     rq.y = point.y;
-    rq.window = this->Window ();
+    rq.window = window;
     rq.time = system_time ();
-    rq.dnd_message = drag_msg != NULL;
+
+    if (drag_msg && (drag_msg->IsSourceRemote ()
+		     || drag_msg->FindInt32 ("emacs:window_id",
+					     &windowid) != B_OK
+		     || windowid != window->window_id))
+      rq.dnd_message = true;
+    else
+      rq.dnd_message = false;
 
     if (ToolTip ())
       ToolTip ()->SetMouseRelativeLocation (BPoint (-(point.x - tt_absl_pos.x),
@@ -4076,6 +4103,7 @@ be_drag_message (void *view, void *message, bool allow_same_view,
   BMessage *msg = (BMessage *) message;
   BMessage wait_for_release;
   BMessenger messenger (vw);
+  BMessage cancel_message (CANCEL_DROP);
   struct object_wait_info infos[2];
   ssize_t stat;
 
@@ -4111,6 +4139,8 @@ be_drag_message (void *view, void *message, bool allow_same_view,
   resume_thread (infos[1].object);
   unblock_input_function ();
 
+  drag_and_drop_in_progress = true;
+
   while (true)
     {
       block_input_function ();
@@ -4128,12 +4158,34 @@ be_drag_message (void *view, void *message, bool allow_same_view,
 	process_pending_signals_function ();
 
       if (should_quit_function ())
-	return true;
+	{
+	  /* Do the best we can to prevent something from being
+	     dropped, since Haiku doesn't provide a way to actually
+	     cancel drag-and-drop.  */
+	  if (vw->LockLooper ())
+	    {
+	      vw->DragMessage (&cancel_message, BRect (0, 0, 0, 0));
+	      vw->UnlockLooper ();
+	    }
+
+	  messenger.SendMessage (CANCEL_DROP);
+	  drag_and_drop_in_progress = false;
+	  return true;
+	}
 
       if (infos[1].events & B_EVENT_INVALID)
-	return false;
+	{
+	  drag_and_drop_in_progress = false;
+	  return false;
+	}
 
       infos[0].events = B_EVENT_READ;
       infos[1].events = B_EVENT_INVALID;
     }
+}
+
+bool
+be_drag_and_drop_in_progress (void)
+{
+  return drag_and_drop_in_progress;
 }

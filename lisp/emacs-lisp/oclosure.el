@@ -505,11 +505,37 @@ This has 2 uses:
   "OClosure function to access a specific slot of an object."
   type slot)
 
+(defun oclosure--accessor-docstring (f)
+  ;; This would like to be a (cl-defmethod function-documentation ...)
+  ;; but for circularity reason the defmethod is in `simple.el'.
+  (format "Access slot \"%S\" of OBJ of type `%S'.\n\n(fn OBJ)"
+          (accessor--slot f) (accessor--type f)))
+
 (oclosure-define (oclosure-accessor
                   (:parent accessor)
                   (:copier oclosure--accessor-copy (type slot index)))
   "OClosure function to access a specific slot of an OClosure function."
   index)
+
+(defun oclosure--slot-index (oclosure slotname)
+  (gethash slotname
+           (oclosure--class-index-table
+            (cl--find-class (oclosure-type oclosure)))))
+
+(defun oclosure--slot-value (oclosure slotname)
+  (let ((class (cl--find-class (oclosure-type oclosure)))
+        (index (oclosure--slot-index oclosure slotname)))
+    (oclosure--get oclosure index
+                   (oclosure--slot-mutable-p
+                    (nth index (oclosure--class-slots class))))))
+
+(defun oclosure--set-slot-value (oclosure slotname value)
+  (let ((class (cl--find-class (oclosure-type oclosure)))
+        (index (oclosure--slot-index oclosure slotname)))
+    (unless (oclosure--slot-mutable-p
+             (nth index (oclosure--class-slots class)))
+      (signal 'setting-constant (list oclosure slotname)))
+    (oclosure--set value oclosure index)))
 
 (defconst oclosure--mut-getter-prototype
   (oclosure-lambda (oclosure-accessor (type) (slot) (index)) (oclosure)
