@@ -1061,6 +1061,7 @@ xg_set_geometry (struct frame *f)
 	  /* Handle negative positions without consulting
 	     gtk_window_parse_geometry (Bug#25851).  The position will
 	     be off by scrollbar width + window manager decorations.  */
+#ifndef HAVE_PGTK
 	  if (f->size_hint_flags & XNegative)
 	    f->left_pos = (x_display_pixel_width (FRAME_DISPLAY_INFO (f))
 			   - FRAME_PIXEL_WIDTH (f) + f->left_pos);
@@ -1068,6 +1069,15 @@ xg_set_geometry (struct frame *f)
 	  if (f->size_hint_flags & YNegative)
 	    f->top_pos = (x_display_pixel_height (FRAME_DISPLAY_INFO (f))
 			  - FRAME_PIXEL_HEIGHT (f) + f->top_pos);
+#else
+	  if (f->size_hint_flags & XNegative)
+	    f->left_pos = (pgtk_display_pixel_width (FRAME_DISPLAY_INFO (f))
+			   - FRAME_PIXEL_WIDTH (f) + f->left_pos);
+
+	  if (f->size_hint_flags & YNegative)
+	    f->top_pos = (pgtk_display_pixel_height (FRAME_DISPLAY_INFO (f))
+			  - FRAME_PIXEL_HEIGHT (f) + f->top_pos);
+#endif
 
 	  /* GTK works in scaled pixels, so convert from X pixels.  */
 	  gtk_window_move (GTK_WINDOW (FRAME_GTK_OUTER_WIDGET (f)),
@@ -1182,7 +1192,7 @@ xg_frame_set_char_size (struct frame *f, int width, int height)
   outer_height /= xg_get_scale (f);
   outer_width /= xg_get_scale (f);
 
-  x_wm_set_size_hint (f, 0, 0);
+  xg_wm_set_size_hint (f, 0, 0);
 
   /* Resize the top level widget so rows and columns remain constant.
 
@@ -1898,7 +1908,7 @@ xg_free_frame_widgets (struct frame *f)
    flag (this is useful when FLAGS is 0).  */
 
 void
-x_wm_set_size_hint (struct frame *f, long int flags, bool user_position)
+xg_wm_set_size_hint (struct frame *f, long int flags, bool user_position)
 {
   /* Must use GTK routines here, otherwise GTK resets the size hints
      to its own defaults.  */
@@ -6274,6 +6284,10 @@ xg_im_context_commit (GtkIMContext *imc, gchar *str,
 {
   struct frame *f = user_data;
   struct input_event ie;
+#ifdef HAVE_XINPUT2
+  struct xi_device_t *source;
+  struct x_display_info *dpyinfo;
+#endif
 
   EVENT_INIT (ie);
   /* This used to use g_utf8_to_ucs4_fast, which led to bad results
@@ -6291,6 +6305,22 @@ xg_im_context_commit (GtkIMContext *imc, gchar *str,
   Fput_text_property (make_fixnum (0),
 		      make_fixnum (SCHARS (ie.arg)),
 		      Qcoding, Qt, ie.arg);
+
+#ifdef HAVE_XINPUT2
+  dpyinfo = FRAME_DISPLAY_INFO (f);
+
+  /* There is no timestamp associated with commit events, so use the
+     device that sent the last event to be filtered.  */
+  if (dpyinfo->pending_keystroke_time)
+    {
+      dpyinfo->pending_keystroke_time = 0;
+      source = xi_device_from_id (dpyinfo,
+				  dpyinfo->pending_keystroke_source);
+
+      if (source)
+	ie.device = source->name;
+    }
+#endif
 
   XSETFRAME (ie.frame_or_window, f);
   ie.modifiers = 0;
