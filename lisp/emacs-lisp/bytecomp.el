@@ -471,7 +471,7 @@ Return the compile-time value of FORM."
   (let ((print-symbols-bare t))         ; Possibly redundant binding.
     (setf form (macroexp-macroexpand form byte-compile-macro-environment)))
   (if (eq (car-safe form) 'progn)
-      (cons 'progn
+      (cons (car form)
             (mapcar (lambda (subform)
                       (byte-compile-recurse-toplevel
                        subform non-toplevel-case))
@@ -1009,13 +1009,22 @@ CONST2 may be evaluated multiple times."
 
     ;; Similarly, replace TAGs in all jump tables with the correct PC index.
     (dolist (hash-table byte-compile-jump-tables)
-      (maphash #'(lambda (value tag)
-                   (setq pc (cadr tag))
-                   ;; We don't need to split PC here, as it is stored as a lisp
-                   ;; object in the hash table (whereas other goto-* ops store
-                   ;; it within 2 bytes in the byte string).
-                   (puthash value pc hash-table))
-               hash-table))
+      (let (alist)
+        (maphash #'(lambda (value tag)
+                     (setq pc (cadr tag))
+                     ;; We don't need to split PC here, as it is stored as a
+                     ;; lisp object in the hash table (whereas other goto-*
+                     ;; ops store it within 2 bytes in the byte string).
+                     ;; De-position any symbols with position in `value'.
+                     ;; Since this may change the hash table key, we remove
+                     ;; the entry from the table and reinsert it outside the
+                     ;; scope of the `maphash'.
+                     (setq value (byte-run-strip-symbol-positions value))
+                     (push (cons value pc) alist)
+                     (remhash value hash-table))
+                 hash-table)
+        (dolist (elt alist)
+          (puthash (car elt) (cdr elt) hash-table))))
     (let ((bytecode (apply 'unibyte-string (nreverse bytes))))
       (when byte-native-compiling
         ;; Spill LAP for the native compiler here.
@@ -1164,27 +1173,27 @@ message buffer `default-directory'."
         (f2 (file-relative-name file dir)))
     (if (< (length f2) (length f1)) f2 f1)))
 
-(defun byte-compile--first-symbol (form)
-  "Return the \"first\" symbol found in form, or 0 if there is none.
+(defun byte-compile--first-symbol-with-pos (form)
+  "Return the \"first\" symbol with position found in form, or 0 if none.
 Here, \"first\" is by a depth first search."
   (let (sym)
     (cond
-     ((symbolp form) form)
+     ((symbol-with-pos-p form) form)
      ((consp form)
-      (or (and (symbolp (setq sym (byte-compile--first-symbol (car form))))
+      (or (and (symbol-with-pos-p (setq sym (byte-compile--first-symbol-with-pos (car form))))
                sym)
-          (and (symbolp (setq sym (byte-compile--first-symbol (cdr form))))
+          (and (symbolp (setq sym (byte-compile--first-symbol-with-pos (cdr form))))
                sym)
           0))
-     ((and (vectorp form)
+     ((and (or (vectorp form) (recordp form))
            (> (length form) 0))
       (let ((i 0)
             (len (length form))
             elt)
         (catch 'sym
           (while (< i len)
-            (when (symbolp
-                   (setq elt (byte-compile--first-symbol (aref form i))))
+            (when (symbol-with-pos-p
+                   (setq elt (byte-compile--first-symbol-with-pos (aref form i))))
               (throw 'sym elt))
             (setq i (1+ i)))
           0)))
@@ -1195,7 +1204,7 @@ Here, \"first\" is by a depth first search."
 Return nil if such is not found."
   (catch 'offset
     (dolist (form byte-compile-form-stack)
-      (let ((s (byte-compile--first-symbol form)))
+      (let ((s (byte-compile--first-symbol-with-pos form)))
         (if (symbol-with-pos-p s)
             (throw 'offset (symbol-with-pos-pos s)))))))
 
@@ -3075,7 +3084,7 @@ lambda-expression."
                        ;; which may include "calls" to
                        ;; internal-make-closure (Bug#29988).
                        lexical-binding)
-                   (setq int `(interactive ,newform)))))
+                   (setq int `(,(car int) ,newform)))))
             ((cdr int)                  ; Invalid (interactive . something).
 	     (byte-compile-warn-x int "malformed interactive spec: %s"
 				  int))))
