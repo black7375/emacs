@@ -524,13 +524,68 @@ get_zoom_rect (BWindow *window)
   return frame;
 }
 
+/* Invisible window used to get B_SCREEN_CHANGED events.  */
+class EmacsScreenChangeMonitor : public BWindow
+{
+  BRect previous_screen_frame;
+
+public:
+  EmacsScreenChangeMonitor (void) : BWindow (BRect (-100, -100, 0, 0), "",
+					     B_NO_BORDER_WINDOW_LOOK,
+					     B_FLOATING_ALL_WINDOW_FEEL,
+					     B_AVOID_FRONT | B_AVOID_FOCUS)
+  {
+    BScreen screen (this);
+
+    if (!screen.IsValid ())
+      return;
+
+    previous_screen_frame = screen.Frame ();
+
+    /* Immediately show this window upon creation.  It will not steal
+       the focus or become visible.  */
+    Show ();
+
+    if (!LockLooper ())
+      return;
+
+    Hide ();
+    UnlockLooper ();
+  }
+
+  void
+  DispatchMessage (BMessage *msg, BHandler *handler)
+  {
+    struct haiku_screen_changed_event rq;
+    BRect frame;
+
+    if (msg->what == B_SCREEN_CHANGED)
+      {
+	if (msg->FindInt64 ("when", &rq.when) != B_OK)
+	  rq.when = 0;
+
+	if (msg->FindRect ("frame", &frame) != B_OK
+	    || frame != previous_screen_frame)
+	  {
+	    haiku_write (SCREEN_CHANGED_EVENT, &rq);
+
+	    if (frame.IsValid ())
+	      previous_screen_frame = frame;
+	  }
+      }
+
+    BWindow::DispatchMessage (msg, handler);
+  }
+};
+
 class Emacs : public BApplication
 {
 public:
   BMessage settings;
   bool settings_valid_p = false;
+  EmacsScreenChangeMonitor *monitor;
 
-  Emacs () : BApplication ("application/x-vnd.GNU-emacs")
+  Emacs (void) : BApplication ("application/x-vnd.GNU-emacs")
   {
     BPath settings_path;
 
@@ -546,6 +601,15 @@ public:
       return;
 
     settings_valid_p = true;
+    monitor = new EmacsScreenChangeMonitor;
+  }
+
+  ~Emacs (void)
+  {
+    if (monitor->LockLooper ())
+      monitor->Quit ();
+    else
+      delete monitor;
   }
 
   void
@@ -999,6 +1063,13 @@ public:
       }
     else if (msg->what == SEND_MOVE_FRAME_EVENT)
       FrameMoved (Frame ().LeftTop ());
+    else if (msg->what == B_SCREEN_CHANGED)
+      {
+	if (fullscreen_mode != FULLSCREEN_MODE_NONE)
+	  SetFullscreen (fullscreen_mode);
+
+	BWindow::DispatchMessage (msg, handler);
+      }
     else
       BWindow::DispatchMessage (msg, handler);
   }
@@ -1242,9 +1313,6 @@ public:
   SetFullscreen (enum haiku_fullscreen_mode mode)
   {
     BRect zoom_rect, frame;
-
-    if (fullscreen_mode == mode)
-      return;
 
     frame = ClearFullscreen (mode);
 
@@ -2317,30 +2385,25 @@ public:
 class EmacsMenuItem : public BMenuItem
 {
 public:
-  int menu_bar_id = -1;
-  void *menu_ptr = NULL;
-  void *wind_ptr = NULL;
-  char *key = NULL;
-  char *help = NULL;
+  int menu_bar_id;
+  void *menu_ptr;
+  void *wind_ptr;
+  char *key;
+  char *help;
 
-  EmacsMenuItem (const char *ky,
-		 const char *str,
-		 const char *help,
-		 BMessage *message = NULL) : BMenuItem (str, message)
+  EmacsMenuItem (const char *key_label, const char *label,
+		 const char *help, BMessage *message = NULL)
+    : BMenuItem (label, message),
+      menu_bar_id (-1),
+      menu_ptr (NULL),
+      wind_ptr (NULL),
+      key (NULL),
+      help (NULL)
   {
-    if (ky)
-      {
-	key = strdup (ky);
-	if (!key)
-	  gui_abort ("strdup failed");
-      }
+    if (key_label)
+      key = strdup (key_label);
 
-    if (help)
-      {
-	this->help = strdup (help);
-	if (!this->help)
-	  gui_abort ("strdup failed");
-      }
+    this->help = strdup (help);
   }
 
   ~EmacsMenuItem ()

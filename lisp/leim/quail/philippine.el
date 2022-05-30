@@ -62,5 +62,91 @@
  ("N"  ?ᜅ)
  ("m"  ?ᜋ))
 
+(quail-define-package
+ "hanunoo" "Hanunoo" "ᜱ" nil "Hanunoo phonetic input method."
+ nil t t t t nil nil nil nil nil t)
+
+(quail-define-rules
+ ("q"  ?₱)
+ ("w"  ?ᜯ)
+ ("r"  ?ᜭ)
+ ("t"  ?ᜦ)
+ ("y"  ?ᜬ)
+ ("u"  ?ᜳ)
+ ("U"  ?ᜢ)
+ ("i"  ?ᜲ)
+ ("I"  ?ᜡ)
+ ("p"  ?ᜩ)
+ ("a"  ?ᜠ)
+ ("s"  ?ᜰ)
+ ("d"  ?ᜧ)
+ ("f"  ?᜴)
+ ("g"  ?ᜤ)
+ ("h"  ?ᜱ)
+ ("j"  ?᜵)
+ ("J"  ?᜶)
+ ("k"  ?ᜣ)
+ ("l"  ?ᜮ)
+ ("b"  ?ᜪ)
+ ("n"  ?ᜨ)
+ ("N"  ?ᜥ)
+ ("m"  ?ᜫ))
+
+(quail-define-package
+ "buhid" "Buhid" "ᝊᝓ" nil "Buhid phonetic input method."
+ nil t t t t nil nil nil nil nil t)
+
+(quail-define-rules
+ ("q"  ?₱)
+ ("w"  ?ᝏ)
+ ("r"  ?ᝍ)
+ ("t"  ?ᝆ)
+ ("y"  ?ᝌ)
+ ("u"  ?ᝓ)
+ ("U"  ?ᝂ)
+ ("i"  ?ᝒ)
+ ("I"  ?ᝁ)
+ ("p"  ?ᝉ)
+ ("a"  ?ᝀ)
+ ("s"  ?ᝐ)
+ ("d"  ?ᝇ)
+ ("g"  ?ᝄ)
+ ("h"  ?ᝑ)
+ ("j"  ?᜵)
+ ("J"  ?᜶)
+ ("k"  ?ᝃ)
+ ("l"  ?ᝎ)
+ ("b"  ?ᝊ)
+ ("n"  ?ᝈ)
+ ("N"  ?ᝅ)
+ ("m"  ?ᝋ))
+
+(quail-define-package
+ "tagbanwa" "Tagbanwa" "ᝦ" nil "Tagbanwa phonetic input method."
+ nil t t t t nil nil nil nil nil t)
+
+(quail-define-rules
+ ("q"  ?₱)
+ ("w"  ?ᝯ)
+ ("t"  ?ᝦ)
+ ("y"  ?ᝬ)
+ ("u"  ?ᝳ)
+ ("U"  ?ᝢ)
+ ("i"  ?ᝲ)
+ ("I"  ?ᝡ)
+ ("p"  ?ᝩ)
+ ("a"  ?ᝠ)
+ ("s"  ?ᝰ)
+ ("d"  ?ᝧ)
+ ("g"  ?ᝤ)
+ ("j"  ?᜵)
+ ("J"  ?᜶)
+ ("k"  ?ᝣ)
+ ("l"  ?ᝮ)
+ ("b"  ?ᝪ)
+ ("n"  ?ᝨ)
+ ("N"  ?ᝥ)
+ ("m"  ?ᝫ))
+
 (provide 'philippine)
 ;;; philippine.el ends here
