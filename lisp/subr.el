@@ -441,7 +441,10 @@ To signal with MESSAGE without interpreting format characters
 like `%', `\\=`' and `\\='', use (error \"%s\" MESSAGE).
 In Emacs, the convention is that error messages start with a capital
 letter but *do not* end with a period.  Please follow this convention
-for the sake of consistency."
+for the sake of consistency.
+
+To alter the look of the displayed error messages, you can use
+the `command-error-function' variable."
   (declare (advertised-calling-convention (string &rest args) "23.1"))
   (signal 'error (list (apply #'format-message args))))
 
@@ -457,7 +460,10 @@ To signal with MESSAGE without interpreting format characters
 like `%', `\\=`' and `\\='', use (user-error \"%s\" MESSAGE).
 In Emacs, the convention is that error messages start with a capital
 letter but *do not* end with a period.  Please follow this convention
-for the sake of consistency."
+for the sake of consistency.
+
+To alter the look of the displayed error messages, you can use
+the `command-error-function' variable."
   (signal 'user-error (list (apply #'format-message format args))))
 
 (defun define-error (name message &optional parent)
@@ -4077,8 +4083,8 @@ This function is like `insert', except it honors the variables
 
 It also runs the string through `yank-transform-functions'."
   ;; Allow altering the yank string.
-  (dolist (func yank-transform-functions)
-    (setq string (funcall func string)))
+  (run-hook-wrapped 'yank-transform-functions
+                    (lambda (f) (setq string (funcall f string)) nil))
   (let (to)
     (while (setq to (next-single-property-change 0 'yank-handler string))
       (insert-for-yank-1 (substring string 0 to))
@@ -6043,6 +6049,10 @@ to deactivate this transient map, regardless of KEEP-PRED."
                         t)
                        ((eq t keep-pred)
                         (let ((mc (lookup-key map (this-command-keys-vector))))
+                          ;; We may have a remapped command, so chase
+                          ;; down that.
+                          (when (and mc (symbolp mc))
+                            (setq mc (or (command-remapping mc) mc)))
                           ;; If the key is unbound `this-command` is
                           ;; nil and so is `mc`.
                           (and mc (eq this-command mc))))
