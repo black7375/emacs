@@ -64,6 +64,33 @@ Sundanese language and its script are supported in this language environment."))
 Languages that use the Batak script, such as Karo, Toba, Pakpak, Mandailing
 and Simalungun, are supported in this language environment.")))
 
+(set-language-info-alist
+ "Rejang" '((charset unicode)
+            (coding-system utf-8)
+            (coding-priority utf-8)
+            (input-method . "rejang")
+            (sample-text . "Rejang (ꥆꤰ꥓ꤼꤽ ꤽꥍꤺꥏ)    ꤸꥉꥐꤺꥉꥂꥎ")
+            (documentation . "\
+Rejang language and its script are supported in this language environment.")))
+
+(set-language-info-alist
+ "Makasar" '((charset unicode)
+             (coding-system utf-8)
+             (coding-priority utf-8)
+             (input-method . "makasar")
+             (sample-text . "Makasar (𑻪𑻢𑻪𑻢)    𑻦𑻤𑻵𑻱")
+             (documentation . "\
+Makassarese language and its script Makasar are supported in this language environment.")))
+
+(set-language-info-alist
+ "Buginese" '((charset unicode)
+              (coding-system utf-8)
+              (coding-priority utf-8)
+              (input-method . "lontara")
+              (sample-text . "Buginese (ᨒᨚᨈᨑ)    ᨖᨒᨚ")
+              (documentation . "\
+Buginese language and its script Lontara are supported in this language environment.")))
+
 ;; Balinese composition rules
 (let ((consonant            "[\x1B13-\x1B33\x1B45-\x1B4B]")
       (independent-vowel    "[\x1B05-\x1B12]")
@@ -141,6 +168,29 @@ and Simalungun, are supported in this language environment.")))
                                ;; Akshara based syllables
                                (concat akshara virama "?" vowel "*" modifier-above
                                        "?" dependant-consonant "?")
+                               1 'font-shape-gstring))))
+
+;; Rejang composition rules
+(let ((akshara              "[\xA930-\xA946]")
+      (vowel                "[\xA947-\xA94E]")
+      (dependant-consonant  "[\xA94F\xA952]")
+      (virama               "\xA953"))
+  (set-char-table-range composition-function-table
+                        '(#xA947 . #xA953)
+                        (list (vector
+                               ;; Akshara based syllables
+                               (concat akshara virama "?" vowel "*"
+                                       dependant-consonant "?")
+                               1 'font-shape-gstring))))
+
+;; Makasar composition rules
+(let ((akshara              "[\x11EE0-\x11EF2]")
+      (vowel                "[\x11EF3-\x11EF6]"))
+  (set-char-table-range composition-function-table
+                        '(#x11EF3 . #x11EF6)
+                        (list (vector
+                               ;; Akshara based syllables
+                               (concat akshara vowel "*")
                                1 'font-shape-gstring))))
 
 (provide 'indonesian)
