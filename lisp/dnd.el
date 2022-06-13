@@ -423,7 +423,7 @@ currently being held down.  It should only be called upon a
            (x-begin-drag '(;; Xdnd types used by GTK, Qt, and most other
                            ;; modern programs that expect filenames to
                            ;; be supplied as URIs.
-                           "text/uri-list" "text/x-dnd-username"
+                           "text/uri-list" "text/x-xdnd-username"
                            ;; Traditional X selection targets used by
                            ;; programs supporting the Motif
                            ;; drag-and-drop protocols.  Also used by NS
@@ -469,9 +469,16 @@ FILES will be dragged."
       (when (file-remote-p (car tem))
         (when (eq action 'link)
           (error "Cannot create symbolic link to remote file"))
-        (setcar tem (file-local-copy (car tem)))
-        (push (car tem) dnd-last-dragged-remote-file))
+        (condition-case error
+            (progn (setcar tem (file-local-copy (car tem)))
+                   (push (car tem) dnd-last-dragged-remote-file))
+          (error (message "Failed to download file: %s" error)
+                 (setcar tem nil))))
       (setq tem (cdr tem)))
+    ;; Remove any files that failed to download from a remote host.
+    (setq new-files (delq nil new-files))
+    (unless new-files
+      (error "No files were specified or no remote file could be downloaded"))
     (unless action
       (setq action 'copy))
     (gui-set-selection 'XdndSelection
@@ -486,7 +493,7 @@ FILES will be dragged."
            (x-begin-drag '(;; Xdnd types used by GTK, Qt, and most other
                            ;; modern programs that expect filenames to
                            ;; be supplied as URIs.
-                           "text/uri-list" "text/x-dnd-username"
+                           "text/uri-list" "text/x-xdnd-username"
                            ;; Traditional X selection targets used by
                            ;; programs supporting the Motif
                            ;; drag-and-drop protocols.  Also used by NS
