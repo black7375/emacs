@@ -5492,7 +5492,17 @@ wait_reading_process_output (intmax_t time_limit, int nsecs, int read_kbd,
 	 triggered by processing X events).  In the latter case, set
 	 nfds to 1 to avoid breaking the loop.  */
       no_avail = 0;
-      if ((read_kbd || !NILP (wait_for_cell))
+      if ((read_kbd
+	   /* The following code doesn't make any sense for just the
+	      wait_for_cell case, because detect_input_pending returns
+	      whether or not the keyboard buffer isn't empty or there
+	      is mouse movement.  Any keyboard input that arrives
+	      while waiting for a cell will cause the select call to
+	      be skipped, and gobble_input to be called even when
+	      there is no input available from the terminal itself.
+	      Skipping the call to select also causes the timeout to
+	      be ignored.  (bug#46935) */
+	   /* || !NILP (wait_for_cell) */)
 	  && detect_input_pending ())
 	{
 	  nfds = read_kbd ? 0 : 1;
@@ -7099,7 +7109,7 @@ See function `signal-process' for more details on usage.  */)
 }
 
 DEFUN ("signal-process", Fsignal_process, Ssignal_process,
-       2, 3, "sProcess (name or number): \nnSignal code: ",
+       2, 3, "(list (read-string \"Process (name or number): \") (read-signal-name))",
        doc: /* Send PROCESS the signal with code SIGCODE.
 PROCESS may also be a number specifying the process id of the
 process to signal; in this case, the process need not be a child of
@@ -8307,6 +8317,20 @@ If QUERY is `all', also count processors not available.  */)
 #endif
 }
 
+DEFUN ("signal-names", Fsignal_names, Ssignal_names, 0, 0, 0,
+       doc: /* Return a list of known signal names on this system.  */)
+  (void)
+{
+  char name[SIG2STR_MAX];
+  Lisp_Object names = Qnil;
+  for (int i = 0; i < 256; ++i)
+    {
+      if (!sig2str (i, name))
+	names = Fcons (build_string (name), names);
+    }
+  return names;
+}
+
 #ifdef subprocesses
 /* Arrange to catch SIGCHLD if this hasn't already been arranged.
    Invoke this after init_process_emacs, and after glib and/or GNUstep
@@ -8760,4 +8784,5 @@ sentinel or a process filter function has an error.  */);
   defsubr (&Slist_system_processes);
   defsubr (&Sprocess_attributes);
   defsubr (&Snum_processors);
+  defsubr (&Ssignal_names);
 }
