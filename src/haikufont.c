@@ -492,6 +492,14 @@ haikufont_pattern_from_object (struct haiku_font_pattern *pattern,
       pattern->specified |= FSPEC_WIDTH;
       pattern->width = haikufont_lisp_to_width (val);
     }
+
+  val = assq_no_quit (QCantialias,
+		      AREF (font_object, FONT_EXTRA_INDEX));
+  if (CONSP (val))
+    {
+      pattern->specified |= FSPEC_ANTIALIAS;
+      pattern->use_antialiasing = !NILP (XCDR (val));
+    }
 }
 
 static void
@@ -1173,6 +1181,24 @@ haikufont_list_family (struct frame *f)
   return list;
 }
 
+/* List of boolean properties in font names accepted by this font
+   driver.  */
+static const char *const haikufont_booleans[] =
+  {
+    ":antialias",
+    NULL,
+  };
+
+/* List of non-boolean properties.  Currently empty.  */
+static const char *const haikufont_non_booleans[1];
+
+static void
+haikufont_filter_properties (Lisp_Object font, Lisp_Object alist)
+{
+  font_filter_properties (font, alist, haikufont_booleans,
+			  haikufont_non_booleans);
+}
+
 struct font_driver const haikufont_driver =
   {
     .type = LISPSYM_INITIALLY (Qhaiku),
@@ -1187,7 +1213,8 @@ struct font_driver const haikufont_driver =
     .encode_char = haikufont_encode_char,
     .text_extents = haikufont_text_extents,
     .shape = haikufont_shape,
-    .list_family = haikufont_list_family
+    .list_family = haikufont_list_family,
+    .filter_properties = haikufont_filter_properties,
   };
 
 static bool
@@ -1213,6 +1240,7 @@ in the font selection dialog.  */)
   int rc, size, initial_family, initial_style, initial_size;
   struct haiku_font_pattern pattern;
   Lisp_Object lfamily, lweight, lslant, lwidth, ladstyle, lsize;
+  bool disable_antialiasing, initial_antialias;
 
   f = decode_window_system_frame (frame);
 
@@ -1222,6 +1250,7 @@ in the font selection dialog.  */)
   initial_style = -1;
   initial_family = -1;
   initial_size = -1;
+  initial_antialias = true;
 
   font = FRAME_FONT (f);
 
@@ -1235,6 +1264,11 @@ in the font selection dialog.  */)
       haikufont_done_with_query_pattern (&pattern);
 
       initial_size = font->pixel_size;
+
+      /* This field is safe to access even after
+	 haikufont_done_with_query_pattern.  */
+      if (pattern.specified & FSPEC_ANTIALIAS)
+	initial_antialias = pattern.use_antialiasing;
     }
 
   popup_activated_p++;
@@ -1244,7 +1278,8 @@ in the font selection dialog.  */)
 		       &family, &style, &size,
 		       !NILP (exclude_proportional),
 		       initial_family, initial_style,
-		       initial_size);
+		       initial_size, initial_antialias,
+		       &disable_antialiasing);
   request_sigio ();
   popup_activated_p--;
 
@@ -1261,13 +1296,25 @@ in the font selection dialog.  */)
   lwidth = (pattern.specified & FSPEC_WIDTH
 	    ? haikufont_width_to_lisp (pattern.width) : Qnil);
   ladstyle = (pattern.specified & FSPEC_STYLE
-	     ? intern (pattern.style) : Qnil);
+	      ? intern (pattern.style) : Qnil);
   lsize = (size >= 0 ? make_fixnum (size) : Qnil);
+
+  if (disable_antialiasing)
+    return CALLN (Ffont_spec, QCfamily, lfamily,
+		  QCweight, lweight, QCslant, lslant,
+		  QCwidth, lwidth, QCadstyle, ladstyle,
+		  QCsize, lsize, QCantialias, Qnil);
 
   return CALLN (Ffont_spec, QCfamily, lfamily,
 		QCweight, lweight, QCslant, lslant,
 		QCwidth, lwidth, QCadstyle, ladstyle,
 		QCsize, lsize);
+}
+
+static void
+syms_of_haikufont_for_pdumper (void)
+{
+  register_font_driver (&haikufont_driver, NULL);
 }
 
 void
@@ -1299,6 +1346,7 @@ syms_of_haikufont (void)
 #ifdef USE_BE_CAIRO
   Fput (Qhaiku, Qfont_driver_superseded_by, Qftcr);
 #endif
+  pdumper_do_now_and_after_load (syms_of_haikufont_for_pdumper);
 
   font_cache = list (Qnil);
   staticpro (&font_cache);

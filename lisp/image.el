@@ -177,6 +177,8 @@ or \"ffmpeg\") is installed."
   "+" #'image-increase-size
   "r" #'image-rotate
   "o" #'image-save
+  "h" #'image-flip-horizontally
+  "v" #'image-flip-vertically
   "C-<wheel-down>" #'image-mouse-decrease-size
   "C-<mouse-5>"    #'image-mouse-decrease-size
   "C-<wheel-up>"   #'image-mouse-increase-size
@@ -764,13 +766,13 @@ SPECS is a list of image specifications.
 
 Each image specification in SPECS is a property list.  The contents of
 a specification are image type dependent.  All specifications must at
-least contain the either the property `:file FILE' or `:data DATA',
+least contain either the property `:file FILE' or `:data DATA',
 where FILE is the file to load the image from, and DATA is a string
 containing the actual image data.  If the property `:type TYPE' is
 omitted or nil, try to determine the image type from its first few
-bytes of image data.  If that doesn’t work, and the property `:file
-FILE' provide a file name, use its file extension as image type. If
-the property `:type TYPE' is provided, it must match the actual type
+bytes of image data.  If that doesn't work, and the property `:file
+FILE' provide a file name, use its file extension as image type.
+If `:type TYPE' is provided, it must match the actual type
 determined for FILE or DATA by `create-image'.  Return nil if no
 specification is satisfied.
 
@@ -1287,6 +1289,22 @@ changing the displayed image size does not affect the saved image."
           (insert (plist-get (cdr image) :data))))
       (write-region (point-min) (point-max)
                     (read-file-name "Write image to file: ")))))
+
+(defun image-flip-horizontally ()
+  "Horizontally flip the image under point."
+  (interactive)
+  (let ((image (image--get-image)))
+    (image-flush image)
+    (setf (image-property image :flip)
+          (not (image-property image :flip)))))
+
+(defun image-flip-vertically ()
+  "Vertically flip the image under point."
+  (interactive)
+  (let ((image (image--get-image)))
+    (image-rotate 180)
+    (setf (image-property image :flip)
+          (not (image-property image :flip)))))
 
 (provide 'image)
 
