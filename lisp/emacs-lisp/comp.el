@@ -475,8 +475,8 @@ Useful to hook into pass checkers.")
     (one-window-p (function (&optional t t) boolean))
     (overlayp (function (t) boolean))
     (parse-colon-path (function (string) cons))
-    (plist-get (function (list t) t))
-    (plist-member (function (list t) list))
+    (plist-get (function (list t &optional t) t))
+    (plist-member (function (list t &optional t) list))
     (point (function () integer))
     (point-marker (function () marker))
     (point-max (function () integer))
@@ -4287,6 +4287,30 @@ of (commands) to run simultaneously."
   ;; Normalize: we only want to pass t or nil, never e.g. `late'.
   (let ((load (not (not load))))
     (native--compile-async files recursively load selector)))
+
+(defun native-compile-prune-cache ()
+  "Remove .eln files that aren't applicable to the current Emacs invocation."
+  (interactive)
+  (dolist (dir native-comp-eln-load-path)
+    ;; If a directory is non absolute it is assumed to be relative to
+    ;; `invocation-directory'.
+    (setq dir (expand-file-name dir invocation-directory))
+    (when (file-exists-p dir)
+      (dolist (subdir (directory-files dir t))
+        (when (and (file-directory-p subdir)
+                   (file-writable-p subdir)
+                   (not (equal (file-name-nondirectory
+                                (directory-file-name subdir))
+                               comp-native-version-dir)))
+          (message "Deleting %s..." subdir)
+          ;; We're being overly cautious here -- there shouldn't be
+          ;; anything but .eln files in these directories.
+          (dolist (eln (directory-files subdir t "\\.eln\\(\\.tmp\\)?\\'"))
+            (when (file-writable-p eln)
+              (delete-file eln)))
+          (when (directory-empty-p subdir)
+            (delete-directory subdir))))))
+  (message "Cache cleared"))
 
 (provide 'comp)
 

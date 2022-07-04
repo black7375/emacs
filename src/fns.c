@@ -2276,17 +2276,37 @@ merge_c (Lisp_Object org_l1, Lisp_Object org_l2, bool (*less) (Lisp_Object, Lisp
 
 /* This does not check for quits.  That is safe since it must terminate.  */
 
-DEFUN ("plist-get", Fplist_get, Splist_get, 2, 2, 0,
+DEFUN ("plist-get", Fplist_get, Splist_get, 2, 3, 0,
        doc: /* Extract a value from a property list.
 PLIST is a property list, which is a list of the form
 \(PROP1 VALUE1 PROP2 VALUE2...).
 
 This function returns the value corresponding to the given PROP, or
 nil if PROP is not one of the properties on the list.  The comparison
-with PROP is done using `eq'.
+with PROP is done using PREDICATE, which defaults to `eq'.
 
-This function never signals an error.  */)
-  (Lisp_Object plist, Lisp_Object prop)
+This function doesn't signal an error if PLIST is invalid.  */)
+  (Lisp_Object plist, Lisp_Object prop, Lisp_Object predicate)
+{
+  Lisp_Object tail = plist;
+  if (NILP (predicate))
+    return plist_get (plist, prop);
+
+  FOR_EACH_TAIL_SAFE (tail)
+    {
+      if (! CONSP (XCDR (tail)))
+	break;
+      if (!NILP (call2 (predicate, prop, XCAR (tail))))
+	return XCAR (XCDR (tail));
+      tail = XCDR (tail);
+    }
+
+  return Qnil;
+}
+
+/* Faster version of the above that works with EQ only */
+Lisp_Object
+plist_get (Lisp_Object plist, Lisp_Object prop)
 {
   Lisp_Object tail = plist;
   FOR_EACH_TAIL_SAFE (tail)
@@ -2297,7 +2317,6 @@ This function never signals an error.  */)
 	return XCAR (XCDR (tail));
       tail = XCDR (tail);
     }
-
   return Qnil;
 }
 
@@ -2307,25 +2326,55 @@ This is the last value stored with `(put SYMBOL PROPNAME VALUE)'.  */)
   (Lisp_Object symbol, Lisp_Object propname)
 {
   CHECK_SYMBOL (symbol);
-  Lisp_Object propval = Fplist_get (CDR (Fassq (symbol, Voverriding_plist_environment)),
-                                    propname);
+  Lisp_Object propval = plist_get (CDR (Fassq (symbol,
+					       Voverriding_plist_environment)),
+				   propname);
   if (!NILP (propval))
     return propval;
-  return Fplist_get (XSYMBOL (symbol)->u.s.plist, propname);
+  return plist_get (XSYMBOL (symbol)->u.s.plist, propname);
 }
 
-DEFUN ("plist-put", Fplist_put, Splist_put, 3, 3, 0,
+DEFUN ("plist-put", Fplist_put, Splist_put, 3, 4, 0,
        doc: /* Change value in PLIST of PROP to VAL.
 PLIST is a property list, which is a list of the form
 \(PROP1 VALUE1 PROP2 VALUE2 ...).
 
-The comparison with PROP is done using `eq'.
+The comparison with PROP is done using PREDICATE, which defaults to `eq'.
 
 If PROP is already a property on the list, its value is set to VAL,
 otherwise the new PROP VAL pair is added.  The new plist is returned;
 use `(setq x (plist-put x prop val))' to be sure to use the new value.
 The PLIST is modified by side effects.  */)
-  (Lisp_Object plist, Lisp_Object prop, Lisp_Object val)
+  (Lisp_Object plist, Lisp_Object prop, Lisp_Object val, Lisp_Object predicate)
+{
+  Lisp_Object prev = Qnil, tail = plist;
+  if (NILP (predicate))
+    return plist_put (plist, prop, val);
+  FOR_EACH_TAIL (tail)
+    {
+      if (! CONSP (XCDR (tail)))
+	break;
+
+      if (!NILP (call2 (predicate, prop, XCAR (tail))))
+	{
+	  Fsetcar (XCDR (tail), val);
+	  return plist;
+	}
+
+      prev = tail;
+      tail = XCDR (tail);
+    }
+  CHECK_TYPE (NILP (tail), Qplistp, plist);
+  Lisp_Object newcell
+    = Fcons (prop, Fcons (val, NILP (prev) ? plist : XCDR (XCDR (prev))));
+  if (NILP (prev))
+    return newcell;
+  Fsetcdr (XCDR (prev), newcell);
+  return plist;
+}
+
+Lisp_Object
+plist_put (Lisp_Object plist, Lisp_Object prop, Lisp_Object val)
 {
   Lisp_Object prev = Qnil, tail = plist;
   FOR_EACH_TAIL (tail)
@@ -2358,62 +2407,8 @@ It can be retrieved with `(get SYMBOL PROPNAME)'.  */)
 {
   CHECK_SYMBOL (symbol);
   set_symbol_plist
-    (symbol, Fplist_put (XSYMBOL (symbol)->u.s.plist, propname, value));
+    (symbol, plist_put (XSYMBOL (symbol)->u.s.plist, propname, value));
   return value;
-}
-
-DEFUN ("lax-plist-get", Flax_plist_get, Slax_plist_get, 2, 2, 0,
-       doc: /* Extract a value from a property list, comparing with `equal'.
-This function is otherwise like `plist-get', but may signal an error
-if PLIST isn't a valid plist.  */)
-  (Lisp_Object plist, Lisp_Object prop)
-{
-  Lisp_Object tail = plist;
-  FOR_EACH_TAIL (tail)
-    {
-      if (! CONSP (XCDR (tail)))
-	break;
-      if (! NILP (Fequal (prop, XCAR (tail))))
-	return XCAR (XCDR (tail));
-      tail = XCDR (tail);
-    }
-
-  CHECK_TYPE (NILP (tail), Qplistp, plist);
-
-  return Qnil;
-}
-
-DEFUN ("lax-plist-put", Flax_plist_put, Slax_plist_put, 3, 3, 0,
-       doc: /* Change value in PLIST of PROP to VAL, comparing with `equal'.
-PLIST is a property list, which is a list of the form
-\(PROP1 VALUE1 PROP2 VALUE2 ...).  PROP and VAL are any objects.
-If PROP is already a property on the list, its value is set to VAL,
-otherwise the new PROP VAL pair is added.  The new plist is returned;
-use `(setq x (lax-plist-put x prop val))' to be sure to use the new value.
-The PLIST is modified by side effects.  */)
-  (Lisp_Object plist, Lisp_Object prop, Lisp_Object val)
-{
-  Lisp_Object prev = Qnil, tail = plist;
-  FOR_EACH_TAIL (tail)
-    {
-      if (! CONSP (XCDR (tail)))
-	break;
-
-      if (! NILP (Fequal (prop, XCAR (tail))))
-	{
-	  Fsetcar (XCDR (tail), val);
-	  return plist;
-	}
-
-      prev = tail;
-      tail = XCDR (tail);
-    }
-  CHECK_TYPE (NILP (tail), Qplistp, plist);
-  Lisp_Object newcell = list2 (prop, val);
-  if (NILP (prev))
-    return newcell;
-  Fsetcdr (XCDR (prev), newcell);
-  return plist;
 }
 
 DEFUN ("eql", Feql, Seql, 2, 2, 0,
@@ -3078,7 +3073,7 @@ dynamic module files, in that order; but the function will not try to
 load the file without any suffix.  See `get-load-suffixes' for the
 complete list of suffixes.
 
-To find the file, this function searches that directories in `load-path'.
+To find the file, this function searches the directories in `load-path'.
 
 If the optional third argument NOERROR is non-nil, then, if
 the file is not found, the function returns nil instead of signaling
@@ -3183,22 +3178,25 @@ FILENAME are suppressed.  */)
    bottleneck of Widget operation.  Here is their translation to C,
    for the sole reason of efficiency.  */
 
-DEFUN ("plist-member", Fplist_member, Splist_member, 2, 2, 0,
+DEFUN ("plist-member", Fplist_member, Splist_member, 2, 3, 0,
        doc: /* Return non-nil if PLIST has the property PROP.
 PLIST is a property list, which is a list of the form
 \(PROP1 VALUE1 PROP2 VALUE2 ...).
 
-The comparison with PROP is done using `eq'.
+The comparison with PROP is done using PREDICATE, which defaults to
+`eq'.
 
 Unlike `plist-get', this allows you to distinguish between a missing
 property and a property with the value nil.
 The value is actually the tail of PLIST whose car is PROP.  */)
-  (Lisp_Object plist, Lisp_Object prop)
+  (Lisp_Object plist, Lisp_Object prop, Lisp_Object predicate)
 {
   Lisp_Object tail = plist;
+  if (NILP (predicate))
+    predicate = Qeq;
   FOR_EACH_TAIL (tail)
     {
-      if (EQ (XCAR (tail), prop))
+      if (!NILP (call2 (predicate, XCAR (tail), prop)))
 	return tail;
       tail = XCDR (tail);
       if (! CONSP (tail))
@@ -3208,13 +3206,22 @@ The value is actually the tail of PLIST whose car is PROP.  */)
   return Qnil;
 }
 
+/* plist_member isn't used much in the Emacs sources, so just provide
+   a shim so that the function name follows the same pattern as
+   plist_get/plist_put.  */
+Lisp_Object
+plist_member (Lisp_Object plist, Lisp_Object prop)
+{
+  return Fplist_member (plist, prop, Qnil);
+}
+
 DEFUN ("widget-put", Fwidget_put, Swidget_put, 3, 3, 0,
        doc: /* In WIDGET, set PROPERTY to VALUE.
 The value can later be retrieved with `widget-get'.  */)
   (Lisp_Object widget, Lisp_Object property, Lisp_Object value)
 {
   CHECK_CONS (widget);
-  XSETCDR (widget, Fplist_put (XCDR (widget), property, value));
+  XSETCDR (widget, plist_put (XCDR (widget), property, value));
   return value;
 }
 
@@ -3231,7 +3238,7 @@ later with `widget-put'.  */)
       if (NILP (widget))
 	return Qnil;
       CHECK_CONS (widget);
-      tmp = Fplist_member (XCDR (widget), property);
+      tmp = plist_member (XCDR (widget), property);
       if (CONSP (tmp))
 	{
 	  tmp = XCDR (tmp);
@@ -4916,7 +4923,8 @@ Hash codes are not guaranteed to be preserved across Emacs sessions.  */)
 
 DEFUN ("sxhash-eql", Fsxhash_eql, Ssxhash_eql, 1, 1, 0,
        doc: /* Return an integer hash code for OBJ suitable for `eql'.
-If (eql A B), then (= (sxhash-eql A) (sxhash-eql B)).
+If (eql A B), then (= (sxhash-eql A) (sxhash-eql B)), but the opposite
+isn't necessarily true.
 
 Hash codes are not guaranteed to be preserved across Emacs sessions.  */)
   (Lisp_Object obj)
@@ -4926,7 +4934,8 @@ Hash codes are not guaranteed to be preserved across Emacs sessions.  */)
 
 DEFUN ("sxhash-equal", Fsxhash_equal, Ssxhash_equal, 1, 1, 0,
        doc: /* Return an integer hash code for OBJ suitable for `equal'.
-If (equal A B), then (= (sxhash-equal A) (sxhash-equal B)).
+If (equal A B), then (= (sxhash-equal A) (sxhash-equal B)), but the
+opposite isn't necessarily true.
 
 Hash codes are not guaranteed to be preserved across Emacs sessions.  */)
   (Lisp_Object obj)
@@ -6064,8 +6073,6 @@ The same variable also affects the function `read-answer'.  */);
   defsubr (&Sget);
   defsubr (&Splist_put);
   defsubr (&Sput);
-  defsubr (&Slax_plist_get);
-  defsubr (&Slax_plist_put);
   defsubr (&Seql);
   defsubr (&Sequal);
   defsubr (&Sequal_including_properties);

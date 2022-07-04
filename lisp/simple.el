@@ -1507,12 +1507,22 @@ the actual saved text might be different from what was killed."
            (while (> n 0)
              ;; 'find-composition' will return (FROM TO ....) or nil.
              (setq cmp (find-composition pos))
-             (if cmp
-                 ;; TO can be at POS, in which case we want to make
-                 ;; sure we advance at least by 1 character.
-                 (let ((cmp-end (cadr cmp)))
-                   (setq pos (max (1+ pos) cmp-end)))
-               (setq pos (1+ pos)))
+             (setq pos
+                   (if cmp
+                       (let ((from (car cmp))
+                             (to (cadr cmp)))
+                         (cond
+                          ((= (length cmp) 2) ; static composition
+                           to)
+                          ;; TO can be at POS, in which case we want
+                          ;; to make sure we advance at least by 1
+                          ;; character.
+                          ((<= to pos)
+                           (1+ pos))
+                          (t
+                           (lgstring-glyph-boundary (nth 2 cmp)
+                                                    from (1+ pos)))))
+                     (1+ pos)))
              (setq n (1- n)))
            (delete-char (- pos start) killflag)))
 
@@ -2201,7 +2211,7 @@ to get different commands to edit and resubmit."
 If it's nil, include all the commands.
 If it's a function, it will be called with two parameters: the
 symbol of the command and a buffer.  The predicate should return
-non-nil if the command should be present when doing `M-x TAB'
+non-nil if the command should be present when doing \\`M-x TAB'
 in that buffer."
   :version "28.1"
   :group 'completion
@@ -10640,6 +10650,15 @@ If the buffer doesn't exist, create it first."
         (string-to-number value)
       (intern (concat "sig" (downcase value))))))
 
+(defun lax-plist-get (plist prop)
+  "Extract a value from a property list, comparing with `equal'."
+  (declare (obsolete plist-get "29.1"))
+  (plist-get plist prop #'equal))
+
+(defun lax-plist-put (plist prop val)
+  "Change value in PLIST of PROP to VAL, comparing with `equal'."
+  (declare (obsolete plist-put "29.1"))
+  (plist-put plist prop val #'equal))
 
 
 (provide 'simple)
