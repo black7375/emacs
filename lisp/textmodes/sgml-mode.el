@@ -480,8 +480,8 @@ The attribute alist is made up as
 ATTRIBUTERULE is a list of optionally t (no value when no input) followed by
 an optional alist of possible values."
   :type '(repeat (cons (string :tag "Tag Name")
-		       (repeat :tag "Tag Rule" sexp))))
-(put 'sgml-tag-alist 'risky-local-variable t)
+                       (repeat :tag "Tag Rule" sexp)))
+  :risky t)
 
 (defcustom sgml-tag-help
   '(("!" . "Empty declaration for comment")
@@ -600,12 +600,11 @@ Do \\[describe-key] on the following bindings to discover what they do.
   (setq-local tildify-foreach-region-function
               (apply-partially
                'tildify-foreach-ignore-environments
-               `((,(eval-when-compile
-                     (concat
-                      "<\\("
-                      (regexp-opt '("pre" "dfn" "code" "samp" "kbd" "var"
-                                    "PRE" "DFN" "CODE" "SAMP" "KBD" "VAR"))
-                      "\\)\\>[^>]*>"))
+               `((,(concat
+                    "<\\("
+                    (regexp-opt '("pre" "dfn" "code" "samp" "kbd" "var"
+                                  "PRE" "DFN" "CODE" "SAMP" "KBD" "VAR"))
+                    "\\)\\>[^>]*>")
                   . ("</" 1 ">"))
                  ("<! *--" . "-- *>")
                  ("<" . ">"))))

@@ -868,7 +868,7 @@ the C sources, too."
                       (shortdoc-display-group group object
                                               help-window-keep-selected))
             'follow-link t
-            'help-echo (purecopy "mouse-1, RET: show documentation group")))
+            'help-echo "mouse-1, RET: show documentation group"))
          groups)
         (insert (if (= (length groups) 1)
                     " group.\n"
@@ -1390,17 +1390,19 @@ it is displayed along with the global value."
     (help-fns--edit-value-mode)
     (insert (format ";; Edit the `%s' variable.\n" (nth 0 var))
             (substitute-command-keys
-             ";; \\[help-fns-edit-mode-done] to update the value and exit.\n\n"))
+             ";; `\\[help-fns-edit-mode-done]' to update the value and exit; \
+`\\[help-fns-edit-mode-cancel]' to cancel.\n\n"))
     (setq-local help-fns--edit-variable var)))
 
 (defvar-keymap help-fns--edit-value-mode-map
-  "C-c C-c" #'help-fns-edit-mode-done)
+  "C-c C-c" #'help-fns-edit-mode-done
+  "C-c C-k" #'help-fns-edit-mode-cancel)
 
 (define-derived-mode help-fns--edit-value-mode emacs-lisp-mode "Elisp"
   :interactive nil)
 
 (defun help-fns-edit-mode-done (&optional kill)
-  "Update the value of the variable and kill the buffer.
+  "Update the value of the variable being edited and kill the edit buffer.
 If KILL (the prefix), don't update the value, but just kill the
 current buffer."
   (interactive "P" help-fns--edit-value-mode)
@@ -1419,6 +1421,12 @@ current buffer."
     (when (buffer-live-p help-buffer)
       (with-current-buffer help-buffer
         (revert-buffer)))))
+
+(defun help-fns-edit-mode-cancel ()
+  "Kill the edit buffer and cancel editing of the value.
+This cancels value editing without updating the value."
+  (interactive nil help-fns--edit-value-mode)
+  (help-fns-edit-mode-done t))
 
 (defun help-fns--run-describe-functions (functions &rest args)
   (with-current-buffer standard-output

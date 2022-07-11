@@ -666,35 +666,26 @@ count_size_as_multibyte (const unsigned char *str, ptrdiff_t len)
 }
 
 
-/* Convert unibyte text at STR of BYTES bytes to a multibyte text
-   that contains the same single-byte characters.  It actually
-   converts all 8-bit characters to multibyte forms.  It is assured
-   that we can use LEN bytes at STR as a work area and that is
-   enough.  */
-
-ptrdiff_t
-str_to_multibyte (unsigned char *str, ptrdiff_t len, ptrdiff_t bytes)
+/* Convert unibyte text at SRC of NCHARS bytes to a multibyte text
+   at DST of NBYTES bytes, that contains the same single-byte characters.  */
+void
+str_to_multibyte (unsigned char *dst, const unsigned char *src,
+		  ptrdiff_t nchars, ptrdiff_t nbytes)
 {
-  unsigned char *p = str, *endp = str + bytes;
-  unsigned char *to;
-
-  while (p < endp && *p < 0x80) p++;
-  if (p == endp)
-    return bytes;
-  to = p;
-  bytes = endp - p;
-  endp = str + len;
-  memmove (endp - bytes, p, bytes);
-  p = endp - bytes;
-  while (p < endp)
+  const unsigned char *s = src + nchars;
+  unsigned char *d = dst + nbytes;
+  for (ptrdiff_t i = 0; i < nchars; i++)
     {
-      int c = *p++;
-
-      if (c >= 0x80)
-	c = BYTE8_TO_CHAR (c);
-      to += CHAR_STRING (c, to);
+      unsigned char c = *--s;
+      if (c <= 0x7f)
+	*--d = c;
+      else
+	{
+	  *--d = 0x80 + (c & 0x3f);
+	  *--d = 0xc0 + ((c >> 6) & 1);
+	}
     }
-  return (to - str);
+  eassert (d == dst && s == src);
 }
 
 /* Arrange multibyte text at STR of LEN bytes as a unibyte text.  It
@@ -733,31 +724,6 @@ str_as_unibyte (unsigned char *str, ptrdiff_t bytes)
     }
   return (to - str);
 }
-
-/* Convert eight-bit chars in SRC (in multibyte form) to the
-   corresponding byte and store in DST.  CHARS is the number of
-   characters in SRC.  The value is the number of bytes stored in DST.
-   Usually, the value is the same as CHARS, but is less than it if SRC
-   contains a non-ASCII, non-eight-bit character.  */
-
-ptrdiff_t
-str_to_unibyte (const unsigned char *src, unsigned char *dst, ptrdiff_t chars)
-{
-  ptrdiff_t i;
-
-  for (i = 0; i < chars; i++)
-    {
-      int c = string_char_advance (&src);
-
-      if (CHAR_BYTE8_P (c))
-	c = CHAR_TO_BYTE8 (c);
-      else if (! ASCII_CHAR_P (c))
-	return i;
-      *dst++ = c;
-    }
-  return i;
-}
-
 
 static ptrdiff_t
 string_count_byte8 (Lisp_Object string)

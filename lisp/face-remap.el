@@ -372,9 +372,9 @@ INC may be passed as a numeric prefix argument.
 The actual adjustment made depends on the final component of the
 keybinding used to invoke the command, with all modifiers removed:
 
-   +, =   Increase font size in current buffer by one step
-   -      Decrease font size in current buffer by one step
-   0      Reset the font size to the global default
+   \\`+', \\`='   Increase font size in current buffer by one step
+   \\`-'      Decrease font size in current buffer by one step
+   \\`0'      Reset the font size to the global default
 
 After adjusting, continue to read input events and further adjust
 the font size as long as the input event read
@@ -408,20 +408,15 @@ See also the related command `global-text-scale-adjust'."
               (?0 0)
               (_ inc))))
       (text-scale-increase step)
-      ;; (unless (zerop step)
-      (message (substitute-command-keys
-                "Use \\`+',\\`-',\\`0' for further adjustment"))
       (set-transient-map
        (let ((map (make-sparse-keymap)))
          (dolist (mods '(() (control)))
-           (dolist (key '(?- ?+ ?= ?0)) ;; = is often unshifted +.
+           (dolist (key '(?+ ?= ?- ?0)) ;; = is often unshifted +.
              (define-key map (vector (append mods (list key)))
                (lambda () (interactive) (text-scale-adjust (abs inc))))))
          map)
-       nil
-       ;; Clear the prompt after exiting.
-       (lambda ()
-         (message ""))))))
+       nil nil
+       "Use %k for further adjustment"))))
 
 (defvar-local text-scale--pinch-start-scale 0
   "The text scale at the start of a pinch sequence.")
@@ -479,9 +474,9 @@ Interactively, INCREMENT may be passed as a numeric prefix argument.
 The adjustment made depends on the final component of the key binding
 used to invoke the command, with all modifiers removed:
 
-   +, =   Globally increase the height of the default face
-   -      Globally decrease the height of the default face
-   0      Globally reset the height of the default face
+   \\`+', \\`='   Globally increase the height of the default face
+   \\`-'      Globally decrease the height of the default face
+   \\`0'      Globally reset the height of the default face
 
 After adjusting, further adjust the font size as long as the key,
 with all modifiers removed, is one of the above characters.
@@ -515,15 +510,15 @@ See also the related command `text-scale-adjust'."
                (not global-text-scale-adjust-resizes-frames)))
           (set-face-attribute 'default nil :height new)))
       (when (characterp key)
-        (message (substitute-command-keys
-                  "Use \\`+',\\`-',\\`0' for further adjustment"))
         (set-transient-map
          (let ((map (make-sparse-keymap)))
            (dolist (mod '(() (control meta)))
              (dolist (key '(?+ ?= ?- ?0))
                (define-key map (vector (append mod (list key)))
                  'global-text-scale-adjust)))
-           map))))))
+           map)
+       nil nil
+       "Use %k for further adjustment")))))
 
 
 ;; ----------------------------------------------------------------

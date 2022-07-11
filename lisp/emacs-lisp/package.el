@@ -355,10 +355,10 @@ More specifically the value can be:
 
 This also applies to the \"archive-contents\" file that lists the
 contents of the archive."
-  :type '(choice (const nil :tag "Never")
-                 (const allow-unsigned :tag "Allow unsigned")
-                 (const t :tag "Check always")
-                 (const all :tag "Check all signatures"))
+  :type '(choice (const :value nil            :tag "Never")
+                 (const :value allow-unsigned :tag "Allow unsigned")
+                 (const :value t              :tag "Check always")
+                 (const :value all            :tag "Check all signatures"))
   :risky t
   :version "27.1")
 
@@ -418,22 +418,22 @@ synchronously."
 
 (defcustom package-name-column-width 30
   "Column width for the Package name in the package menu."
-  :type 'number
+  :type 'natnum
   :version "28.1")
 
 (defcustom package-version-column-width 14
   "Column width for the Package version in the package menu."
-  :type 'number
+  :type 'natnum
   :version "28.1")
 
 (defcustom package-status-column-width 12
   "Column width for the Package status in the package menu."
-  :type 'number
+  :type 'natnum
   :version "28.1")
 
 (defcustom package-archive-column-width 8
   "Column width for the Package archive in the package menu."
-  :type 'number
+  :type 'natnum
   :version "28.1")
 
 
@@ -3519,9 +3519,6 @@ The full list of keys can be viewed with \\[describe-mode]."
   (package--ensure-package-menu-mode)
   (message (mapconcat #'package--prettify-quick-help-key
                       package--quick-help-keys "\n")))
-
-(define-obsolete-function-alias
-  'package-menu-view-commentary 'package-menu-describe-package "24.1")
 
 (defun package-menu-get-status ()
   "Return status text of package at point in Package Menu."
