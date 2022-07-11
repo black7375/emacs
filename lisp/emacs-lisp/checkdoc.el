@@ -165,7 +165,7 @@
 (require 'cl-lib)
 (require 'help-mode) ;; for help-xref-info-regexp
 (require 'thingatpt) ;; for handy thing-at-point-looking-at
-(require 'lisp-mode) ;; for lisp-mode-symbol-regexp
+(require 'lisp-mode) ;; for lisp-mode-symbol regexp
 (eval-when-compile (require 'dired))     ;; for dired-map-over-marks
 (require 'lisp-mnt)
 
@@ -1279,38 +1279,30 @@ TEXT, START, END and UNFIXABLE conform to
 ;;; Minor Mode specification
 ;;
 
-(defvar checkdoc-minor-mode-map
-  (let ((map (make-sparse-keymap))
-	(pmap (make-sparse-keymap)))
-    ;; Override some bindings
-    (define-key map "\C-\M-x" #'checkdoc-eval-defun)
-    (define-key map "\C-x`"   #'checkdoc-continue)
-    (define-key map [menu-bar emacs-lisp eval-buffer]
-      #'checkdoc-eval-current-buffer)
-    ;; Add some new bindings under C-c ?
-    (define-key pmap "x" #'checkdoc-defun)
-    (define-key pmap "X" #'checkdoc-ispell-defun)
-    (define-key pmap "`" #'checkdoc-continue)
-    (define-key pmap "~" #'checkdoc-ispell-continue)
-    (define-key pmap "s" #'checkdoc-start)
-    (define-key pmap "S" #'checkdoc-ispell-start)
-    (define-key pmap "d" #'checkdoc)
-    (define-key pmap "D" #'checkdoc-ispell)
-    (define-key pmap "b" #'checkdoc-current-buffer)
-    (define-key pmap "B" #'checkdoc-ispell-current-buffer)
-    (define-key pmap "e" #'checkdoc-eval-current-buffer)
-    (define-key pmap "m" #'checkdoc-message-text)
-    (define-key pmap "M" #'checkdoc-ispell-message-text)
-    (define-key pmap "c" #'checkdoc-comments)
-    (define-key pmap "C" #'checkdoc-ispell-comments)
-    (define-key pmap " " #'checkdoc-rogue-spaces)
+(defvar-keymap checkdoc-minor-mode-map
+  :doc "Keymap used to override evaluation key-bindings for documentation checking."
+  ;; Override some bindings
+  "C-M-x"     #'checkdoc-eval-defun
+  "C-x `"     #'checkdoc-continue
+  "<menu-bar> <emacs-lisp> <eval-buffer>"  #'checkdoc-eval-current-buffer
 
-    ;; bind our submap into map
-    (define-key map "\C-c?" pmap)
-    map)
-  "Keymap used to override evaluation key-bindings for documentation checking.")
-
-;; Add in a menubar with easy-menu
+  ;; Add some new bindings under C-c ?
+  "C-c ? x"   #'checkdoc-defun
+  "C-c ? X"   #'checkdoc-ispell-defun
+  "C-c ? `"   #'checkdoc-continue
+  "C-c ? ~"   #'checkdoc-ispell-continue
+  "C-c ? s"   #'checkdoc-start
+  "C-c ? S"   #'checkdoc-ispell-start
+  "C-c ? d"   #'checkdoc
+  "C-c ? D"   #'checkdoc-ispell
+  "C-c ? b"   #'checkdoc-current-buffer
+  "C-c ? B"   #'checkdoc-ispell-current-buffer
+  "C-c ? e"   #'checkdoc-eval-current-buffer
+  "C-c ? m"   #'checkdoc-message-text
+  "C-c ? M"   #'checkdoc-ispell-message-text
+  "C-c ? c"   #'checkdoc-comments
+  "C-c ? C"   #'checkdoc-ispell-comments
+  "C-c ? SPC" #'checkdoc-rogue-spaces)
 
 (easy-menu-define nil checkdoc-minor-mode-map
   "Checkdoc Minor Mode Menu."
@@ -2604,13 +2596,13 @@ The correct format is \"Foo\" or \"some-symbol: Foo\".  See also
     (unless (let ((case-fold-search nil))
               (looking-at (rx (or upper-case "%s"))))
       ;; A defined Lisp symbol is always okay.
-      (unless (and (looking-at (rx (group (regexp lisp-mode-symbol-regexp))))
+      (unless (and (looking-at (rx (group lisp-mode-symbol)))
                    (or (fboundp (intern (match-string 1)))
                        (boundp (intern (match-string 1)))))
         ;; Other Lisp symbols are sometimes okay.
         (rx-let ((c (? "\\\n")))        ; `c' is for a continued line
           (let ((case-fold-search nil)
-                (some-symbol (rx (regexp lisp-mode-symbol-regexp)
+                (some-symbol (rx lisp-mode-symbol
                                  c ":" c (+ (any " \t\n"))))
                 (lowercase-str (rx c (group (any "a-z") (+ wordchar)))))
             (if (looking-at some-symbol)

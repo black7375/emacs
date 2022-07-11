@@ -1305,9 +1305,6 @@ command_loop_1 (void)
       /* If there are warnings waiting, process them.  */
       if (!NILP (Vdelayed_warnings_list))
         safe_run_hooks (Qdelayed_warnings_hook);
-
-      if (!NILP (Vdeferred_action_list))
-	safe_run_hooks (Qdeferred_action_function);
     }
 
   /* Do this after running Vpost_command_hook, for consistency.  */
@@ -1536,8 +1533,6 @@ command_loop_1 (void)
       /* If there are warnings waiting, process them.  */
       if (!NILP (Vdelayed_warnings_list))
         safe_run_hooks (Qdelayed_warnings_hook);
-
-      safe_run_hooks (Qdeferred_action_function);
 
       kset_last_command (current_kboard, Vthis_command);
       kset_real_last_command (current_kboard, Vreal_this_command);
@@ -4012,6 +4007,7 @@ kbd_buffer_get_event (KBOARD **kbp,
 	 We return nil for them.  */
       switch (event->kind)
       {
+#ifndef HAVE_HAIKU
       case SELECTION_REQUEST_EVENT:
       case SELECTION_CLEAR_EVENT:
 	{
@@ -4035,6 +4031,20 @@ kbd_buffer_get_event (KBOARD **kbp,
 #endif
 	}
         break;
+#else
+      case SELECTION_REQUEST_EVENT:
+	emacs_abort ();
+
+      case SELECTION_CLEAR_EVENT:
+	{
+	  struct input_event copy = event->ie;
+
+	  kbd_fetch_ptr = next_kbd_event (event);
+	  input_pending = readable_events (0);
+	  haiku_handle_selection_clear (&copy);
+	}
+	break;
+#endif
 
       case MONITORS_CHANGED_EVENT:
 	{
@@ -4345,8 +4355,18 @@ kbd_buffer_get_event (KBOARD **kbp,
 static void
 process_special_events (void)
 {
-  for (union buffered_input_event *event = kbd_fetch_ptr;
-       event != kbd_store_ptr; event = next_kbd_event (event))
+  union buffered_input_event *event;
+#if defined HAVE_X11 || defined HAVE_PGTK || defined HAVE_HAIKU
+#ifndef HAVE_HAIKU
+  struct selection_input_event copy;
+#else
+  struct input_event copy;
+#endif
+  int moved_events;
+#endif
+
+  for (event = kbd_fetch_ptr;  event != kbd_store_ptr;
+       event = next_kbd_event (event))
     {
       /* If we find a stored X selection request, handle it now.  */
       if (event->kind == SELECTION_REQUEST_EVENT
@@ -4360,8 +4380,7 @@ process_special_events (void)
 	     between kbd_fetch_ptr and EVENT one slot to the right,
 	     cyclically.  */
 
-	  struct selection_input_event copy = event->sie;
-	  int moved_events;
+	  copy = event->sie;
 
 	  if (event < kbd_fetch_ptr)
 	    {
@@ -4383,6 +4402,27 @@ process_special_events (void)
 #else
 	  pgtk_handle_selection_event (&copy);
 #endif
+#elif defined HAVE_HAIKU
+	  if (event->ie.kind != SELECTION_CLEAR_EVENT)
+	    emacs_abort ();
+
+	  copy = event->ie;
+
+	  if (event < kbd_fetch_ptr)
+	    {
+	      memmove (kbd_buffer + 1, kbd_buffer,
+		       (event - kbd_buffer) * sizeof *kbd_buffer);
+	      kbd_buffer[0] = kbd_buffer[KBD_BUFFER_SIZE - 1];
+	      moved_events = kbd_buffer + KBD_BUFFER_SIZE - 1 - kbd_fetch_ptr;
+	    }
+	  else
+	    moved_events = event - kbd_fetch_ptr;
+
+	  memmove (kbd_fetch_ptr + 1, kbd_fetch_ptr,
+		   moved_events * sizeof *kbd_fetch_ptr);
+	  kbd_fetch_ptr = next_kbd_event (kbd_fetch_ptr);
+	  input_pending = readable_events (0);
+	  haiku_handle_selection_clear (&copy);
 #else
 	  /* We're getting selection request events, but we don't have
              a window system.  */
@@ -11419,7 +11459,7 @@ quit_throw_to_read_char (bool from_signal)
   if (FRAMEP (internal_last_event_frame)
       && !EQ (internal_last_event_frame, selected_frame))
     do_switch_frame (make_lispy_switch_frame (internal_last_event_frame),
-		     0, 0, Qnil);
+		     0, Qnil);
 
   sys_longjmp (getcjmp, 1);
 }
@@ -12044,7 +12084,6 @@ syms_of_keyboard (void)
   DEFSYM (Qundo_auto__undoably_changed_buffers,
           "undo-auto--undoably-changed-buffers");
 
-  DEFSYM (Qdeferred_action_function, "deferred-action-function");
   DEFSYM (Qdelayed_warnings_hook, "delayed-warnings-hook");
   DEFSYM (Qfunction_key, "function-key");
 
@@ -12762,17 +12801,6 @@ This keymap works like `input-decode-map', but comes after `function-key-map'.
 Another difference is that it is global rather than terminal-local.  */);
   Vkey_translation_map = Fmake_sparse_keymap (Qnil);
 
-  DEFVAR_LISP ("deferred-action-list", Vdeferred_action_list,
-	       doc: /* List of deferred actions to be performed at a later time.
-The precise format isn't relevant here; we just check whether it is nil.  */);
-  Vdeferred_action_list = Qnil;
-
-  DEFVAR_LISP ("deferred-action-function", Vdeferred_action_function,
-	       doc: /* Function to call to handle deferred actions, after each command.
-This function is called with no arguments after each command
-whenever `deferred-action-list' is non-nil.  */);
-  Vdeferred_action_function = Qnil;
-
   DEFVAR_LISP ("delayed-warnings-list", Vdelayed_warnings_list,
                doc: /* List of warnings to be displayed after this command.
 Each element must be a list (TYPE MESSAGE [LEVEL [BUFFER-NAME]]),
@@ -13027,7 +13055,6 @@ syms_of_keyboard_for_pdumper (void)
   PDUMPER_RESET (num_input_keys, 0);
   PDUMPER_RESET (num_nonmacro_input_events, 0);
   PDUMPER_RESET_LV (Vlast_event_frame, Qnil);
-  PDUMPER_RESET_LV (Vdeferred_action_list, Qnil);
   PDUMPER_RESET_LV (Vdelayed_warnings_list, Qnil);
 
   /* Create the initial keyboard.  Qt means 'unset'.  */
@@ -13149,7 +13176,10 @@ mark_kboards (void)
     {
       /* These two special event types have no Lisp_Objects to mark.  */
       if (event->kind != SELECTION_REQUEST_EVENT
-	  && event->kind != SELECTION_CLEAR_EVENT)
+#ifndef HAVE_HAIKU
+	  && event->kind != SELECTION_CLEAR_EVENT
+#endif
+	  )
 	{
 	  mark_object (event->ie.x);
 	  mark_object (event->ie.y);

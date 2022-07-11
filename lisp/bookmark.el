@@ -160,7 +160,7 @@ This includes the annotations column.")
 (defcustom bookmark-bmenu-file-column 30
   "Column at which to display filenames in a buffer listing bookmarks.
 You can toggle whether files are shown with \\<bookmark-bmenu-mode-map>\\[bookmark-bmenu-toggle-filenames]."
-  :type 'integer)
+  :type 'natnum)
 
 
 (defcustom bookmark-bmenu-toggle-filenames t
@@ -174,7 +174,7 @@ A non-nil value may result in truncated bookmark names."
 
 (defcustom bookmark-menu-length 70
   "Maximum length of a bookmark name displayed on a popup menu."
-  :type 'integer)
+  :type 'natnum)
 
 ;; FIXME: Is it really worth a customization option?
 (defcustom bookmark-search-delay 0.2
@@ -216,10 +216,10 @@ A non-nil value may result in truncated bookmark names."
 ;; Set up these bindings dumping time *only*;
 ;; if the user alters them, don't override the user when loading bookmark.el.
 
-;;;###autoload (define-key ctl-x-r-map "b" 'bookmark-jump)
-;;;###autoload (define-key ctl-x-r-map "m" 'bookmark-set)
-;;;###autoload (define-key ctl-x-r-map "M" 'bookmark-set-no-overwrite)
-;;;###autoload (define-key ctl-x-r-map "l" 'bookmark-bmenu-list)
+;;;###autoload (keymap-set ctl-x-r-map "b" #'bookmark-jump)
+;;;###autoload (keymap-set ctl-x-r-map "m" #'bookmark-set)
+;;;###autoload (keymap-set ctl-x-r-map "M" #'bookmark-set-no-overwrite)
+;;;###autoload (keymap-set ctl-x-r-map "l" #'bookmark-bmenu-list)
 
 ;;;###autoload
 (defvar-keymap bookmark-map
@@ -1436,9 +1436,9 @@ name."
              (read-from-minibuffer
               "New name: "
               nil
-              (let ((now-map (copy-keymap minibuffer-local-map)))
-                (define-key now-map "\C-w" 'bookmark-yank-word)
-                now-map)
+              (define-keymap
+                :parent minibuffer-local-map
+                "C-w" #'bookmark-yank-word)
               nil
               'bookmark-history))))
     (bookmark-set-name old-name final-new-name)
