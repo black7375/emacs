@@ -2900,10 +2900,7 @@ ns_define_fringe_bitmap (int which, unsigned short *bits, int h, int w)
   for (int y = 0 ; y < h ; y++)
     for (int x = 0 ; x < w ; x++)
       {
-        /* XBM rows are always round numbers of bytes, with any unused
-           bits ignored.  */
-        int byte = y * (w/8 + (w%8 ? 1 : 0)) + x/8;
-        bool bit = bits[byte] & (0x80 >> x%8);
+        bool bit = bits[y] & (1 << (w - x - 1));
         if (bit)
           [p appendBezierPathWithRect:NSMakeRect (x, y, 1, 1)];
       }
@@ -3103,16 +3100,26 @@ ns_draw_window_cursor (struct window *w, struct glyph_row *glyph_row,
     case NO_CURSOR:
       break;
     case FILLED_BOX_CURSOR:
+      /* The call to draw_phys_cursor_glyph can end up undoing the
+	 ns_focus, so unfocus here and regain focus later.  */
+      [ctx restoreGraphicsState];
+      ns_unfocus (f);
       draw_phys_cursor_glyph (w, glyph_row, DRAW_CURSOR);
+      ns_focus (f, &r, 1);
       break;
     case HOLLOW_BOX_CURSOR:
+      [ctx restoreGraphicsState];
+      ns_unfocus (f);
       draw_phys_cursor_glyph (w, glyph_row, DRAW_NORMAL_TEXT);
+      ns_focus (f, &r, 1);
+      [FRAME_CURSOR_COLOR (f) set];
 
       /* This works like it does in PostScript, not X Windows.  */
       [NSBezierPath strokeRect: NSInsetRect (r, 0.5, 0.5)];
       break;
     case HBAR_CURSOR:
       NSRectFill (r);
+      [ctx restoreGraphicsState];
       break;
     case BAR_CURSOR:
       s = r;
@@ -3123,10 +3130,10 @@ ns_draw_window_cursor (struct window *w, struct glyph_row *glyph_row,
         s.origin.x += cursor_glyph->pixel_width - s.size.width;
 
       NSRectFill (s);
+      [ctx restoreGraphicsState];
       break;
     }
 
-  [ctx restoreGraphicsState];
   ns_unfocus (f);
 }
 
@@ -3475,6 +3482,35 @@ ns_draw_box (NSRect r, CGFloat hthickness, CGFloat vthickness,
     }
 }
 
+/* Set up colors for the relief lines around glyph string S.  */
+
+static void
+ns_setup_relief_colors (struct glyph_string *s)
+{
+  struct ns_output *di = FRAME_OUTPUT_DATA (s->f);
+  NSColor *color;
+
+  if (s->face->use_box_color_for_shadows_p)
+    color = [NSColor colorWithUnsignedLong: s->face->box_color];
+  else
+    color = [NSColor colorWithUnsignedLong: s->face->background];
+
+  if (s->hl == DRAW_CURSOR)
+    color = FRAME_CURSOR_COLOR (s->f);
+
+  if (color == nil)
+    color = [NSColor grayColor];
+
+  if (color != di->relief_background_color)
+    {
+      [di->relief_background_color release];
+      di->relief_background_color = [color retain];
+      [di->light_relief_color release];
+      di->light_relief_color = [[color highlightWithLevel: 0.4] retain];
+      [di->dark_relief_color release];
+      di->dark_relief_color = [[color shadowWithLevel: 0.4] retain];
+    }
+}
 
 static void
 ns_draw_relief (NSRect outer, int hthickness, int vthickness, char raised_p,
@@ -3486,40 +3522,13 @@ ns_draw_relief (NSRect outer, int hthickness, int vthickness, char raised_p,
     of some sides not being drawn, and because the rect will be filled.
    -------------------------------------------------------------------------- */
 {
-  static NSColor *baseCol, *lightCol, *darkCol;
-  NSColor *newBaseCol;
   NSRect inner;
-  NSBezierPath *p;
-
-  baseCol = nil;
-  lightCol = nil;
-  newBaseCol = nil;
-  p = nil;
+  NSBezierPath *p = nil;
 
   NSTRACE ("ns_draw_relief");
 
   /* set up colors */
-
-  if (s->face->use_box_color_for_shadows_p)
-    newBaseCol = [NSColor colorWithUnsignedLong: s->face->box_color];
-  else
-    newBaseCol = [NSColor colorWithUnsignedLong: s->face->background];
-
-  if (s->hl == DRAW_CURSOR)
-    newBaseCol = FRAME_CURSOR_COLOR (s->f);
-
-  if (newBaseCol == nil)
-    newBaseCol = [NSColor grayColor];
-
-  if (newBaseCol != baseCol)  /* TODO: better check */
-    {
-      [baseCol release];
-      baseCol = [newBaseCol retain];
-      [lightCol release];
-      lightCol = [[baseCol highlightWithLevel: 0.4] retain];
-      [darkCol release];
-      darkCol = [[baseCol shadowWithLevel: 0.4] retain];
-    }
+  ns_setup_relief_colors (s);
 
   /* Calculate the inner rectangle.  */
   inner = outer;
@@ -3542,7 +3551,9 @@ ns_draw_relief (NSRect outer, int hthickness, int vthickness, char raised_p,
   if (bottom_p)
     inner.size.height -= hthickness;
 
-  [(raised_p ? lightCol : darkCol) set];
+  struct ns_output *di = FRAME_OUTPUT_DATA (s->f);
+
+  [(raised_p ? di->light_relief_color : di->dark_relief_color) set];
 
   if (top_p || left_p)
     {
@@ -3564,7 +3575,7 @@ ns_draw_relief (NSRect outer, int hthickness, int vthickness, char raised_p,
       [p fill];
     }
 
-  [(raised_p ? darkCol : lightCol) set];
+  [(raised_p ? di->dark_relief_color : di->light_relief_color) set];
 
   if (bottom_p || right_p)
     {
@@ -3626,7 +3637,7 @@ ns_draw_relief (NSRect outer, int hthickness, int vthickness, char raised_p,
 				   NSMaxY (outer) - 0.5)];
     }
 
-  [darkCol set];
+  [di->dark_relief_color set];
   [p stroke];
 
   if (vthickness > 1 && hthickness > 1)
@@ -10913,7 +10924,7 @@ This variable is ignored on macOS < 10.7 and GNUstep.  Default is t.  */);
 It is called with three arguments FRAME, X, and Y, whenever the user
 moves the mouse over an Emacs frame as part of a drag-and-drop
 operation.  FRAME is the frame the mouse is on top of, and X and Y are
-the frame-relative positions of the mouse in the X and Y axises
+the frame-relative positions of the mouse in the X and Y axes
 respectively.  */);
   Vns_drag_motion_function = Qns_handle_drag_motion;
 

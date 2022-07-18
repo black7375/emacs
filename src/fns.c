@@ -856,9 +856,8 @@ concat_to_string (ptrdiff_t nargs, Lisp_Object *args)
 	  else
 	    {
 	      /* Copy a single-byte string to a multibyte string.  */
-	      toindex_byte += copy_text (SDATA (arg),
-					 SDATA (result) + toindex_byte,
-					 nchars, 0, 1);
+	      toindex_byte += str_to_multibyte (SDATA (result) + toindex_byte,
+						SDATA (arg), nchars);
 	    }
 	  toindex += nchars;
 	}
@@ -1205,37 +1204,6 @@ string_byte_to_char (Lisp_Object string, ptrdiff_t byte_index)
   return i;
 }
 
-/* Convert STRING to a multibyte string.  */
-
-static Lisp_Object
-string_make_multibyte (Lisp_Object string)
-{
-  unsigned char *buf;
-  ptrdiff_t nbytes;
-  Lisp_Object ret;
-  USE_SAFE_ALLOCA;
-
-  if (STRING_MULTIBYTE (string))
-    return string;
-
-  nbytes = count_size_as_multibyte (SDATA (string),
-				    SCHARS (string));
-  /* If all the chars are ASCII, they won't need any more bytes
-     once converted.  In that case, we can return STRING itself.  */
-  if (nbytes == SBYTES (string))
-    return string;
-
-  buf = SAFE_ALLOCA (nbytes);
-  copy_text (SDATA (string), buf, SBYTES (string),
-	     0, 1);
-
-  ret = make_multibyte_string ((char *) buf, SCHARS (string), nbytes);
-  SAFE_FREE ();
-
-  return ret;
-}
-
-
 /* Convert STRING (if unibyte) to a multibyte string without changing
    the number of characters.  Characters 0x80..0xff are interpreted as
    raw bytes. */
@@ -1254,7 +1222,7 @@ string_to_multibyte (Lisp_Object string)
     return make_multibyte_string (SSDATA (string), nbytes, nbytes);
 
   Lisp_Object ret = make_uninit_multibyte_string (nchars, nbytes);
-  str_to_multibyte (SDATA (ret), SDATA (string), nchars, nbytes);
+  str_to_multibyte (SDATA (ret), SDATA (string), nchars);
   return ret;
 }
 
@@ -1299,7 +1267,17 @@ string the same way whether it is unibyte or multibyte.)  */)
 {
   CHECK_STRING (string);
 
-  return string_make_multibyte (string);
+  if (STRING_MULTIBYTE (string))
+    return string;
+
+  ptrdiff_t nchars = SCHARS (string);
+  ptrdiff_t nbytes = count_size_as_multibyte (SDATA (string), nchars);
+  if (nbytes == nchars)
+    return string;
+
+  Lisp_Object ret = make_uninit_multibyte_string (nchars, nbytes);
+  str_to_multibyte (SDATA (ret), SDATA (string), nchars);
+  return ret;
 }
 
 DEFUN ("string-make-unibyte", Fstring_make_unibyte, Sstring_make_unibyte,
@@ -1579,6 +1557,61 @@ substring_both (Lisp_Object string, ptrdiff_t from, ptrdiff_t from_byte,
   return res;
 }
 
+DEFUN ("take", Ftake, Stake, 2, 2, 0,
+       doc: /* Return the first N elements of LIST.
+If N is zero or negative, return nil.
+If LIST is no more than N elements long, return it (or a copy).  */)
+  (Lisp_Object n, Lisp_Object list)
+{
+  CHECK_FIXNUM (n);
+  EMACS_INT m = XFIXNUM (n);
+  if (m <= 0)
+    return Qnil;
+  CHECK_LIST (list);
+  if (NILP (list))
+    return Qnil;
+  Lisp_Object ret = Fcons (XCAR (list), Qnil);
+  Lisp_Object prev = ret;
+  m--;
+  list = XCDR (list);
+  while (m > 0 && CONSP (list))
+    {
+      Lisp_Object p = Fcons (XCAR (list), Qnil);
+      XSETCDR (prev, p);
+      prev = p;
+      m--;
+      list = XCDR (list);
+    }
+  if (m > 0 && !NILP (list))
+    wrong_type_argument (Qlistp, list);
+  return ret;
+}
+
+DEFUN ("ntake", Fntake, Sntake, 2, 2, 0,
+       doc: /* Modify LIST to keep only the first N elements.
+If N is zero or negative, return nil.
+If LIST is no more than N elements long, return it.  */)
+  (Lisp_Object n, Lisp_Object list)
+{
+  CHECK_FIXNUM (n);
+  EMACS_INT m = XFIXNUM (n);
+  if (m <= 0)
+    return Qnil;
+  CHECK_LIST (list);
+  Lisp_Object tail = list;
+  --m;
+  while (m > 0 && CONSP (tail))
+    {
+      tail = XCDR (tail);
+      m--;
+    }
+  if (CONSP (tail))
+    XSETCDR (tail, Qnil);
+  else if (!NILP (tail))
+    wrong_type_argument (Qlistp, list);
+  return list;
+}
+
 DEFUN ("nthcdr", Fnthcdr, Snthcdr, 2, 2, 0,
        doc: /* Take cdr N times on LIST, return the result.  */)
   (Lisp_Object n, Lisp_Object list)
@@ -2997,6 +3030,9 @@ if `last-nonmenu-event' is nil, and `use-dialog-box' is non-nil.  */)
 
   specpdl_ref count = SPECPDL_INDEX ();
   specbind (Qenable_recursive_minibuffers, Qt);
+  /* Preserve the actual command that eventually called `yes-or-no-p'
+     (otherwise `repeat' will be repeating `exit-minibuffer').  */
+  specbind (Qreal_this_command, Vreal_this_command);
 
   while (1)
     {
@@ -6101,6 +6137,8 @@ The same variable also affects the function `read-answer'.  */);
   defsubr (&Scopy_alist);
   defsubr (&Ssubstring);
   defsubr (&Ssubstring_no_properties);
+  defsubr (&Stake);
+  defsubr (&Sntake);
   defsubr (&Snthcdr);
   defsubr (&Snth);
   defsubr (&Selt);
@@ -6151,4 +6189,6 @@ The same variable also affects the function `read-answer'.  */);
   defsubr (&Sbuffer_hash);
   defsubr (&Slocale_info);
   defsubr (&Sbuffer_line_statistics);
+
+  DEFSYM (Qreal_this_command, "real-this-command");
 }

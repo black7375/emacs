@@ -1371,12 +1371,6 @@ command_loop_1 (void)
 	    }
 	}
 
-      /* If it has changed current-menubar from previous value,
-	 really recompute the menubar from the value.  */
-      if (! NILP (Vlucid_menu_bar_dirty_flag)
-	  && !NILP (Ffboundp (Qrecompute_lucid_menubar)))
-	call0 (Qrecompute_lucid_menubar);
-
       Vthis_command = Qnil;
       Vreal_this_command = Qnil;
       Vthis_original_command = Qnil;
@@ -1590,9 +1584,12 @@ command_loop_1 (void)
 		{
 		  Lisp_Object txt
 		    = call1 (Vregion_extract_function, Qnil);
+
 		  if (XFIXNUM (Flength (txt)) > 0)
 		    /* Don't set empty selections.  */
 		    call2 (Qgui_set_selection, QPRIMARY, txt);
+
+		  CALLN (Frun_hook_with_args, Qpost_select_region_hook, txt);
 		}
 
 	      if (current_buffer != prev_buffer || MODIFF != prev_modiff)
@@ -12080,6 +12077,9 @@ syms_of_keyboard (void)
   DEFSYM (Qpre_command_hook, "pre-command-hook");
   DEFSYM (Qpost_command_hook, "post-command-hook");
 
+  /* Hook run after the region is selected.  */
+  DEFSYM (Qpost_select_region_hook, "post-select-region-hook");
+
   DEFSYM (Qundo_auto__add_boundary, "undo-auto--add-boundary");
   DEFSYM (Qundo_auto__undoably_changed_buffers,
           "undo-auto--undoably-changed-buffers");
@@ -12178,7 +12178,6 @@ syms_of_keyboard (void)
      apply_modifiers.  */
   DEFSYM (Qmodifier_cache, "modifier-cache");
 
-  DEFSYM (Qrecompute_lucid_menubar, "recompute-lucid-menubar");
   DEFSYM (Qactivate_menubar_hook, "activate-menubar-hook");
 
   DEFSYM (Qpolling_period, "polling-period");
@@ -12659,10 +12658,6 @@ See also `pre-command-hook'.  */);
 
   Fset (Qecho_area_clear_hook, Qnil);
 
-  DEFVAR_LISP ("lucid-menu-bar-dirty-flag", Vlucid_menu_bar_dirty_flag,
-	       doc: /* Non-nil means menu bar, specified Lucid style, needs to be recomputed.  */);
-  Vlucid_menu_bar_dirty_flag = Qnil;
-
 #ifdef USE_LUCID
   DEFVAR_BOOL ("lucid--menu-grab-keyboard",
                lucid__menu_grab_keyboard,
@@ -12987,7 +12982,7 @@ Emacs allows binding both upper and lower case key sequences to
 commands.  However, if there is a lower case key sequence bound to a
 command, and the user enters an upper case key sequence that is not
 bound to a command, Emacs will use the lower case binding.  Setting
-this variable to nil inhibits this behaviour.  */);
+this variable to nil inhibits this behavior.  */);
   translate_upper_case_key_bindings = true;
 
   DEFVAR_BOOL ("input-pending-p-filter-events",
@@ -13027,6 +13022,12 @@ When nil, the default, characters typed as part of passwords are
 not recorded.  The non-nil value countermands `inhibit--record-char',
 which see.  */);
   record_all_keys = false;
+
+  DEFVAR_LISP ("post-select-region-hook", Vpost_select_region_hook,
+    doc: /* Abnormal hook run after the region is selected.
+This usually happens as a result of `select-active-regions'.  The hook
+is called with one argument, the string that was selected.  */);;
+  Vpost_select_region_hook = Qnil;
 
   pdumper_do_now_and_after_load (syms_of_keyboard_for_pdumper);
 }
