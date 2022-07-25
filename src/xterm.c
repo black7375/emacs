@@ -1353,6 +1353,21 @@ static struct frame *x_dnd_movement_frame;
    with.  */
 static int x_dnd_movement_x, x_dnd_movement_y;
 
+/* The frame for which `x-dnd-wheel-function' should be called.  */
+static struct frame *x_dnd_wheel_frame;
+
+/* The coordinates which the wheel function should be called with.  */
+static int x_dnd_wheel_x, x_dnd_wheel_y;
+
+/* The button that was pressed.  */
+static int x_dnd_wheel_button;
+
+/* The modifier state when the button was pressed.  */
+static int x_dnd_wheel_state;
+
+/* When the button was pressed.  */
+static Time x_dnd_wheel_time;
+
 #ifdef HAVE_XKB
 /* The keyboard state during the drag-and-drop operation.  */
 static unsigned int x_dnd_keyboard_state;
@@ -1374,6 +1389,12 @@ static int x_dnd_recursion_depth;
    selection and `XdndSelection'.  The car and cdr are only set when
    initiating Motif drag-and-drop for the first time.  */
 static Lisp_Object x_dnd_selection_alias_cell;
+
+/* The last known position of the tooltip window.  */
+static int x_dnd_last_tooltip_x, x_dnd_last_tooltip_y;
+
+/* Whether or not those values are actually known yet.  */
+static bool x_dnd_last_tooltip_valid;
 
 /* Structure describing a single window that can be the target of
    drag-and-drop operations.  */
@@ -2916,7 +2937,7 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
   Window *toplevels;
   int format, rc;
   unsigned long nitems, bytes_after;
-  unsigned long i;
+  unsigned long i, real_nitems;
   unsigned char *data = NULL;
   int frame_extents[4];
 
@@ -2979,6 +3000,16 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
     }
 
   toplevels = (Window *) data;
+
+  for (i = 0, real_nitems = 0; i < nitems; ++i)
+    {
+      /* Some window managers with built in compositors end up putting
+	 tooltips in the client list, which is silly.  */
+      if (!x_tooltip_window_to_frame (dpyinfo, toplevels[i], NULL))
+	toplevels[real_nitems++] = toplevels[i];
+    }
+
+  nitems = real_nitems;
 
 #ifdef USE_XCB
   USE_SAFE_ALLOCA;
@@ -4734,6 +4765,7 @@ x_dnd_cleanup_drag_and_drop (void *frame)
 #endif
   x_dnd_return_frame_object = NULL;
   x_dnd_movement_frame = NULL;
+  x_dnd_wheel_frame = NULL;
   x_dnd_frame = NULL;
 
   x_restore_events_after_dnd (f, &x_dnd_old_window_attrs);
@@ -4758,6 +4790,37 @@ x_dnd_note_self_position (struct x_display_info *dpyinfo, Window target,
       x_dnd_movement_frame = f;
       x_dnd_movement_x = dest_x;
       x_dnd_movement_y = dest_y;
+
+      return;
+    }
+}
+
+static void
+x_dnd_note_self_wheel (struct x_display_info *dpyinfo, Window target,
+		       unsigned short root_x, unsigned short root_y,
+		       int button, unsigned int state, Time time)
+{
+  struct frame *f;
+  int dest_x, dest_y;
+  Window child_return;
+
+  if (button < 4 || button > 7)
+    return;
+
+  f = x_top_window_to_frame (dpyinfo, target);
+
+  if (f && XTranslateCoordinates (dpyinfo->display,
+				  dpyinfo->root_window,
+				  FRAME_X_WINDOW (f),
+				  root_x, root_y, &dest_x,
+				  &dest_y, &child_return))
+    {
+      x_dnd_wheel_frame = f;
+      x_dnd_wheel_x = dest_x;
+      x_dnd_wheel_y = dest_y;
+      x_dnd_wheel_button = button;
+      x_dnd_wheel_state = state;
+      x_dnd_wheel_time = time;
 
       return;
     }
@@ -5310,12 +5373,16 @@ xi_populate_device_from_info (struct xi_device_t *xi_device,
 #endif
 }
 
-/* The code below handles the tracking of scroll valuators on XInput
-   2, in order to support scroll wheels that report information more
-   granular than a screen line.
+/* Populate our client-side record of all devices, which includes
+   basic information about the device and also touchscreen tracking
+   information and scroll valuators.
 
-   On X, when the XInput 2 extension is being utilized, the states of
-   the mouse wheels in each axis are stored as absolute values inside
+   Keeping track of scroll valuators is required in order to support
+   scroll wheels that report information in a fashion more detailed
+   than a single turn of a "step" in the wheel.
+
+   When the input extension is being utilized, the states of the mouse
+   wheels on each axis are stored as absolute values inside
    "valuators" attached to each mouse device.  To obtain the delta of
    the scroll wheel from a motion event (which is used to report that
    some valuator has changed), it is necessary to iterate over every
@@ -5329,20 +5396,13 @@ xi_populate_device_from_info (struct xi_device_t *xi_device,
    This delta however is still intermediate, to make driver
    implementations easier.  The XInput developers recommend (and most
    programs use) the following algorithm to convert from scroll unit
-   deltas to pixel deltas:
+   deltas to pixel deltas by which the display must actually be
+   scrolled:
 
      pixels_scrolled = pow (window_height, 2.0 / 3.0) * delta;  */
 
-/* Setup valuator tracking for XI2 master devices on
-   DPYINFO->display.  */
-
-/* This function's name is a misnomer: these days, it keeps a
-   client-side record of all devices, which includes basic information
-   about the device and also touchscreen tracking information, instead
-   of just scroll valuators.  */
-
 static void
-x_init_master_valuators (struct x_display_info *dpyinfo)
+x_cache_xi_devices (struct x_display_info *dpyinfo)
 {
   int ndevices, actual_devices;
   XIDeviceInfo *infos;
@@ -7110,7 +7170,11 @@ x_display_set_last_user_time (struct x_display_info *dpyinfo, Time time,
 			      bool send_event)
 {
 #ifndef USE_GTK
-  struct frame *focus_frame = dpyinfo->x_focus_frame;
+  struct frame *focus_frame;
+  Time old_time;
+
+  focus_frame = dpyinfo->x_focus_frame;
+  old_time = dpyinfo->last_user_time;
 #endif
 
 #ifdef ENABLE_CHECKING
@@ -7121,8 +7185,11 @@ x_display_set_last_user_time (struct x_display_info *dpyinfo, Time time,
     dpyinfo->last_user_time = time;
 
 #ifndef USE_GTK
-  if (focus_frame)
+  /* Don't waste bandwidth if the time hasn't actually changed.  */
+  if (focus_frame && old_time != dpyinfo->last_user_time)
     {
+      time = dpyinfo->last_user_time;
+
       while (FRAME_PARENT_FRAME (focus_frame))
 	focus_frame = FRAME_PARENT_FRAME (focus_frame);
 
@@ -11012,7 +11079,8 @@ x_tooltip_window_to_frame (struct x_display_info *dpyinfo,
   GdkWindow *tooltip_window;
 #endif
 
-  *unrelated_tooltip_p = false;
+  if (unrelated_tooltip_p)
+    *unrelated_tooltip_p = false;
 
   FOR_EACH_FRAME (tail, frame)
     {
@@ -11041,14 +11109,16 @@ x_tooltip_window_to_frame (struct x_display_info *dpyinfo,
       if (tooltip_window
 	  && (gdk_x11_window_get_xid (tooltip_window) == wdesc))
 	{
-	  *unrelated_tooltip_p = true;
+	  if (unrelated_tooltip_p)
+	    *unrelated_tooltip_p = true;
 	  break;
 	}
 #else
       if (tooltip_window
 	  && (GDK_WINDOW_XID (tooltip_window) == wdesc))
 	{
-	  *unrelated_tooltip_p = true;
+	  if (unrelated_tooltip_p)
+	    *unrelated_tooltip_p = true;
 	  break;
 	}
 #endif
@@ -11395,6 +11465,7 @@ x_dnd_process_quit (struct frame *f, Time timestamp)
   x_dnd_waiting_for_finish = false;
   x_dnd_return_frame_object = NULL;
   x_dnd_movement_frame = NULL;
+  x_dnd_wheel_frame = NULL;
 }
 
 /* This function is defined far away from the rest of the XDND code so
@@ -11615,9 +11686,11 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
   x_dnd_run_unsupported_drop_function = false;
   x_dnd_use_toplevels
     = x_wm_supports (f, FRAME_DISPLAY_INFO (f)->Xatom_net_client_list_stacking);
+  x_dnd_last_tooltip_valid = false;
   x_dnd_toplevels = NULL;
   x_dnd_allow_current_frame = allow_current_frame;
   x_dnd_movement_frame = NULL;
+  x_dnd_wheel_frame = NULL;
   x_dnd_init_type_lists = false;
   x_dnd_need_send_drop = false;
 #ifdef HAVE_XKB
@@ -11787,6 +11860,43 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 		}
 	    }
 
+	  if (x_dnd_wheel_frame
+	      && (x_dnd_in_progress || x_dnd_waiting_for_finish))
+	    {
+	      XSETFRAME (frame_object, x_dnd_wheel_frame);
+	      XSETINT (x, x_dnd_wheel_x);
+	      XSETINT (y, x_dnd_wheel_y);
+	      x_dnd_wheel_frame = NULL;
+
+	      if (!NILP (Vx_dnd_wheel_function)
+		  && FRAME_LIVE_P (XFRAME (frame_object))
+		  && !FRAME_TOOLTIP_P (XFRAME (frame_object))
+		  && x_dnd_movement_x >= 0
+		  && x_dnd_movement_y >= 0
+		  && x_dnd_frame
+		  && (XFRAME (frame_object) != x_dnd_frame
+		      || x_dnd_allow_current_frame))
+		{
+		  x_dnd_old_window_attrs = root_window_attrs;
+		  x_dnd_unwind_flag = true;
+
+		  ref = SPECPDL_INDEX ();
+		  record_unwind_protect_ptr (x_dnd_cleanup_drag_and_drop, f);
+		  call4 (Vx_dnd_wheel_function,
+			 Fposn_at_x_y (x, y, frame_object, Qnil),
+			 make_fixnum (x_dnd_wheel_button),
+			 make_uint (x_dnd_wheel_state),
+			 make_uint (x_dnd_wheel_time));
+		  x_dnd_unwind_flag = false;
+		  unbind_to (ref, Qnil);
+
+		  /* Redisplay this way to preserve the echo area.
+		     Otherwise, the contents will abruptly disappear
+		     when the mouse moves over a frame.  */
+		  redisplay_preserve_echo_area (33);
+		}
+	    }
+
 	  if (hold_quit.kind != NO_EVENT)
 	    {
 	      x_dnd_process_quit (f, hold_quit.timestamp);
@@ -11890,6 +12000,9 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 	  if (x_dnd_movement_frame)
 	    x_dnd_movement_frame = NULL;
 
+	  if (x_dnd_wheel_frame)
+	    x_dnd_wheel_frame = NULL;
+
 	  if (hold_quit.kind != NO_EVENT)
 	    EVENT_INIT (hold_quit);
 	}
@@ -11902,6 +12015,7 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
   current_hold_quit = NULL;
 #endif
   x_dnd_movement_frame = NULL;
+  x_dnd_wheel_frame = NULL;
   x_restore_events_after_dnd (f, &root_window_attrs);
 
   if (x_dnd_return_frame == 3
@@ -12957,14 +13071,25 @@ static void x_send_scroll_bar_event (Lisp_Object, enum scroll_bar_part,
 
 static Lisp_Object window_being_scrolled;
 
-/* Whether this is an Xaw with arrow-scrollbars.  This should imply
-   that movements of 1/20 of the screen size are mapped to up/down.  */
+static Time
+x_get_last_toolkit_time (struct x_display_info *dpyinfo)
+{
+#ifdef USE_X_TOOLKIT
+  return XtLastTimestampProcessed (dpyinfo->display);
+#else
+  return dpyinfo->last_user_time;
+#endif
+}
 
 #ifndef USE_GTK
-/* Id of action hook installed for scroll bars.  */
+/* Id of action hook installed for scroll bars and horizontal scroll
+   bars.  */
 
 static XtActionHookId action_hook_id;
 static XtActionHookId horizontal_action_hook_id;
+
+/* Whether this is an Xaw with arrow-scrollbars.  This should imply
+   that movements of 1/20 of the screen size are mapped to up/down.  */
 
 static Boolean xaw3d_arrow_scroll;
 
@@ -13176,12 +13301,8 @@ x_scroll_bar_to_input_event (const XEvent *event,
   ievent->kind = SCROLL_BAR_CLICK_EVENT;
   ievent->frame_or_window = window;
   ievent->arg = Qnil;
-#ifdef USE_GTK
-  ievent->timestamp = CurrentTime;
-#else
-  ievent->timestamp =
-    XtLastTimestampProcessed (FRAME_X_DISPLAY (XFRAME (w->frame)));
-#endif
+  ievent->timestamp
+    = x_get_last_toolkit_time (FRAME_DISPLAY_INFO (XFRAME (w->frame)));
   ievent->code = 0;
   ievent->part = ev->data.l[2];
   ievent->x = make_fixnum (ev->data.l[3]);
@@ -13211,12 +13332,8 @@ x_horizontal_scroll_bar_to_input_event (const XEvent *event,
   ievent->kind = HORIZONTAL_SCROLL_BAR_CLICK_EVENT;
   ievent->frame_or_window = window;
   ievent->arg = Qnil;
-#ifdef USE_GTK
-  ievent->timestamp = CurrentTime;
-#else
-  ievent->timestamp =
-    XtLastTimestampProcessed (FRAME_X_DISPLAY (XFRAME (w->frame)));
-#endif
+  ievent->timestamp
+    = x_get_last_toolkit_time (FRAME_DISPLAY_INFO (XFRAME (w->frame)));
   ievent->code = 0;
   ievent->part = ev->data.l[2];
   ievent->x = make_fixnum (ev->data.l[3]);
@@ -13320,18 +13437,30 @@ xm_scroll_callback (Widget widget, XtPointer client_data, XtPointer call_data)
    bar widget.  DATA is a pointer to the scroll_bar structure. */
 
 static gboolean
-xg_scroll_callback (GtkRange     *range,
-                    GtkScrollType scroll,
-                    gdouble       value,
-                    gpointer      user_data)
+xg_scroll_callback (GtkRange *range, GtkScrollType scroll,
+                    gdouble value, gpointer user_data)
 {
-  int whole = 0, portion = 0;
-  struct scroll_bar *bar = user_data;
-  enum scroll_bar_part part = scroll_bar_nowhere;
-  GtkAdjustment *adj = GTK_ADJUSTMENT (gtk_range_get_adjustment (range));
-  struct frame *f = g_object_get_data (G_OBJECT (range), XG_FRAME_DATA);
+  int whole, portion;
+  struct scroll_bar *bar;
+  enum scroll_bar_part part;
+  GtkAdjustment *adj;
+  struct frame *f;
+  guint32 time;
+  struct x_display_info *dpyinfo;
 
   if (xg_ignore_gtk_scrollbar) return false;
+
+  whole = 0;
+  portion = 0;
+  bar = user_data;
+  part = scroll_bar_nowhere;
+  adj = GTK_ADJUSTMENT (gtk_range_get_adjustment (range));
+  f = g_object_get_data (G_OBJECT (range), XG_FRAME_DATA);
+  time = gtk_get_current_event_time ();
+  dpyinfo = FRAME_DISPLAY_INFO (f);
+
+  if (time != GDK_CURRENT_TIME)
+    x_display_set_last_user_time (dpyinfo, time, true);
 
   switch (scroll)
     {
@@ -13399,8 +13528,11 @@ xg_end_scroll_callback (GtkWidget *widget,
                         GdkEventButton *event,
                         gpointer user_data)
 {
-  struct scroll_bar *bar = user_data;
+  struct scroll_bar *bar;
+
+  bar = user_data;
   bar->dragging = -1;
+
   if (WINDOWP (window_being_scrolled))
     {
       x_send_scroll_bar_event (window_being_scrolled,
@@ -15813,6 +15945,15 @@ x_dnd_update_tooltip_position (int root_x, int root_y)
       x_dnd_compute_tip_xy (&root_x, &root_y,
 			    x_dnd_monitors);
 
+      if (x_dnd_last_tooltip_valid
+	  && root_x == x_dnd_last_tooltip_x
+	  && root_y == x_dnd_last_tooltip_y)
+	return;
+
+      x_dnd_last_tooltip_x = root_x;
+      x_dnd_last_tooltip_y = root_y;
+      x_dnd_last_tooltip_valid = true;
+
       XMoveWindow (FRAME_X_DISPLAY (x_dnd_frame),
 		   tip_window, root_x, root_y);
     }
@@ -16841,7 +16982,8 @@ handle_one_xevent (struct x_display_info *dpyinfo,
         xft_settings_event (dpyinfo, event);
 
 	f = any;
-	if (!f)
+	/* We don't want to ever leak tooltip frames to Lisp code.  */
+	if (!f || FRAME_TOOLTIP_P (f))
 	  goto OTHER;
 
 	/* These values are always used initialized, but GCC doesn't
@@ -18161,6 +18303,19 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 #endif
       if (f)
         {
+	  /* Now clear dpyinfo->last_mouse_motion_frame, or
+	     gui_redo_mouse_highlight will end up highlighting the
+	     last known poisition of the mouse if a tooltip frame is
+	     later unmapped.  */
+
+	  if (f == dpyinfo->last_mouse_motion_frame)
+	    dpyinfo->last_mouse_motion_frame = NULL;
+
+	  /* Something similar applies to
+	     dpyinfo->last_mouse_glyph_frame.  */
+	  if (f == dpyinfo->last_mouse_glyph_frame)
+	    dpyinfo->last_mouse_glyph_frame = NULL;
+
           if (f == hlinfo->mouse_face_mouse_frame)
             {
               /* If we move outside the frame, then we're
@@ -18580,6 +18735,10 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		 MOVE_FRAME_EVENT later.  */
 	      kbd_buffer_store_event (&inev.ie);
 	      inev.ie.kind = NO_EVENT;
+
+	      /* Also update the position of the drag-and-drop
+		 tooltip.  */
+	      x_dnd_update_tooltip_now ();
 	    }
 #endif
 
@@ -18914,18 +19073,26 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      dpyinfo->grabbed &= ~(1 << event->xbutton.button);
 
 	    if (event->xbutton.type == ButtonPress
-		&& x_dnd_last_seen_window != None
-		&& x_dnd_last_protocol_version != -1)
+		&& x_dnd_last_seen_window != None)
 	      {
-		x_dnd_send_position (x_dnd_frame,
-				     x_dnd_last_seen_window,
-				     x_dnd_last_protocol_version,
-				     event->xbutton.x_root,
-				     event->xbutton.y_root,
-				     x_dnd_selection_timestamp,
-				     x_dnd_wanted_action,
-				     event->xbutton.button,
-				     event->xbutton.state);
+		if (x_dnd_last_window_is_frame)
+		  x_dnd_note_self_wheel (dpyinfo,
+					 x_dnd_last_seen_window,
+					 event->xbutton.x_root,
+					 event->xbutton.y_root,
+					 event->xbutton.button,
+					 event->xbutton.state,
+					 event->xbutton.time);
+		else if (x_dnd_last_protocol_version != -1)
+		  x_dnd_send_position (x_dnd_frame,
+				       x_dnd_last_seen_window,
+				       x_dnd_last_protocol_version,
+				       event->xbutton.x_root,
+				       event->xbutton.y_root,
+				       event->xbutton.time,
+				       x_dnd_wanted_action,
+				       event->xbutton.button,
+				       event->xbutton.state);
 
 		goto OTHER;
 	      }
@@ -19599,8 +19766,22 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      if (!f)
 		f = x_top_window_to_frame (dpyinfo, leave->event);
 #endif
+
 	      if (f)
 		{
+		  /* Now clear dpyinfo->last_mouse_motion_frame, or
+		     gui_redo_mouse_highlight will end up highlighting
+		     the last known poisition of the mouse if a
+		     tooltip frame is later unmapped.  */
+
+		  if (f == dpyinfo->last_mouse_motion_frame)
+		    dpyinfo->last_mouse_motion_frame = NULL;
+
+		  /* Something similar applies to
+		     dpyinfo->last_mouse_glyph_frame.  */
+		  if (f == dpyinfo->last_mouse_glyph_frame)
+		    dpyinfo->last_mouse_glyph_frame = NULL;
+
 		  if (f == hlinfo->mouse_face_mouse_frame)
 		    {
 		      /* If we move outside the frame, then we're
@@ -19690,9 +19871,9 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 
 		      bar = NULL;
 
-		      /* See the comment on top of
-			 x_init_master_valuators for more details on how
-			 scroll wheel movement is reported on XInput 2.  */
+		      /* See the comment on top of x_cache_xi_devices
+			 for more details on how scroll wheel movement
+			 is reported on XInput 2.  */
 		      delta = x_get_scroll_valuator_delta (dpyinfo, device,
 							   i, *values, &val);
 		      values++;
@@ -20315,17 +20496,36 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 #endif
 
 		  if (xev->evtype == XI_ButtonPress
-		      && x_dnd_last_seen_window != None
-		      && x_dnd_last_protocol_version != -1)
+		      && x_dnd_last_seen_window != None)
 		    {
 		      dnd_state = xi_convert_event_state (xev);
 
-		      x_dnd_send_position (x_dnd_frame, x_dnd_last_seen_window,
-					   x_dnd_last_protocol_version, xev->root_x,
-					   xev->root_y, x_dnd_selection_timestamp,
-					   x_dnd_wanted_action, xev->detail, dnd_state);
+		      if (x_dnd_last_window_is_frame)
+			{
+#ifdef XI_PointerEmulated
+			  /* Set the last user time here even if this
+			     is an emulated button event, since
+			     something happened in response.  */
 
-		      goto XI_OTHER;
+			  if (xev->flags & XIPointerEmulated)
+			    x_display_set_last_user_time (dpyinfo, xev->time,
+							  xev->send_event);
+#endif
+			  x_dnd_note_self_wheel (dpyinfo,
+						 x_dnd_last_seen_window,
+						 xev->root_x, xev->root_y,
+						 xev->detail, dnd_state,
+						 xev->time);
+			}
+		      else
+			x_dnd_send_position (x_dnd_frame,
+					     x_dnd_last_seen_window,
+					     x_dnd_last_protocol_version,
+					     xev->root_x, xev->root_y,
+					     xev->time, x_dnd_wanted_action,
+					     xev->detail, dnd_state);
+
+		      goto OTHER;
 		    }
 
 		  if (xev->evtype == XI_ButtonRelease)
@@ -21535,7 +21735,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      if (!device)
 		{
 		  /* An existing device might have been enabled.  */
-		  x_init_master_valuators (dpyinfo);
+		  x_cache_xi_devices (dpyinfo);
 
 		  /* Now try to find the device again, in case it was
 		     just enabled.  */
@@ -23482,6 +23682,7 @@ x_connection_closed (Display *dpy, const char *error_message, bool ioerror)
 
       x_dnd_return_frame_object = NULL;
       x_dnd_movement_frame = NULL;
+      x_dnd_wheel_frame = NULL;
       x_dnd_frame = NULL;
     }
 
@@ -27161,7 +27362,7 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
       if (rc == Success)
 	{
 	  dpyinfo->supports_xi2 = true;
-	  x_init_master_valuators (dpyinfo);
+	  x_cache_xi_devices (dpyinfo);
 	}
     }
 
@@ -27750,6 +27951,7 @@ x_delete_terminal (struct terminal *terminal)
 
 	  x_dnd_return_frame_object = NULL;
 	  x_dnd_movement_frame = NULL;
+	  x_dnd_wheel_frame = NULL;
 	  x_dnd_frame = NULL;
 	}
 
@@ -28005,6 +28207,12 @@ mark_xterm (void)
   if (x_dnd_movement_frame)
     {
       XSETFRAME (val, x_dnd_movement_frame);
+      mark_object (val);
+    }
+
+  if (x_dnd_wheel_frame)
+    {
+      XSETFRAME (val, x_dnd_wheel_frame);
       mark_object (val);
     }
 
@@ -28453,6 +28661,15 @@ It should either be nil, or accept two arguments FRAME and POSITION,
 where FRAME is the frame the mouse is on top of, and POSITION is a
 mouse position list.  */);
   Vx_dnd_movement_function = Qnil;
+
+  DEFVAR_LISP ("x-dnd-wheel-function", Vx_dnd_wheel_function,
+    doc: /* Function called upon wheel movement on a frame during drag-and-drop.
+It should either be nil, or accept four arguments POSITION, BUTTON,
+STATE and TIME, where POSITION is a mouse position list describing
+where the wheel moved, BUTTON is the wheel button that was pressed,
+STATE is the X modifier state at the time of the wheel movement, and
+TIME is the X server time at which the wheel moved.  */);
+  Vx_dnd_wheel_function = Qnil;
 
   DEFVAR_LISP ("x-dnd-unsupported-drop-function", Vx_dnd_unsupported_drop_function,
     doc: /* Function called when trying to drop on an unsupported window.
