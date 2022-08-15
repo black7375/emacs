@@ -209,7 +209,7 @@ SUPPRESS-LIST is the list of kinds of warnings to suppress."
     (text " stop "))
   "Suppress warnings."
   :version "29.1"
-  :help-echo "Click to supress this warning type")
+  :help-echo "Click to suppress this warning type")
 
 (defun warnings-suppress (type)
   (pcase (car
@@ -220,10 +220,10 @@ SUPPRESS-LIST is the list of kinds of warnings to suppress."
              (?q "quit and do nothing"))))
     (?y
      (customize-save-variable 'warning-suppress-log-types
-                              (cons type warning-suppress-log-types)))
+                              (cons (list type) warning-suppress-log-types)))
     (?n
      (customize-save-variable 'warning-suppress-types
-                              (cons type warning-suppress-types)))
+                              (cons (list type) warning-suppress-types)))
     (_ (message "Exiting"))))
 
 ;;;###autoload
