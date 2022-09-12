@@ -3791,9 +3791,6 @@ limited by `edebug-print-length' or `edebug-print-level'."
 
 ;;; Edebug Minor Mode
 
-(define-obsolete-variable-alias 'gud-inhibit-global-bindings
-  'edebug-inhibit-emacs-lisp-mode-bindings "24.3")
-
 (defvar edebug-inhibit-emacs-lisp-mode-bindings nil
   "If non-nil, inhibit Edebug bindings on the C-x C-a key.
 By default, loading the `edebug' library causes these bindings to
@@ -4182,6 +4179,7 @@ from Edebug instrumentation found in the backtrace."
     (backtrace-mode)
     (add-hook 'backtrace-goto-source-functions
               #'edebug--backtrace-goto-source nil t))
+  (edebug-backtrace-mode)
   (setq edebug-instrumented-backtrace-frames
         (backtrace-get-frames 'edebug-debugger
                               :constructor #'edebug--make-frame)
@@ -4257,6 +4255,14 @@ Save DEF-NAME, BEFORE-INDEX and AFTER-INDEX in FRAME."
   (setf (edebug--frame-def-name frame) (and before-index def-name))
   (setf (edebug--frame-before-index frame) before-index)
   (setf (edebug--frame-after-index frame) after-index))
+
+(defvar-keymap edebug-backtrace-mode-map
+  "s" #'backtrace-goto-source)
+
+(define-minor-mode edebug-backtrace-mode
+  "Minor mode for showing backtraces from edebug."
+  :lighter nil
+  :interactive nil)
 
 (defun edebug--backtrace-goto-source ()
   (let* ((index (backtrace-get-index))
