@@ -3162,7 +3162,7 @@ Returns true if comment is found.  In POD will not move the point."
 Mark as generic string if STRING, as generic comment otherwise.
 A single character is marked as punctuation and directly
 fontified.  Do nothing if BEGIN and END are equal.  If
-`cperl-use-syntax-text-property' is nil, just fontify."
+`cperl-use-syntax-table-text-property' is nil, just fontify."
   (if (and cperl-use-syntax-table-text-property
            (> end begin))
       (progn
@@ -3718,7 +3718,6 @@ This is part of `cperl-find-pods-heres' (below)."
           overshoot
           warning-message)))
 
-;; Debugging this may require (setq max-specpdl-size 2000)...
 (defun cperl-find-pods-heres (&optional min max non-inter end ignore-max end-of-here-doc)
   "Scan the buffer for hard-to-parse Perl constructions.
 If `cperl-pod-here-fontify' is non-nil after evaluation,

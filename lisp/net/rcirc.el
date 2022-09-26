@@ -1340,12 +1340,91 @@ The list is updated automatically by `defun-rcirc-command'.")
   'set-rcirc-encode-coding-system
   "28.1")
 
+(defun rcirc-format (pre &optional replace)
+  "Insert markup formatting PRE.
+PRE and \"^O\" (ASCII #x0f) will either be inserted around the
+current point respectively or the active region, if present.
+This function an auxiliary function is not meant to be used
+directly, but is invoked by other commands.  If the optional
+argument REPLACE is non-nil, first remove any formatting before
+inserting the new one."
+  (when replace (rcirc-unformat))
+  (save-excursion
+    (if (use-region-p)
+        (let ((beg (region-beginning)))
+          (goto-char (region-end))
+          (insert "")
+          (goto-char beg)
+          (insert pre))
+      (insert pre "")))
+  (when (or (not (region-active-p)) (< (point) (mark)))
+    (forward-char (length pre))))
+
+(defun rcirc-unformat ()
+  "Remove the closes formatting found closes to the current point."
+  (interactive)
+  (save-excursion
+    (when (and (search-backward-regexp (rx (or "" "" "" "" ""))
+                                       rcirc-prompt-end-marker t)
+               (looking-at (rx (group (or "" "" "" "" ""))
+                               (*? nonl)
+                               (group ""))))
+      (replace-match "" nil nil nil 2)
+      (replace-match "" nil nil nil 1))))
+
+(defun rcirc-format-bold (replace)
+  "Insert bold formatting.
+If REPLACE is non-nil or a prefix argument is given, any prior
+formatting will be replaced before the bold formatting is
+inserted."
+  (interactive "P")
+  (rcirc-format "" replace))
+
+(defun rcirc-format-italic (replace)
+  "Insert italic formatting.
+If REPLACE is non-nil or a prefix argument is given, any prior
+formatting will be replaced before the italic formatting is
+inserted."
+  (interactive "P")
+  (rcirc-format "" replace))
+
+(defun rcirc-format-underline (replace)
+  "Insert underlining formatting.
+If REPLACE is non-nil or a prefix argument is given, any prior
+formatting will be replaced before the underline formatting is
+inserted."
+  (interactive "P")
+  (rcirc-format "" replace))
+
+(defun rcirc-format-strike-trough (replace)
+  "Insert strike-trough formatting.
+If REPLACE is non-nil or a prefix argument is given, any prior
+formatting will be replaced before the strike-trough formatting
+is inserted."
+  (interactive "P")
+  (rcirc-format "" replace))
+
+(defun rcirc-format-fixed-width (replace)
+  "Insert fixed-width formatting.
+If REPLACE is non-nil or a prefix argument is given, any prior
+formatting will be replaced before the fixed width formatting is
+inserted."
+  (interactive "P")
+  (rcirc-format "" replace))
+
 (defvar-keymap rcirc-mode-map
   :doc "Keymap for rcirc mode."
   "RET"     #'rcirc-send-input
   "M-p"     #'rcirc-insert-prev-input
   "M-n"     #'rcirc-insert-next-input
   "TAB"     #'completion-at-point
+  "C-c C-f C-b" #'rcirc-format-bold
+  "C-c C-f C-i" #'rcirc-format-italic
+  "C-c C-f C-u" #'rcirc-format-underline
+  "C-c C-f C-s" #'rcirc-format-strike-trough
+  "C-c C-f C-f" #'rcirc-format-fixed-width
+  "C-c C-f C-t" #'rcirc-format-fixed-width ;as in AucTeX
+  "C-c C-f C-d" #'rcirc-unformat
   "C-c C-b" #'rcirc-browse-url
   "C-c C-c" #'rcirc-edit-multiline
   "C-c C-j" #'rcirc-cmd-join
@@ -1725,6 +1804,13 @@ extracted."
 
 (defvar-keymap rcirc-multiline-minor-mode-map
   :doc "Keymap for multiline mode in rcirc."
+  "C-c C-f C-b" #'rcirc-format-bold
+  "C-c C-f C-i" #'rcirc-format-italic
+  "C-c C-f C-u" #'rcirc-format-underline
+  "C-c C-f C-s" #'rcirc-format-strike-trough
+  "C-c C-f C-f" #'rcirc-format-fixed-width
+  "C-c C-f C-t" #'rcirc-format-fixed-width ;as in AucTeX
+  "C-c C-f C-d" #'rcirc-unformat
   "C-c C-c"     #'rcirc-multiline-minor-submit
   "C-x C-s"     #'rcirc-multiline-minor-submit
   "C-c C-k"     #'rcirc-multiline-minor-cancel
@@ -1925,7 +2011,8 @@ PROCESS is the process object for the current connection."
     rcirc-markup-my-nick
     rcirc-markup-urls
     rcirc-markup-keywords
-    rcirc-markup-bright-nicks)
+    rcirc-markup-bright-nicks
+    rcirc-markup-bridge-bots)
   "List of functions used to manipulate text before it is printed.
 
 Each function takes two arguments, SENDER, and RESPONSE.  The
@@ -1987,9 +2074,6 @@ connection."
                                                                 nil text)
                                   'rcirc-msgid (rcirc-get-tag "msgid"))
                       (propertize "\n" 'hard t))
-
-              ;; squeeze spaces out of text before rcirc-text
-              (fill-region (point-min) (point-max))
 
               (goto-char (or (next-single-property-change (point-min) 'rcirc-text)
                              (point)))
@@ -2220,24 +2304,27 @@ PROCESS is the process object for the current connection."
           (puthash nick newchans rcirc-nick-table)
         (remhash nick rcirc-nick-table)))))
 
+(defvar rcirc-pseudo-nicks)
 (defun rcirc-channel-nicks (process target)
   "Return the list of nicks associated with TARGET sorted by last activity.
 PROCESS is the process object for the current connection."
   (when target
     (if (rcirc-channel-p target)
-        (with-rcirc-process-buffer process
-          (let (nicks)
-            (maphash
-             (lambda (k v)
-               (let ((record (assoc-string target v t)))
-                 (if record
-                     (setq nicks (cons (cons k (cdr record)) nicks)))))
-             rcirc-nick-table)
-            (mapcar (lambda (x) (car x))
-                    (sort nicks (lambda (x y)
-                                  (let ((lx (or (cdr x) 0))
-                                        (ly (or (cdr y) 0)))
-                                    (< ly lx)))))))
+        (let ((pseudo-nicks (mapcar #'list rcirc-pseudo-nicks)))
+          (with-rcirc-process-buffer process
+            (let (nicks)
+              (maphash
+               (lambda (k v)
+                 (let ((record (assoc-string target v t)))
+                   (if record
+                       (setq nicks (cons (cons k (cdr record)) nicks)))))
+               rcirc-nick-table)
+              (mapcar (lambda (x) (car x))
+                      (sort (nconc pseudo-nicks nicks)
+                            (lambda (x y)
+                              (let ((lx (or (cdr x) 0))
+                                    (ly (or (cdr y) 0)))
+                                (< ly lx))))))))
       (list target))))
 
 (defun rcirc-ignore-update-automatic (nick)
@@ -2911,6 +2998,78 @@ If ARG is given, opens the URL in a new browser window."
     (insert (rcirc-facify (format-time-string rcirc-time-format time)
                           'rcirc-timestamp))))
 
+(defvar-local rcirc-pseudo-nicks '()
+  "List of virtual nicks detected in a channel.
+These are collected by `rcirc-markup-bridge-bots' and don't
+constitute actual users in the current channel.  Usually these
+are bridged via a some bot as described in
+`rcirc-bridge-bot-alist'.")
+
+(defcustom rcirc-bridge-bot-alist '()
+  "Alist for handling bouncers by `rcirc-markup-bridge-bots'.
+Each entry has the form (NAME . REGEXP), where NAME is the user
+name of a bouncer and REGEXP is a pattern used to match the
+message.  The matching part of the message will be stripped from
+the message, and the first match group will replace the user name
+of the bot.  Any matched name will noted and used in some cases
+for nick completion."
+  :type '(alist :key-type (string :tag "Bot name")
+                :value-type regexp)
+  :version "29.1")
+
+(defface rcirc-bridged-nick
+  '((((class color) (min-colors 88) (background light)) :background "SlateGray1")
+    (((class color) (min-colors 88) (background dark))  :background "DarkSlateGray4")
+    (((class color) (min-colors 16) (background light)) :background "LightBlue")
+    (((class color) (min-colors 16) (background dark))  :background "DarkSlateGray")
+    (t :background "blue"))
+  "Face used for pseudo-nick ."
+  :version "29.1")
+
+(defun rcirc-markup-bridge-bots (sender response)
+  "Detect and reformat bridged messages to appear more natural.
+The user option `rcirc-bridge-bot-alist' specified what SENDER to
+handle.  This function only operates on direct messages (as
+indicated by RESPONSE)."
+  (catch 'quit
+    (atomic-change-group
+      (save-match-data
+        (when-let* (((string= response "PRIVMSG"))
+                    (regexp (alist-get sender rcirc-bridge-bot-alist
+                                       nil nil #'string=))
+                    ((search-forward-regexp regexp nil t))
+                    (nick (match-string-no-properties 1)))
+          (replace-match "")            ;delete the bot string
+          (unless (member nick rcirc-pseudo-nicks)
+            (push nick rcirc-pseudo-nicks))
+          (goto-char (point-min))
+          (let ((fmt (alist-get "PRIVMSG" rcirc-response-formats
+                                nil nil #'string=))
+                (hl-face (cond ((member sender rcirc-bright-nicks)
+                                'rcirc-bright-nick)
+                               ((member sender rcirc-dim-nicks)
+                                'rcirc-dim-nick)
+                               (t 'rcirc-other-nick)))
+                hl-username-p)
+            (when (string-match (rx (* "%%") "%" (group (or ?N ?n))) fmt)
+              (when (string= (match-string 1 fmt) "N")
+                (setq hl-username-p t))
+              (search-forward-regexp
+               (format-spec
+                (alist-get "PRIVMSG" rcirc-response-formats
+                           nil nil #'string=)
+                `((?m . "") (?r . "") (?t . "") (?f . "")
+                  (?N . ,(rx (group (+? nonl))))
+                  (?n . ,(rx (group (+? nonl))))))
+               nil t)
+              (replace-match
+               (propertize
+                nick
+                'help-echo (format "Message bridged via %s" sender)
+                'face `(,@(and hl-username-p (list hl-face))
+                        rcirc-bridged-nick))
+               nil t nil 1))))))))
+
 (defun rcirc-markup-attributes (_sender _response)
   "Highlight IRC markup, indicated by ASCII control codes."
   (while (re-search-forward
@@ -2966,10 +3125,8 @@ If ARG is given, opens the URL in a new browser window."
                  ((<= 0 bg (1- (length rcirc-color-codes)))))
         (setq background (aref rcirc-color-codes bg)))
       (rcirc-add-face (match-beginning 0) (match-end 0)
-                      `(face (:foreground
-                              ,foreground
-                              :background
-                              ,background))))))
+                      `(face (,@(and foreground (list :foreground foreground))
+                              ,@(and background (list :background background))))))))
 
 (defun rcirc-remove-markup-codes (_sender _response)
   "Remove ASCII control codes used to designate markup."

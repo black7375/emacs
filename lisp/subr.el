@@ -1562,6 +1562,21 @@ in the current Emacs session, then this function may return nil."
   ;; is this really correct? maybe remove mouse-movement?
   (memq (event-basic-type object) '(mouse-1 mouse-2 mouse-3 mouse-movement)))
 
+(defun event--posn-at-point ()
+  ;; Use `window-point' for the case when the current buffer
+  ;; is temporarily switched to some other buffer (bug#50256)
+  (let* ((pos (window-point))
+         (posn (posn-at-point pos)))
+    (if (null posn) ;; `pos' is "out of sight".
+        (list (selected-window) pos '(0 . 0) 0)
+      ;; If `pos' is inside a chunk of text hidden by an `invisible'
+      ;; or `display' property, `posn-at-point' returns the position
+      ;; that *is* visible, whereas `event--posn-at-point' is used
+      ;; when we have a keyboard event, whose position is `point' even
+      ;; if that position is invisible.
+      (setf (nth 5 posn) pos)
+      posn)))
+
 (defun event-start (event)
   "Return the starting position of EVENT.
 EVENT should be a mouse click, drag, or key press event.  If
@@ -1588,10 +1603,7 @@ nil or (STRING . POSITION)'.
 
 For more information, see Info node `(elisp)Click Events'."
   (or (and (consp event) (nth 1 event))
-      ;; Use `window-point' for the case when the current buffer
-      ;; is temporarily switched to some other buffer (bug#50256)
-      (posn-at-point (window-point))
-      (list (selected-window) (window-point) '(0 . 0) 0)))
+      (event--posn-at-point)))
 
 (defun event-end (event)
   "Return the ending position of EVENT.
@@ -1599,10 +1611,7 @@ EVENT should be a click, drag, or key press event.
 
 See `event-start' for a description of the value returned."
   (or (and (consp event) (nth (if (consp (nth 2 event)) 2 1) event))
-      ;; Use `window-point' for the case when the current buffer
-      ;; is temporarily switched to some other buffer (bug#50256)
-      (posn-at-point (window-point))
-      (list (selected-window) (window-point) '(0 . 0) 0)))
+      (event--posn-at-point)))
 
 (defsubst event-click-count (event)
   "Return the multi-click count of EVENT, a click or drag event.
@@ -1858,6 +1867,14 @@ be a list of the form returned by `event-start' and `event-end'."
 ;; We can't actually make `values' obsolete, because that will result
 ;; in warnings when using `values' in let-bindings.
 ;;(make-obsolete-variable 'values "no longer used" "28.1")
+
+(defvar max-specpdl-size 2500
+  "Former limit on specbindings, now without effect.
+This variable used to limit the size of the specpdl stack which,
+among other things, holds dynamic variable bindings and `unwind-protect'
+activations.  To prevent runaway recursion, use `max-lisp-eval-depth'
+instead; it will indirectly limit the specpdl stack size as well.")
+(make-obsolete-variable 'max-specpdl-size nil "29.1")
 
 
 ;;;; Alternate names for functions - these are not being phased out.
