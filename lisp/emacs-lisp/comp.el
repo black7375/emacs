@@ -4119,6 +4119,7 @@ the deferred compilation mechanism."
 LOAD and SELECTOR work as described in `native--compile-async'."
   ;; Make sure we are not already compiling `file' (bug#40838).
   (or (gethash file comp-async-compilations)
+      (gethash (file-name-with-extension file "elc") comp--no-native-compile)
       (cond
        ((null selector) nil)
        ((functionp selector) (not (funcall selector file)))
@@ -4203,6 +4204,17 @@ bytecode definition was not changed in the meantime)."
 
 
 ;;; Compiler entry points.
+
+(defun comp-compile-all-trampolines ()
+  "Pre-compile AOT all trampolines."
+  (let ((comp-running-batch-compilation t)
+        ;; We want to target only the 'native-lisp' directory.
+        (native-compile-target-directory
+         (car (last native-comp-eln-load-path))))
+    (mapatoms (lambda (f)
+                (when (subr-primitive-p (symbol-function f))
+                  (message "Compiling trampoline for: %s" f)
+                  (comp-trampoline-compile f))))))
 
 ;;;###autoload
 (defun comp-lookup-eln (filename)
