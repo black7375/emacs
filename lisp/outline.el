@@ -1065,6 +1065,8 @@ Note that this does not hide the lines preceding the first heading line."
   ;; Nullify the hook to avoid repeated calls to `outline-flag-region'
   ;; wasting lots of time running `lazy-lock-fontify-after-outline'
   ;; and run the hook finally.
+  ;; FIXME: The above comment seems outdated, as lazy-lock has been
+  ;;        removed from Emacs.
   (let (outline-view-change-hook)
     (save-excursion
       (save-restriction
@@ -1775,7 +1777,12 @@ With a prefix argument, show headings up to that LEVEL."
         (propertize (icon-string icon-name)
                     'mouse-face 'default
                     'follow-link 'mouse-face
-                    'keymap (define-keymap "<mouse-2>" #'outline-cycle)))
+                    'keymap (define-keymap
+                              "<mouse-2>" #'outline-cycle
+                              ;; Need to override the global binding
+                              ;; `mouse-appearance-menu' with <down->:
+                              "S-<down-mouse-1>" #'ignore
+                              "S-<mouse-1>" #'outline-cycle-buffer)))
       (list 'outline-open
             (if outline--use-rtl 'outline-close-rtl 'outline-close))))))
 
@@ -1803,10 +1810,11 @@ With a prefix argument, show headings up to that LEVEL."
            (overlay-put o 'mouse-face 'highlight)
            (overlay-put o 'keymap (define-keymap
                                     "RET" #'outline-cycle
-                                    "<mouse-2>" #'outline-cycle))
-           (overlay-put o 'help-echo (if (eq type 'close)
-                                         "Click to show"
-                                       "Click to hide")))
+                                    "<mouse-2>" #'outline-cycle
+                                    ;; Need to override the global binding
+                                    ;; `mouse-appearance-menu' with <down->:
+                                    "S-<down-mouse-1>" #'ignore
+                                    "S-<mouse-1>" #'outline-cycle-buffer)))
           ('in-margins
            (overlay-put o 'before-string icon)
            (overlay-put o 'keymap (define-keymap "RET" #'outline-cycle)))
