@@ -574,7 +574,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #ifdef USE_XCB
 #include <xcb/xproto.h>
 #include <xcb/xcb.h>
-#include <xcb/xcb_aux.h>
 #endif
 
 /* If we have Xfixes extension, use it for pointer blanking.  */
@@ -3072,7 +3071,7 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
 				     0, 0);
       get_property_cookies[i]
 	= xcb_get_property (dpyinfo->xcb_connection, 0, (xcb_window_t) toplevels[i],
-			    (xcb_atom_t) dpyinfo->Xatom_wm_state, XCB_ATOM_ANY,
+			    (xcb_atom_t) dpyinfo->Xatom_wm_state, 0,
 			    0, 2);
       xm_property_cookies[i]
 	= xcb_get_property (dpyinfo->xcb_connection, 0, (xcb_window_t) toplevels[i],
@@ -3083,7 +3082,7 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
 	= xcb_get_property (dpyinfo->xcb_connection, 0,
 			    (xcb_window_t) toplevels[i],
 			    (xcb_atom_t) dpyinfo->Xatom_net_frame_extents,
-			    XCB_ATOM_CARDINAL, 0, 4);
+			    XA_CARDINAL, 0, 4);
       get_geometry_cookies[i]
 	= xcb_get_geometry (dpyinfo->xcb_connection, (xcb_window_t) toplevels[i]);
 
@@ -3211,7 +3210,7 @@ x_dnd_compute_toplevels (struct x_display_info *dpyinfo)
 	{
 	  if (xcb_get_property_value_length (extent_property_reply) == 16
 	      && extent_property_reply->format == 32
-	      && extent_property_reply->type == XCB_ATOM_CARDINAL)
+	      && extent_property_reply->type == XA_CARDINAL)
 	    {
 	      fextents = xcb_get_property_value (extent_property_reply);
 	      frame_extents[0] = fextents[0];
@@ -3585,13 +3584,13 @@ x_dnd_get_proxy_proto (struct x_display_info *dpyinfo, Window wdesc,
     xdnd_proxy_cookie = xcb_get_property (dpyinfo->xcb_connection, 0,
 					  (xcb_window_t) wdesc,
 					  (xcb_atom_t) dpyinfo->Xatom_XdndProxy,
-					  XCB_ATOM_WINDOW, 0, 1);
+					  XA_WINDOW, 0, 1);
 
   if (proto_out)
     xdnd_proto_cookie = xcb_get_property (dpyinfo->xcb_connection, 0,
 					  (xcb_window_t) wdesc,
 					  (xcb_atom_t) dpyinfo->Xatom_XdndAware,
-					  XCB_ATOM_ATOM, 0, 1);
+					  XA_ATOM, 0, 1);
 
   if (proxy_out)
     {
@@ -3603,7 +3602,7 @@ x_dnd_get_proxy_proto (struct x_display_info *dpyinfo, Window wdesc,
       else
 	{
 	  if (reply->format == 32
-	      && reply->type == XCB_ATOM_WINDOW
+	      && reply->type == XA_WINDOW
 	      && (xcb_get_property_value_length (reply) >= 4))
 	    *proxy_out = *(xcb_window_t *) xcb_get_property_value (reply);
 
@@ -3621,7 +3620,7 @@ x_dnd_get_proxy_proto (struct x_display_info *dpyinfo, Window wdesc,
       else
 	{
 	  if (reply->format == 32
-	      && reply->type == XCB_ATOM_ATOM
+	      && reply->type == XA_ATOM
 	      && (xcb_get_property_value_length (reply) >= 4))
 	    *proto_out = (int) *(xcb_atom_t *) xcb_get_property_value (reply);
 
@@ -3805,15 +3804,15 @@ x_dnd_get_wm_state_and_proto (struct x_display_info *dpyinfo,
   wmstate_cookie = xcb_get_property (dpyinfo->xcb_connection, 0,
 				     (xcb_window_t) window,
 				     (xcb_atom_t) dpyinfo->Xatom_wm_state,
-				     XCB_ATOM_ANY, 0, 2);
+				     0, 0, 2);
   xdnd_proto_cookie = xcb_get_property (dpyinfo->xcb_connection, 0,
 					(xcb_window_t) window,
 					(xcb_atom_t) dpyinfo->Xatom_XdndAware,
-					XCB_ATOM_ATOM, 0, 1);
+					XA_ATOM, 0, 1);
   xdnd_proxy_cookie = xcb_get_property (dpyinfo->xcb_connection, 0,
 					(xcb_window_t) window,
 					(xcb_atom_t) dpyinfo->Xatom_XdndProxy,
-					XCB_ATOM_WINDOW, 0, 1);
+					XA_WINDOW, 0, 1);
   xm_style_cookie = xcb_get_property (dpyinfo->xcb_connection, 0,
 				      (xcb_window_t) window,
 				      (xcb_atom_t) dpyinfo->Xatom_MOTIF_DRAG_RECEIVER_INFO,
@@ -3860,7 +3859,7 @@ x_dnd_get_wm_state_and_proto (struct x_display_info *dpyinfo,
   else
     {
       if (reply->format == 32
-	  && reply->type == XCB_ATOM_WINDOW
+	  && reply->type == XA_WINDOW
 	  && (xcb_get_property_value_length (reply) >= 4))
 	*proxy_out = *(xcb_window_t *) xcb_get_property_value (reply);
 
@@ -11005,6 +11004,31 @@ x_clear_frame (struct frame *f)
   unblock_input ();
 }
 
+/* Send a message to frame F telling the event loop to track whether
+   or not an hourglass is being displayed.  This is required to ignore
+   the right events when the hourglass is mapped without callig XSync
+   after displaying or hiding the hourglass.  */
+
+static void
+x_send_hourglass_message (struct frame *f, bool hourglass_enabled)
+{
+  struct x_display_info *dpyinfo;
+  XEvent msg;
+
+  dpyinfo = FRAME_DISPLAY_INFO (f);
+  memset (&msg, 0, sizeof msg);
+
+  msg.xclient.type = ClientMessage;
+  msg.xclient.message_type
+    = dpyinfo->Xatom_EMACS_TMP;
+  msg.xclient.format = 8;
+  msg.xclient.window = FRAME_X_WINDOW (f);
+  msg.xclient.data.b[0] = hourglass_enabled ? 1 : 0;
+
+  XSendEvent (dpyinfo->display, FRAME_X_WINDOW (f),
+	      False, NoEventMask, &msg);
+}
+
 /* RIF: Show hourglass cursor on frame F.  */
 
 static void
@@ -11025,14 +11049,14 @@ x_show_hourglass (struct frame *f)
       if (popup_activated ())
 	return;
 
+      x_send_hourglass_message (f, true);
+
 #ifdef USE_X_TOOLKIT
       if (x->widget)
 #else
       if (FRAME_OUTER_WINDOW (f))
 #endif
        {
-         x->hourglass_p = true;
-
          if (!x->hourglass_window)
            {
 #ifndef USE_XCB
@@ -11099,15 +11123,11 @@ x_hide_hourglass (struct frame *f)
     {
 #ifndef USE_XCB
       XUnmapWindow (FRAME_X_DISPLAY (f), x->hourglass_window);
-      /* Sync here because XTread_socket looks at the
-	 hourglass_p flag that is reset to zero below.  */
-      XSync (FRAME_X_DISPLAY (f), False);
 #else
       xcb_unmap_window (FRAME_DISPLAY_INFO (f)->xcb_connection,
 			(xcb_window_t) x->hourglass_window);
-      xcb_aux_sync (FRAME_DISPLAY_INFO (f)->xcb_connection);
 #endif
-      x->hourglass_p = false;
+      x_send_hourglass_message (f, false);
     }
 }
 
@@ -11231,21 +11251,32 @@ XTflash (struct frame *f)
 static void
 XTring_bell (struct frame *f)
 {
-  if (FRAME_X_DISPLAY (f))
+  struct x_display_info *dpyinfo;
+
+  if (!FRAME_X_DISPLAY (f))
+    return;
+
+  dpyinfo = FRAME_DISPLAY_INFO (f);
+
+  if (visible_bell)
+    XTflash (f);
+  else
     {
-      if (visible_bell)
-	XTflash (f);
-      else
-	{
-	  block_input ();
+      /* When Emacs is untrusted, Bell requests sometimes generate
+	 Access errors.  This is not in the security extension
+	 specification but seems to be a bug in the X consortium XKB
+	 implementation.  */
+
+      block_input ();
+      x_ignore_errors_for_next_request (dpyinfo);
 #ifdef HAVE_XKB
-          XkbBell (FRAME_X_DISPLAY (f), None, 0, None);
+      XkbBell (FRAME_X_DISPLAY (f), FRAME_X_WINDOW (f), 0, None);
 #else
-	  XBell (FRAME_X_DISPLAY (f), 0);
+      XBell (FRAME_X_DISPLAY (f), 0);
 #endif
-	  XFlush (FRAME_X_DISPLAY (f));
-	  unblock_input ();
-	}
+      XFlush (FRAME_X_DISPLAY (f));
+      x_stop_ignoring_errors (dpyinfo);
+      unblock_input ();
     }
 }
 
@@ -12276,6 +12307,13 @@ x_dnd_begin_drag_and_drop (struct frame *f, Time time, Atom xaction,
 #ifdef HAVE_XINPUT2
   struct xi_device_t *device;
 #endif
+
+  if (FRAME_DISPLAY_INFO (f)->untrusted)
+    /* Untrusted clients cannot send messages to trusted clients or
+       read the window tree, so drag and drop will likely not work at
+       all.  */
+    error ("Drag-and-drop is not possible when the client is"
+	   " not trusted by the X server.");
 
   base = SPECPDL_INDEX ();
 
@@ -18620,6 +18658,16 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 	      }
 	  }
 
+	if (event->xclient.message_type == dpyinfo->Xatom_EMACS_TMP
+	    && event->xclient.format == 8)
+	  {
+	    /* This is actually an hourglass message.  Set whether or
+	       not events from here on have the hourglass enabled.  */
+
+	    if (any)
+	      FRAME_X_OUTPUT (any)->hourglass_p = event->xclient.data.b[0];
+	  }
+
         if (event->xclient.message_type == dpyinfo->Xatom_wm_protocols
             && event->xclient.format == 32)
           {
@@ -19208,7 +19256,7 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		= xcb_get_property (dpyinfo->xcb_connection, 0,
 				    (xcb_window_t) FRAME_OUTER_WINDOW (f),
 				    (xcb_atom_t) dpyinfo->Xatom_net_wm_window_opacity,
-				    XCB_ATOM_CARDINAL, 0, 1);
+				    XA_CARDINAL, 0, 1);
 	      opacity_reply
 		= xcb_get_property_reply (dpyinfo->xcb_connection,
 					  opacity_cookie, &error);
@@ -19217,9 +19265,9 @@ handle_one_xevent (struct x_display_info *dpyinfo,
 		free (error), rc = false;
 	      else
 		rc = (opacity_reply->format == 32
-		      && (opacity_reply->type == XCB_ATOM_CARDINAL
-			  || opacity_reply->type == XCB_ATOM_ATOM
-			  || opacity_reply->type == XCB_ATOM_WINDOW)
+		      && (opacity_reply->type == XA_CARDINAL
+			  || opacity_reply->type == XA_ATOM
+			  || opacity_reply->type == XA_WINDOW)
 		      && (xcb_get_property_value_length (opacity_reply) >= 4));
 
 	      if (rc)
@@ -26000,9 +26048,11 @@ For details, see etc/PROBLEMS.\n",
 	  if (!ioerror && dpyinfo)
 	    {
 	      /* Dump the list of error handlers for debugging
-		 purposes.  */
+		 purposes if the list exists.  */
 
-	      fprintf (stderr, "X error handlers currently installed:\n");
+	      if ((dpyinfo->failable_requests
+		   != dpyinfo->next_failable_request) || x_error_message)
+		fprintf (stderr, "X error handlers currently installed:\n");
 
 	      for (failable = dpyinfo->failable_requests;
 		   failable < dpyinfo->next_failable_request;
@@ -26732,6 +26782,12 @@ x_wm_supports_1 (struct x_display_info *dpyinfo, Atom want_atom)
   /* The user says there's no window manager, so take him up on
      it.  */
   if (!NILP (Vx_no_window_manager))
+    return false;
+
+  /* If the window system says Emacs is untrusted, there will be no
+     way to send any information to the window manager, making any
+     hints useless.  */
+  if (dpyinfo->untrusted)
     return false;
 
   block_input ();
@@ -27902,11 +27958,16 @@ x_focus_frame (struct frame *f, bool noactivate)
   struct x_display_info *dpyinfo;
   Time time;
 
+  dpyinfo = FRAME_DISPLAY_INFO (f);
+
+  if (dpyinfo->untrusted)
+    /* The X server ignores all input focus related requests from
+       untrusted clients.  */
+    return;
+
   /* The code below is not reentrant wrt to dpyinfo->x_focus_frame and
      friends being set.  */
   block_input ();
-
-  dpyinfo = FRAME_DISPLAY_INFO (f);
 
   if (FRAME_X_EMBEDDED_P (f))
     /* For Xembedded frames, normally the embedder forwards key
@@ -28273,7 +28334,7 @@ x_make_frame_invisible (struct frame *f)
 	error ("Can't notify window manager of window withdrawal");
       }
 
-  x_sync (f);
+  XSync (FRAME_X_DISPLAY (f), False);
 
   /* We can't distinguish this from iconification
      just by the event that we get from the server.
@@ -29466,6 +29527,7 @@ struct x_display_info *
 x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 {
   Display *dpy;
+  XKeyboardState keyboard_state;
   struct terminal *terminal;
   struct x_display_info *dpyinfo;
   XrmDatabase xrdb;
@@ -29684,6 +29746,32 @@ x_term_init (Lisp_Object display_name, char *xrm_option, char *resource_name)
 
   dpyinfo = xzalloc (sizeof *dpyinfo);
   terminal = x_create_terminal (dpyinfo);
+
+  if (!NILP (Vx_detect_server_trust))
+    {
+      /* Detect whether or not the X server trusts this client, which
+	 is done by making a SetKeyboardControl request and checking
+	 for an Access error.  */
+      XGrabServer (dpy);
+      XGetKeyboardControl (dpy, &keyboard_state);
+
+      x_catch_errors (dpy);
+
+      /* At this point, the display is not on x_display_list, so
+	 x_uncatch_errors won't sync.  However, that's okay because
+	 x_had_errors_p will.  */
+
+      if (keyboard_state.global_auto_repeat
+	  == AutoRepeatModeOn)
+	XAutoRepeatOn (dpy);
+      else
+	XAutoRepeatOff (dpy);
+
+      if (x_had_errors_p (dpy))
+	dpyinfo->untrusted = true;
+      x_uncatch_errors_after_check ();
+      XUngrabServer (dpy);
+    }
 
   dpyinfo->next_failable_request = dpyinfo->failable_requests;
 
@@ -31761,4 +31849,14 @@ select text over slow X connections.
 If that is still too slow, setting this variable to the symbol
 `really-fast' will make Emacs return only cached values.  */);
   Vx_use_fast_mouse_position = Qnil;
+
+  DEFVAR_LISP ("x-detect-server-trust", Vx_detect_server_trust,
+    doc: /* If non-nil, Emacs should detect whether or not it is trusted by X.
+
+If non-nil, Emacs will make an X request at connection startup that is
+prohibited to untrusted clients under the X Security Extension and
+check whether or not a resulting Access error is generated by the X
+server.  If the X server reports the error, Emacs will disable certain
+features that do not work for untrusted clients.  */);
+  Vx_detect_server_trust = Qnil;
 }
