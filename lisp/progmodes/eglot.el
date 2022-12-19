@@ -2,12 +2,12 @@
 
 ;; Copyright (C) 2018-2022 Free Software Foundation, Inc.
 
-;; Version: 1.9
+;; Version: 1.10
 ;; Author: João Távora <joaotavora@gmail.com>
 ;; Maintainer: João Távora <joaotavora@gmail.com>
 ;; URL: https://github.com/joaotavora/eglot
 ;; Keywords: convenience, languages
-;; Package-Requires: ((emacs "26.3") (jsonrpc "1.0.14") (flymake "1.2.1") (project "0.3.0") (xref "1.0.1") (eldoc "1.11.0") (seq "2.23") (external-completion "0.1"))
+;; Package-Requires: ((emacs "26.3") (jsonrpc "1.0.16") (flymake "1.2.1") (project "0.9.3") (xref "1.0.1") (eldoc "1.11.0") (seq "2.23") (external-completion "0.1"))
 
 ;; This is a GNU ELPA :core package.  Avoid adding functionality
 ;; that is not available in the version of Emacs recorded above or any
@@ -182,8 +182,8 @@ chosen (interactively or automatically)."
                       when probe return (cons probe args)
                       finally (funcall err)))))))
 
-(defvar eglot-server-programs `((rust-mode . ,(eglot-alternatives '("rust-analyzer" "rls")))
-                                (cmake-mode . ("cmake-language-server"))
+(defvar eglot-server-programs `(((rust-ts-mode rust-mode) . ,(eglot-alternatives '("rust-analyzer" "rls")))
+                                ((cmake-mode cmake-ts-mode) . ("cmake-language-server"))
                                 (vimrc-mode . ("vim-language-server" "--stdio"))
                                 ((python-mode python-ts-mode)
                                  . ,(eglot-alternatives
@@ -211,7 +211,8 @@ chosen (interactively or automatically)."
                                 (elm-mode . ("elm-language-server"))
                                 (mint-mode . ("mint" "ls"))
                                 (kotlin-mode . ("kotlin-language-server"))
-                                ((go-mode go-dot-mod-mode go-dot-work-mode) . ("gopls"))
+                                ((go-mode go-dot-mod-mode go-dot-work-mode go-ts-mode go-mod-ts-mode)
+                                 . ("gopls"))
                                 ((R-mode ess-r-mode) . ("R" "--slave" "-e"
                                                         "languageserver::run()"))
                                 ((java-mode java-ts-mode) . ("jdtls"))
@@ -224,7 +225,7 @@ chosen (interactively or automatically)."
                                 ((tex-mode context-mode texinfo-mode bibtex-mode)
                                  . ,(eglot-alternatives '("digestif" "texlab")))
                                 (erlang-mode . ("erlang_ls" "--transport" "stdio"))
-                                (yaml-mode . ("yaml-language-server" "--stdio"))
+                                ((yaml-ts-mode yaml-mode) . ("yaml-language-server" "--stdio"))
                                 (nix-mode . ,(eglot-alternatives '("nil" "rnix-lsp")))
                                 (gdscript-mode . ("localhost" 6008))
                                 ((fortran-mode f90-mode) . ("fortls"))
@@ -240,7 +241,9 @@ chosen (interactively or automatically)."
                                 ((clojure-mode clojurescript-mode clojurec-mode)
                                  . ("clojure-lsp"))
                                 ((csharp-mode csharp-ts-mode)
-                                 . ("omnisharp" "-lsp"))
+                                 . ,(eglot-alternatives
+                                     '(("omnisharp" "-lsp")
+                                       ("csharp-ls"))))
                                 (purescript-mode . ("purescript-language-server" "--stdio"))
                                 ((perl-mode cperl-mode) . ("perl" "-MPerl::LanguageServer" "-e" "Perl::LanguageServer::run"))
                                 (markdown-mode . ("marksman" "server")))
@@ -499,7 +502,7 @@ Here's what an element of this alist might look like:
       ;; disallow-non-standard-keys
       ;; enforce-required-keys
       ;; enforce-optional-keys
-      )
+      no-unknown-interfaces)
     "How strictly to check LSP interfaces at compile- and run-time.
 
 Value is a list of symbols (if the list is empty, no checks are
@@ -520,7 +523,10 @@ happens at run-time.  At compile-time, a warning is raised if a
 destructuring spec doesn't use all optional fields.
 
 If the symbol `disallow-unknown-methods' is present, Eglot warns
-on unknown notifications and errors on unknown requests."))
+on unknown notifications and errors on unknown requests.
+
+If the symbol `no-unknown-interfaces' is present, Eglot warns at
+compile time if an undeclared LSP interface is used."))
 
 (cl-defun eglot--check-object (interface-name
                                object
@@ -594,7 +600,7 @@ on unknown notifications and errors on unknown requests."))
                (when missing-out (byte-compile-warn
                                   "Destructuring for %s is missing out on %s"
                                   interface-name missing-out))))
-            (t
+            ((memq 'no-unknown-interfaces eglot-strict-mode)
              (byte-compile-warn "Unknown LSP interface %s" interface-name))))))
 
 (cl-defmacro eglot--dbind (vars object &body body)
@@ -935,7 +941,7 @@ PRESERVE-BUFFERS as in `eglot-shutdown', which see."
                   (push sym retval))))
     retval))
 
-(defvar eglot--command-history nil
+(defvar eglot-command-history nil
   "History of CONTACT arguments to `eglot'.")
 
 (defun eglot--lookup-mode (mode)
