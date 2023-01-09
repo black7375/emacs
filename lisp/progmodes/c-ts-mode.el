@@ -358,7 +358,7 @@ MODE is either `c' or `cpp'."
    :language mode
    :feature 'assignment
    ;; TODO: Recursively highlight identifiers in parenthesized
-   ;; expressions, see `c-ts-mode--fontify-struct-declarator' for
+   ;; expressions, see `c-ts-mode--fontify-declarator' for
    ;; inspiration.
    '((assignment_expression
       left: (identifier) @font-lock-variable-name-face)
@@ -425,11 +425,14 @@ MODE is either `c' or `cpp'."
     ;; Recurse.
     ((or "attributed_declarator" "parenthesized_declarator")
      (c-ts-mode--declarator-identifier (treesit-node-child node 0 t)))
-    ("pointer_declarator"
+    ((or "pointer_declarator" "reference_declarator")
      (c-ts-mode--declarator-identifier (treesit-node-child node -1)))
     ((or "function_declarator" "array_declarator" "init_declarator")
      (c-ts-mode--declarator-identifier
       (treesit-node-child-by-field-name node "declarator")))
+    ("qualified_identifier"
+     (c-ts-mode--declarator-identifier
+      (treesit-node-child-by-field-name node "name")))
     ;; Terminal case.
     ((or "identifier" "field_identifier")
      node)))
@@ -439,7 +442,14 @@ MODE is either `c' or `cpp'."
 For NODE, OVERRIDE, START, END, and ARGS, see
 `treesit-font-lock-rules'."
   (let* ((identifier (c-ts-mode--declarator-identifier node))
-         (face (pcase (treesit-node-type (treesit-node-parent identifier))
+         (qualified-root
+          (treesit-parent-while (treesit-node-parent identifier)
+                                (lambda (node)
+                                  (equal (treesit-node-type node)
+                                         "qualified_identifier"))))
+         (face (pcase (treesit-node-type (treesit-node-parent
+                                          (or qualified-root
+                                              identifier)))
                  ("function_declarator" 'font-lock-function-name-face)
                  (_ 'font-lock-variable-name-face))))
     (treesit-fontify-with-override
