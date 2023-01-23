@@ -2632,7 +2632,9 @@ Must be handled by the callers."
 	    '(exec-path make-nearby-temp-file make-process process-file
 	      shell-command start-file-process temporary-file-directory
 	      ;; Emacs 29+ only.
-              list-system-processes memory-info process-attributes))
+              list-system-processes memory-info process-attributes
+              ;; Emacs 30+ only.
+	      file-user-uid))
     default-directory)
    ;; PROC.
    ((member operation '(file-notify-rm-watch file-notify-valid-p))
@@ -3714,6 +3716,15 @@ Let-bind it when necessary.")
 	 vec (concat "~" (substring filename (match-beginning 1))))
       (tramp-make-tramp-file-name (tramp-dissect-file-name filename)))))
 
+(defun tramp-handle-file-user-uid ()
+  "Like `user-uid' for Tramp files."
+  (let ((v (tramp-dissect-file-name default-directory)))
+    (or (tramp-get-remote-uid v 'integer)
+        ;; Some handlers for `tramp-get-remote-uid' return nil if they
+        ;; can't get the UID; always return -1 in this case for
+        ;; consistency.
+        -1)))
+
 (defun tramp-handle-access-file (filename string)
   "Like `access-file' for Tramp files."
   (setq filename (file-truename filename))
@@ -4034,9 +4045,15 @@ Let-bind it when necessary.")
   "Like `file-regular-p' for Tramp files."
   (and (file-exists-p filename)
        ;; Sometimes, `file-attributes' does not return a proper value
-       ;; even if `file-exists-p' does.
-       (when-let ((attr (file-attributes filename)))
-	 (eq ?- (aref (file-attribute-modes attr) 0)))))
+       ;; even if `file-exists-p' does.  Protect by `ignore-errors',
+       ;; because `file-truename' could raise an error for cyclic
+       ;; symlinks.
+       (ignore-errors
+	 (when-let ((attr (file-attributes filename)))
+	   (cond
+	    ((eq ?- (aref (file-attribute-modes attr) 0)))
+	    ((eq ?l (aref (file-attribute-modes attr) 0))
+	     (file-regular-p (file-truename filename))))))))
 
 (defun tramp-handle-file-remote-p (filename &optional identification connected)
   "Like `file-remote-p' for Tramp files."
