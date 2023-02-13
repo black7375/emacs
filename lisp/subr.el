@@ -3595,12 +3595,14 @@ like) while `y-or-n-p' is running)."
 			    (if (or (zerop l) (eq ?\s (aref prompt (1- l))))
 				"" " ")
 			    (if dialog ""
-                              (substitute-command-keys
-                               (if help-form
-                                   (format "(\\`y', \\`n' or \\`%s') "
-                                           (key-description
-                                            (vector help-char)))
-                                 "(\\`y' or \\`n') ")))))))
+                              ;; Don't clobber caller's match data.
+                              (save-match-data
+                                (substitute-command-keys
+                                 (if help-form
+                                     (format "(\\`y', \\`n' or \\`%s') "
+                                             (key-description
+                                              (vector help-char)))
+                                   "(\\`y' or \\`n') "))))))))
         ;; Preserve the actual command that eventually called
         ;; `y-or-n-p' (otherwise `repeat' will be repeating
         ;; `exit-minibuffer').
@@ -4180,8 +4182,8 @@ or byte-code."
   "Return the SHA-1 (Secure Hash Algorithm) of an OBJECT.
 OBJECT is either a string or a buffer.  Optional arguments START and
 END are character positions specifying which portion of OBJECT for
-computing the hash.  If BINARY is non-nil, return a string in binary
-form.
+computing the hash.  If BINARY is non-nil, return a 40-byte unibyte
+string; otherwise returna 40-character string.
 
 Note that SHA-1 is not collision resistant and should not be used
 for anything security-related.  See `secure-hash' for
