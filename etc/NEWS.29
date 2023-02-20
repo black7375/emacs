@@ -199,13 +199,6 @@ load time.
 ** Native Compilation
 
 +++
-*** New variable 'inhibit-automatic-native-compilation'.
-If set, Emacs will inhibit native compilation (and won't write
-anything to the eln cache automatically).  The variable is initialized
-during Emacs startup from the environment variable
-'EMACS_INHIBIT_AUTOMATIC_NATIVE_COMPILATION'.
-
----
 *** New command 'native-compile-prune-cache'.
 This command deletes old subdirectories of the eln cache (but not the
 ones for the current Emacs version).  Note that subdirectories of the
@@ -570,7 +563,7 @@ documented from day one; it just didn't behave according to
 documentation.  It turns out some Lisp programs were using this
 coding-system on the wrong assumption that the "auto" part means some
 automagic handling of the end-of-line (EOL) format conversion; those
-program will now start to fail, because BOM signature in UTF-8 encoded
+programs will now start to fail, because BOM signature in UTF-8 encoded
 text is rarely expected.  That is the reason we mention this bugfix
 here.
 
@@ -615,8 +608,19 @@ with 'C-x x t', or try disabling all known slow minor modes with
 and the major mode with 'M-x so-long-mode', or visit the file with
 'M-x find-file-literally' instead of the usual 'C-x C-f'.
 
-Note that the display optimizations in these cases may cause the
-buffer to be occasionally mis-fontified.
+In buffers in which these display optimizations are in effect, the
+'fontification-functions', 'pre-command-hook' and 'post-command-hook'
+hooks are executed on a narrowed portion of the buffer, whose size is
+controlled by the variables 'long-line-optimizations-region-size' and
+'long-line-optimizations-bol-search-limit', as if they were in a
+'with-restriction' form.  This may, in particular, cause occasional
+mis-fontifications in these buffers.  Modes which are affected by
+these optimizations and by the fact that the buffer is narrowed,
+should adapt and either modify their algorithm so as not to expect the
+entire buffer to be accessible, or, if accessing outside of the
+narrowed region doesn't hurt performance, use the
+'without-restriction' form to temporarily lift the restriction and
+access portions of the buffer outside of the narrowed region.
 
 The new function 'long-line-optimizations-p' returns non-nil when
 these optimizations are in effect in the current buffer.
@@ -1158,12 +1162,6 @@ commands are now available with key sequences that start with the
 'C-x w' prefix.
 
 +++
-*** New user option 'display-buffer-avoid-small-windows'.
-If non-nil, this should be a window height in lines, a number.
-Windows smaller than this will be avoided by 'display-buffer', if
-possible.
-
-+++
 *** New display action 'display-buffer-full-frame'.
 This action removes other windows from the frame when displaying a
 buffer on that frame.
@@ -1190,6 +1188,13 @@ The 16 most recently deleted frames can be undeleted with 'C-x 5 u' when
 the most recently deleted frame.  With a numerical prefix argument
 between 1 and 16, where 1 is the most recently deleted frame, undelete
 the corresponding deleted frame.
+
++++
+*** The variable 'icon-title-format' can now have the value t.
+That value means to use 'frame-title-format' for iconified frames.
+This is useful with some window managers and desktop environments
+which treat changes in frame's title as requests to raise the frame
+and/or give it input focus.
 
 ** Tab Bars and Tab Lines
 
@@ -3240,8 +3245,10 @@ for which a "built-in" mode would be turned on.  For example:
     (add-to-list 'major-mode-remap-alist '(ruby-mode . ruby-ts-mode))
 
 If you try these modes and don't like them, you can go back to the
-"built-in" modes by restarting Emacs.  But please tell us why you
-didn't like the tree-sitter based modes, so that we could try
+"built-in" modes by restarting Emacs.  (If you use desktop.el to save
+and restore Emacs sessions, make sure no buffer under these modes is
+recorded in the desktop file, before restarting.)  But please tell us
+why you didn't like the tree-sitter based modes, so that we could try
 improving them.
 
 Each major mode based on tree-sitter needs a language grammar library,
@@ -3813,6 +3820,14 @@ map, including a special formatting spec to list available keys.
 TIMEOUT is the idle time after which to deactivate the transient map.
 The default timeout value can be defined by the new variable
 'set-transient-map-timeout'.
+
++++
+** New forms 'with-restriction' and 'without-restriction'.
+These forms can be used as enhanced alternatives to the
+'save-restriction' form combined with, respectively,
+'narrow-to-region' and 'widen'.  They also accept an optional label
+argument, with which labeled narrowings can be created and lifted.
+See the "(elisp) Narrowing" node for details.
 
 ** Connection Local Variables
 

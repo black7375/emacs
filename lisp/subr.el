@@ -422,7 +422,9 @@ PREFIX is a string, and defaults to \"g\"."
   "Do nothing and return nil.
 This function accepts any number of ARGUMENTS, but ignores them.
 Also see `always'."
-  (declare (completion ignore))
+  ;; Not declared `side-effect-free' because we don't want calls to it
+  ;; elided; see `byte-compile-ignore'.
+  (declare (pure t) (completion ignore))
   (interactive)
   nil)
 
@@ -430,6 +432,7 @@ Also see `always'."
   "Do nothing and return t.
 This function accepts any number of ARGUMENTS, but ignores them.
 Also see `ignore'."
+  (declare (pure t) (side-effect-free error-free))
   t)
 
 ;; Signal a compile-error if the first arg is missing.
@@ -509,16 +512,19 @@ was called."
   "Return t if NUMBER is zero."
   ;; Used to be in C, but it's pointless since (= 0 n) is faster anyway because
   ;; = has a byte-code.
-  (declare (compiler-macro (lambda (_) `(= 0 ,number))))
+  (declare (pure t) (side-effect-free t)
+           (compiler-macro (lambda (_) `(= 0 ,number))))
   (= 0 number))
 
 (defun fixnump (object)
   "Return t if OBJECT is a fixnum."
+  (declare (side-effect-free error-free))
   (and (integerp object)
        (<= most-negative-fixnum object most-positive-fixnum)))
 
 (defun bignump (object)
   "Return t if OBJECT is a bignum."
+  (declare (side-effect-free error-free))
   (and (integerp object) (not (fixnump object))))
 
 (defun lsh (value count)
@@ -533,7 +539,8 @@ instead."
             (lambda (form)
               (macroexp-warn-and-return
                (format-message "avoid `lsh'; use `ash' instead")
-               form '(suspicious lsh) t form))))
+               form '(suspicious lsh) t form)))
+           (side-effect-free t))
   (when (and (< value 0) (< count 0))
     (when (< value most-negative-fixnum)
       (signal 'args-out-of-range (list value count)))
@@ -706,7 +713,7 @@ instead."
 If LIST is nil, return nil.
 If N is non-nil, return the Nth-to-last link of LIST.
 If N is bigger than the length of LIST, return LIST."
-  (declare (side-effect-free t))
+  (declare (pure t) (side-effect-free t))    ; pure up to mutation
   (if n
       (and (>= n 0)
            (let ((m (safe-length list)))
@@ -1525,6 +1532,7 @@ See also `current-global-map'.")
 
 (defun eventp (object)
   "Return non-nil if OBJECT is an input event or event object."
+  (declare (pure t) (side-effect-free error-free))
   (or (integerp object)
       (and (if (consp object)
                (setq object (car object))
@@ -1587,6 +1595,7 @@ in the current Emacs session, then this function may return nil."
 
 (defsubst mouse-movement-p (object)
   "Return non-nil if OBJECT is a mouse movement event."
+  (declare (side-effect-free error-free))
   (eq (car-safe object) 'mouse-movement))
 
 (defun mouse-event-p (object)
@@ -1859,7 +1868,7 @@ be a list of the form returned by `event-start' and `event-end'."
 
 (defun log10 (x)
   "Return (log X 10), the log base 10 of X."
-  (declare (obsolete log "24.4"))
+  (declare (side-effect-free t) (obsolete log "24.4"))
   (log x 10))
 
 (set-advertised-calling-convention
@@ -1916,8 +1925,13 @@ activations.  To prevent runaway recursion, use `max-lisp-eval-depth'
 instead; it will indirectly limit the specpdl stack size as well.")
 (make-obsolete-variable 'max-specpdl-size nil "29.1")
 
+(make-obsolete-variable 'comp-enable-subr-trampolines
+                        'native-comp-enable-subr-trampolines
+                        "29.1")
+
 (make-obsolete-variable 'native-comp-deferred-compilation
-                        'inhibit-automatic-native-compilation "29.1")
+                        'native-comp-jit-compilation
+                        "29.1")
 
 
 ;;;; Alternate names for functions - these are not being phased out.
@@ -2983,6 +2997,7 @@ It can be retrieved with `(process-get PROCESS PROPNAME)'."
 
 (defun memory-limit ()
   "Return an estimate of Emacs virtual memory usage, divided by 1024."
+  (declare (side-effect-free error-free))
   (let ((default-directory temporary-file-directory))
     (or (cdr (assq 'vsize (process-attributes (emacs-pid)))) 0)))
 
@@ -3963,30 +3978,51 @@ See also `locate-user-emacs-file'.")
   "Return non-nil if the current buffer is narrowed."
   (/= (- (point-max) (point-min)) (buffer-size)))
 
-(defmacro with-narrowing (start end &rest rest)
+(defmacro with-restriction (start end &rest rest)
   "Execute BODY with restrictions set to START and END.
 
 The current restrictions, if any, are restored upon return.
 
-With the optional :locked TAG argument, inside BODY,
-`narrow-to-region' and `widen' can be used only within the START
-and END limits, unless the restrictions are unlocked by calling
-`narrowing-unlock' with TAG.  See `narrowing-lock' for a more
-detailed description.
+When the optional :label LABEL argument is present, in which
+LABEL is a symbol, inside BODY, `narrow-to-region' and `widen'
+can be used only within the START and END limits.  To gain access
+to other portions of the buffer, use `without-restriction' with the
+same LABEL argument.
 
-\(fn START END [:locked TAG] BODY)"
-  (if (eq (car rest) :locked)
-      `(internal--with-narrowing ,start ,end (lambda () ,@(cddr rest))
+\(fn START END [:label LABEL] BODY)"
+  (if (eq (car rest) :label)
+      `(internal--with-restriction ,start ,end (lambda () ,@(cddr rest))
                                  ,(cadr rest))
-    `(internal--with-narrowing ,start ,end (lambda () ,@rest))))
+    `(internal--with-restriction ,start ,end (lambda () ,@rest))))
 
-(defun internal--with-narrowing (start end body &optional tag)
-  "Helper function for `with-narrowing', which see."
+(defun internal--with-restriction (start end body &optional label)
+  "Helper function for `with-restriction', which see."
   (save-restriction
-    (progn
-      (narrow-to-region start end)
-      (if tag (narrowing-lock tag))
-      (funcall body))))
+    (narrow-to-region start end)
+    (if label (internal--lock-narrowing label))
+    (funcall body)))
+
+(defmacro without-restriction (&rest rest)
+  "Execute BODY without restrictions.
+
+The current restrictions, if any, are restored upon return.
+
+When the optional :label LABEL argument is present, the
+restrictions set by `with-restriction' with the same LABEL argument
+are lifted.
+
+\(fn [:label LABEL] BODY)"
+  (if (eq (car rest) :label)
+      `(internal--without-restriction (lambda () ,@(cddr rest))
+                                    ,(cadr rest))
+    `(internal--without-restriction (lambda () ,@rest))))
+
+(defun internal--without-restriction (body &optional label)
+  "Helper function for `without-restriction', which see."
+  (save-restriction
+    (if label (internal--unlock-narrowing label))
+    (widen)
+    (funcall body)))
 
 (defun find-tag-default-bounds ()
   "Determine the boundaries of the default tag, based on text at point.
@@ -4124,15 +4160,18 @@ system's shell."
 
 (defsubst string-to-list (string)
   "Return a list of characters in STRING."
+  (declare (side-effect-free t))
   (append string nil))
 
 (defsubst string-to-vector (string)
   "Return a vector of characters in STRING."
+  (declare (side-effect-free t))
   (vconcat string))
 
 (defun string-or-null-p (object)
   "Return t if OBJECT is a string or nil.
 Otherwise, return nil."
+  (declare (pure t) (side-effect-free error-free))
   (or (stringp object) (null object)))
 
 (defun list-of-strings-p (object)
@@ -4145,21 +4184,25 @@ Otherwise, return nil."
 (defun booleanp (object)
   "Return t if OBJECT is one of the two canonical boolean values: t or nil.
 Otherwise, return nil."
+  (declare (pure t) (side-effect-free error-free))
   (and (memq object '(nil t)) t))
 
 (defun special-form-p (object)
   "Non-nil if and only if OBJECT is a special form."
+  (declare (side-effect-free error-free))
   (if (and (symbolp object) (fboundp object))
       (setq object (indirect-function object)))
   (and (subrp object) (eq (cdr (subr-arity object)) 'unevalled)))
 
 (defun plistp (object)
   "Non-nil if and only if OBJECT is a valid plist."
+  (declare (pure t) (side-effect-free error-free))
   (let ((len (proper-list-p object)))
     (and len (zerop (% len 2)))))
 
 (defun macrop (object)
   "Non-nil if and only if OBJECT is a macro."
+  (declare (side-effect-free t))
   (let ((def (indirect-function object)))
     (when (consp def)
       (or (eq 'macro (car def))
@@ -4169,6 +4212,7 @@ Otherwise, return nil."
   "Return non-nil if OBJECT is a function that has been compiled.
 Does not distinguish between functions implemented in machine code
 or byte-code."
+  (declare (side-effect-free error-free))
   (or (subrp object) (byte-code-function-p object)))
 
 (defun field-at-pos (pos)
@@ -5515,6 +5559,7 @@ consisting of STR followed by an invisible left-to-right mark
   "Return non-nil if STRING1 is greater than STRING2 in lexicographic order.
 Case is significant.
 Symbols are also allowed; their print names are used instead."
+  (declare (pure t) (side-effect-free t))
   (string-lessp string2 string1))
 
 
@@ -6158,7 +6203,8 @@ To test whether a function can be called interactively, use
 `commandp'."
   ;; Kept around for now.  See discussion at:
   ;; https://lists.gnu.org/r/emacs-devel/2020-08/msg00564.html
-  (declare (obsolete called-interactively-p "23.2"))
+  (declare (obsolete called-interactively-p "23.2")
+           (side-effect-free error-free))
   (called-interactively-p 'interactive))
 
 (defun internal-push-keymap (keymap symbol)
@@ -6843,6 +6889,7 @@ returned list are in the same order as in TREE.
 
 \(flatten-tree \\='(1 (2 . 3) nil (4 5 (6)) 7))
 => (1 2 3 4 5 6 7)"
+  (declare (side-effect-free error-free))
   (let (elems)
     (while (consp tree)
       (let ((elem (pop tree)))

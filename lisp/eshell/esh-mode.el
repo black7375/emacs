@@ -79,6 +79,7 @@
 (defcustom eshell-mode-unload-hook nil
   "A hook that gets run when `eshell-mode' is unloaded."
   :type 'hook)
+(make-obsolete-variable 'eshell-mode-unload-hook nil "30.1")
 
 (defcustom eshell-mode-hook nil
   "A hook that gets run when `eshell-mode' is entered."
@@ -172,7 +173,10 @@ inserted.  They return the string as it should be inserted."
   :type 'hook)
 
 (defcustom eshell-password-prompt-regexp
-  (format "\\(%s\\)[^:：៖]*[:：៖]\\s *\\'" (regexp-opt password-word-equivalents))
+  (format "%s[^%s]*[%s]\\s *\\'"
+          (regexp-opt password-word-equivalents t)
+          (apply #'string password-colon-equivalents)
+          (apply #'string password-colon-equivalents))
   "Regexp matching prompts for passwords in the inferior process.
 This is used by `eshell-watch-for-password-prompt'."
   :type 'regexp
@@ -196,6 +200,11 @@ This is used by `eshell-watch-for-password-prompt'."
 
 (defvar eshell-first-time-p t
   "A variable which is non-nil the first time Eshell is loaded.")
+
+(defvar eshell-non-interactive-p nil
+  "A variable which is non-nil when Eshell is not running interactively.
+Modules should use this variable so that they don't clutter
+non-interactive sessions, such as when using `eshell-command'.")
 
 ;; Internal Variables:
 

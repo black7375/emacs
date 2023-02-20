@@ -1186,20 +1186,13 @@ Operations not mentioned here will be handled by the normal Emacs functions.")
 
 (defun tramp-sh-handle-file-exists-p (filename)
   "Like `file-exists-p' for Tramp files."
-  ;; `file-exists-p' is used as predicate in file name completion.
-  ;; We don't want to run it when `non-essential' is t, or there is
-  ;; no connection process yet.
-  (when (tramp-connectable-p filename)
-    (with-parsed-tramp-file-name (expand-file-name filename) nil
-      (with-tramp-file-property v localname "file-exists-p"
-	(if (tramp-file-property-p v localname "file-attributes")
-	    (not (null (tramp-get-file-property v localname "file-attributes")))
-	  (tramp-send-command-and-check
-	   v
-	   (format
-	    "%s %s"
-	    (tramp-get-file-exists-command v)
-	    (tramp-shell-quote-argument localname))))))))
+  (tramp-skeleton-file-exists-p filename
+    (tramp-send-command-and-check
+     v
+     (format
+      "%s %s"
+      (tramp-get-file-exists-command v)
+      (tramp-shell-quote-argument localname)))))
 
 (defun tramp-sh-handle-file-attributes (filename &optional id-format)
   "Like `file-attributes' for Tramp files."
@@ -2392,8 +2385,7 @@ The method used must be an out-of-band method."
 	   v 'file-error
 	   "Cannot find remote listener: %s" remote-copy-program))
 	(setq remote-copy-program
-	      (mapconcat
-	       #'identity
+	      (string-join
 	       (append
 		(list remote-copy-program) remote-copy-args
 		(list (if v1 (concat "<" source) (concat ">" target)) "&"))
@@ -3010,8 +3002,7 @@ implementation will be used."
 			      ;; We must also disable buffering,
 			      ;; otherwise strings larger than 4096
 			      ;; bytes, sent by the process, could
-			      ;; block, see termios(3) and
-			      ;; <https://github.com/emacs-lsp/lsp-mode/issues/2375#issuecomment-1407272718>.
+			      ;; block, see termios(3) and Bug#61341.
 			      ;; FIXME: Shall we rather use "stty raw"?
 			      (if (tramp-check-remote-uname v "Darwin")
 				  (tramp-send-command
@@ -3118,8 +3109,7 @@ implementation will be used."
 		      (format
 		       "%s %s %s"
 		       (tramp-get-method-parameter vec 'tramp-remote-shell)
-		       (mapconcat
-			#'identity
+		       (string-join
 			(tramp-get-method-parameter vec 'tramp-remote-shell-args)
 			" ")
 		       (tramp-shell-quote-argument (format "kill -%d $$" i))))
@@ -4972,7 +4962,7 @@ Goes through the list `tramp-inline-compress-commands'."
 	     (tramp-call-process
 	      vec1 tramp-encoding-shell nil t nil
 	      tramp-encoding-command-switch
-	      (mapconcat #'identity command " "))
+	      (string-join command " "))
 	     (goto-char (point-min))
 	     (not (search-forward "remotecommand" nil 'noerror)))))
 
@@ -4991,11 +4981,11 @@ Goes through the list `tramp-inline-compress-commands'."
 	       found string)
 	   (with-temp-buffer
 	     ;; Check hostkey of VEC2, seen from VEC1.
-	     (tramp-send-command vec1 (mapconcat #'identity command " "))
+	     (tramp-send-command vec1 (string-join command " "))
 	     ;; Check hostkey of VEC2, seen locally.
 	     (tramp-call-process
 	      vec1 tramp-encoding-shell nil t nil tramp-encoding-command-switch
-	      (mapconcat #'identity command " "))
+	      (string-join command " "))
 	     (goto-char (point-min))
 	     (while (and (not found) (not (eobp)))
 	       (setq string
@@ -5219,8 +5209,7 @@ connection if a previous connection has died for some reason."
 		    ;; Replace `login-args' place holders.
 		    (setq
 		     command
-		     (mapconcat
-		      #'identity
+		     (string-join
 		      (append
 		       ;; We do not want to see the trailing local
 		       ;; prompt in `start-file-process'.
@@ -5521,12 +5510,10 @@ Nonexistent directories are removed from spec."
 		  (format
 		   "%s %s %s 'echo %s \\\"$PATH\\\"'"
 		   (tramp-get-method-parameter vec 'tramp-remote-shell)
-		   (mapconcat
-		    #'identity
+		   (string-join
 		    (tramp-get-method-parameter vec 'tramp-remote-shell-login)
 		    " ")
-		   (mapconcat
-		    #'identity
+		   (string-join
 		    (tramp-get-method-parameter vec 'tramp-remote-shell-args)
 		    " ")
 		   (tramp-shell-quote-argument tramp-end-of-heredoc))
