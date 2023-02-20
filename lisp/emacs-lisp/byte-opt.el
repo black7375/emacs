@@ -1647,7 +1647,7 @@ See Info node `(elisp) Integer Basics'."
 	 capitalize car-less-than-car car cdr ceiling char-after char-before
 	 char-equal char-to-string char-width compare-strings
 	 window-configuration-equal-p concat coordinates-in-window-p
-	 copy-alist copy-sequence copy-marker copysign cos count-lines
+	 copy-alist copy-sequence copy-marker copysign cos
 	 current-time-string current-time-zone
 	 decode-char
 	 decode-time default-boundp default-value documentation downcase
@@ -1659,26 +1659,24 @@ See Info node `(elisp) Integer Basics'."
 	 float float-time floor format format-time-string frame-first-window
 	 frame-root-window frame-selected-window
 	 frame-visible-p fround ftruncate
-	 get gethash get-buffer get-buffer-window getenv get-file-buffer
+	 get gethash get-buffer get-buffer-window get-file-buffer
 	 hash-table-count
 	 int-to-string intern-soft isnan
 	 keymap-parent
-         lax-plist-get ldexp
+         ldexp
          length length< length> length=
          line-beginning-position line-end-position pos-bol pos-eol
 	 local-variable-if-set-p local-variable-p locale-info
-	 log log10 logand logb logcount logior lognot logxor lsh
-	 make-byte-code make-list make-string make-symbol mark marker-buffer max
+	 log logand logb logcount logior lognot logxor
+	 make-byte-code make-list make-string make-symbol marker-buffer max
          match-beginning match-end
 	 member memq memql min minibuffer-selected-window minibuffer-window
 	 mod multibyte-char-to-unibyte next-window nth nthcdr number-to-string
-	 parse-colon-path
 	 prefix-numeric-value previous-window prin1-to-string propertize
-	 degrees-to-radians
-	 radians-to-degrees rassq rassoc read-from-string regexp-opt
+	 rassq rassoc read-from-string
          regexp-quote region-beginning region-end reverse round
 	 sin sqrt string string< string= string-equal string-lessp
-         string> string-greaterp string-empty-p string-blank-p
+         string>
          string-search string-to-char
 	 string-to-number string-to-syntax substring
 	 sxhash sxhash-equal sxhash-eq sxhash-eql
@@ -1687,45 +1685,40 @@ See Info node `(elisp) Integer Basics'."
 	 string-to-multibyte
 	 take tan time-convert truncate
 	 unibyte-char-to-multibyte upcase user-full-name
-	 user-login-name user-original-login-name custom-variable-p
+	 user-login-name user-original-login-name
 	 vconcat
-	 window-absolute-pixel-edges window-at window-body-height
+	 window-at window-body-height
 	 window-body-width window-buffer window-dedicated-p window-display-table
-	 window-combination-limit window-edges window-frame window-fringes
+	 window-combination-limit window-frame window-fringes
 	 window-height window-hscroll window-inside-edges
 	 window-inside-absolute-pixel-edges window-inside-pixel-edges
 	 window-left-child window-left-column window-margins window-minibuffer-p
 	 window-next-buffers window-next-sibling window-new-normal
 	 window-new-total window-normal-size window-parameter window-parameters
-	 window-parent window-pixel-edges window-point window-prev-buffers
+	 window-parent window-point window-prev-buffers
          window-prev-sibling window-scroll-bars
 	 window-start window-text-height window-top-child window-top-line
 	 window-total-height window-total-width window-use-time window-vscroll
-	 window-width zerop))
+	 window-width))
       (side-effect-and-error-free-fns
-       '(always arrayp atom
-	 bignump bobp bolp bool-vector-p
-	 buffer-end buffer-list buffer-size buffer-string bufferp
+       '(arrayp atom
+	 bobp bolp bool-vector-p
+	 buffer-list buffer-size buffer-string bufferp
 	 car-safe case-table-p cdr-safe char-or-string-p characterp
 	 charsetp commandp cons consp
 	 current-buffer current-global-map current-indentation
 	 current-local-map current-minor-mode-maps current-time
-	 eobp eolp eq equal eventp
-	 fixnump floatp following-char framep
-	 get-largest-window get-lru-window
+	 eobp eolp eq equal
+	 floatp following-char framep
 	 hash-table-p
-         ;; `ignore' isn't here because we don't want calls to it elided;
-         ;; see `byte-compile-ignore'.
-	 identity integerp integer-or-marker-p interactive-p
+	 identity integerp integer-or-marker-p
 	 invocation-directory invocation-name
 	 keymapp keywordp
 	 list listp
 	 make-marker mark-marker markerp max-char
-	 memory-limit
-	 mouse-movement-p
 	 natnump nlistp not null number-or-marker-p numberp
-	 one-window-p overlayp
-	 point point-marker point-min point-max preceding-char primary-charset
+	 overlayp
+	 point point-marker point-min point-max preceding-char
 	 processp proper-list-p
 	 recent-keys recursion-depth
 	 safe-length selected-frame selected-window sequencep
@@ -1761,7 +1754,7 @@ See Info node `(elisp) Integer Basics'."
 ;; values if a marker is moved.
 
 (let ((pure-fns
-       '(concat regexp-opt regexp-quote
+       '(concat regexp-quote
 	 string-to-char string-to-syntax symbol-name
          eq eql
          = /= < <= >= > min max
@@ -1770,8 +1763,7 @@ See Info node `(elisp) Integer Basics'."
          copysign isnan ldexp float logb
          floor ceiling round truncate
          ffloor fceiling fround ftruncate
-         string= string-equal string< string-lessp string> string-greaterp
-         string-empty-p string-blank-p
+         string= string-equal string< string-lessp string>
          string-search
          consp atom listp nlistp proper-list-p
          sequencep arrayp vectorp stringp bool-vector-p hash-table-p
@@ -1780,20 +1772,19 @@ See Info node `(elisp) Integer Basics'."
          integer-or-marker-p number-or-marker-p char-or-string-p
          symbolp keywordp
          type-of
-         identity ignore
+         identity
 
          ;; The following functions are pure up to mutation of their
          ;; arguments.  This is pure enough for the purposes of
          ;; constant folding, but not necessarily for all kinds of
          ;; code motion.
-         car cdr car-safe cdr-safe nth nthcdr last take
+         car cdr car-safe cdr-safe nth nthcdr take
          equal
          length safe-length
          memq memql member
          ;; `assoc' and `assoc-default' are excluded since they are
          ;; impure if the test function is (consider `string-match').
          assq rassq rassoc
-         lax-plist-get
          aref elt
          base64-decode-string base64-encode-string base64url-encode-string
          bool-vector-subsetp
@@ -2042,6 +2033,22 @@ If FOR-EFFECT is non-nil, the return value is assumed to be of no importance."
   (let ((side-effect-free (if byte-compile-delete-errors
 			      byte-compile-side-effect-free-ops
 			    byte-compile-side-effect-and-error-free-ops))
+        ;; Ops taking and produce a single value on the stack.
+        (unary-ops '( byte-not byte-length byte-list1 byte-nreverse
+                      byte-car byte-cdr byte-car-safe byte-cdr-safe
+                      byte-symbolp byte-consp byte-stringp
+                      byte-listp byte-integerp byte-numberp
+                      byte-add1 byte-sub1 byte-negate
+                      ;; There are more of these but the list is
+                      ;; getting long and the gain is typically small.
+                      ))
+        ;; Ops producing a single result without looking at the stack.
+        (producer-ops '( byte-constant byte-varref
+                         byte-point byte-point-max byte-point-min
+                         byte-following-char byte-preceding-char
+                         byte-current-column
+                         byte-eolp byte-eobp byte-bolp byte-bobp
+                         byte-current-buffer byte-widen))
 	(add-depth 0)
 	(keep-going 'first-time)
         ;; Create a cons cell as head of the list so that removing the first
@@ -2151,31 +2158,39 @@ If FOR-EFFECT is non-nil, the return value is assumed to be of no importance."
 	                  ;; be larger than necessary.
 	                  (setq add-depth 1))
                         t)))))
-	     ;;
-	     ;; dup varset-X discard  -->  varset-X
-	     ;; dup varbind-X discard  -->  varbind-X
-             ;; dup stack-set-X discard  -->  stack-set-X-1
-	     ;; (the varbind variant can emerge from other optimizations)
-	     ;;
-	     ((and (eq 'byte-dup (car lap0))
-	           (eq 'byte-discard (car lap2))
-	           (memq (car lap1) '(byte-varset byte-varbind
-                                                  byte-stack-set)))
-	      (setq keep-going t)
+             ;;
+             ;; dup varset discard(N)       --> varset discard(N-1)
+             ;; dup varbind discard(N)      --> varbind discard(N-1)
+             ;; dup stack-set(M) discard(N) --> stack-set(M-1) discard(N-1), M>1
+             ;; (the varbind variant can emerge from other optimizations)
+             ;;
+             ((and (eq 'byte-dup (car lap0))
+                   (memq (car lap2) '(byte-discard byte-discardN))
+                   (or (memq (car lap1) '(byte-varset byte-varbind))
+                       (and (eq (car lap1) 'byte-stack-set)
+                            (> (cdr lap1) 1))))
               (setcdr prev (cdr rest))          ; remove dup
-              (setcdr (cdr rest) (cdddr rest))  ; remove discard
-              (cond ((not (eq (car lap1) 'byte-stack-set))
-	             (byte-compile-log-lap "  %s %s %s\t-->\t%s"
-                                           lap0 lap1 lap2 lap1))
-                    ((eql (cdr lap1) 1)
-	             (byte-compile-log-lap "  %s %s %s\t-->\t<deleted>"
-                                           lap0 lap1 lap2))
-                    (t
-                     (let ((n (1- (cdr lap1))))
-	               (byte-compile-log-lap "  %s %s %s\t-->\t%s"
-                                             lap0 lap1 lap2
-                                             (cons (car lap1) n))
-                       (setcdr lap1 n)))))
+              (let ((new1 (if (eq (car lap1) 'byte-stack-set)
+                              (cons 'byte-stack-set (1- (cdr lap1)))
+                            lap1))
+                    (n (if (eq (car lap2) 'byte-discard) 1 (cdr lap2))))
+                (setcar (cdr rest) new1)
+                (cl-assert (> n 0))
+                (cond
+                 ((> n 1)
+                  (let ((new2 (if (> n 2)
+                                  (cons 'byte-discardN (1- n))
+                                (cons 'byte-discard nil))))
+                    (byte-compile-log-lap "  %s %s %s\t-->\t%s %s"
+                                          lap0 lap1 lap2 new1 new2)
+                    (setcar (cddr rest) new2)))
+                 (t
+                  (byte-compile-log-lap "  %s %s %s\t-->\t%s"
+                                        lap0 lap1 lap2 new1)
+                  ;; discard(0) = nop, remove
+                  (setcdr (cdr rest) (cdddr rest)))))
+              (setq keep-going t))
+
 	     ;;
 	     ;; not goto-X-if-nil              -->  goto-X-if-non-nil
 	     ;; not goto-X-if-non-nil          -->  goto-X-if-nil
@@ -2421,12 +2436,7 @@ If FOR-EFFECT is non-nil, the return value is assumed to be of no importance."
              ;;                 const, varref, point etc.
              ;;
              ((and (eq (car (nth 2 rest)) 'byte-return)
-                   (memq (car lap1) '( byte-constant byte-varref
-                                       byte-point byte-point-max byte-point-min
-                                       byte-following-char byte-preceding-char
-                                       byte-current-column
-                                       byte-eolp byte-eobp byte-bolp byte-bobp
-                                       byte-current-buffer byte-widen))
+                   (memq (car lap1) producer-ops)
                    (or (memq (car lap0) '( byte-discard byte-discardN
                                            byte-discardN-preserve-tos
                                            byte-stack-set))
@@ -2438,26 +2448,15 @@ If FOR-EFFECT is non-nil, the return value is assumed to be of no importance."
                                     lap0 lap1 (nth 2 rest) lap1 (nth 2 rest)))
 
              ;;
-             ;; discardN-preserve-tos OP return  -->  OP return
-             ;; dup                   OP return  -->  OP return
-             ;;  where OP is 1->1 in stack use, like `not'.
+             ;; (discardN-preserve-tos|dup) UNARY return  -->  UNARY return
+             ;;  where UNARY takes and produces a single value on the stack
              ;;
              ;; FIXME: ideally we should run this backwards, so that we could do
              ;;   discardN-preserve-tos OP1...OPn return -> OP1..OPn return
              ;; but that would require a different approach.
              ;;
              ((and (eq (car (nth 2 rest)) 'byte-return)
-                   (memq (car lap1)
-                         '( byte-not
-                            byte-symbolp byte-consp byte-stringp
-                            byte-listp byte-integerp byte-numberp
-                            byte-list1
-                            byte-car byte-cdr byte-car-safe byte-cdr-safe
-                            byte-length
-                            byte-add1 byte-sub1 byte-negate byte-nreverse
-                            ;; There are more of these but the list is
-                            ;; getting long and the gain is small.
-                            ))
+                   (memq (car lap1) unary-ops)
                    (or (memq (car lap0) '(byte-discardN-preserve-tos byte-dup))
                        (and (eq (car lap0) 'byte-stack-set)
                             (eql (cdr lap0) 1))))
@@ -2785,14 +2784,32 @@ If FOR-EFFECT is non-nil, the return value is assumed to be of no importance."
 	                  (push newjmp (cdr rest)))
                         t)))))
 
-	     ;;
-	     ;; const discardN-preserve-tos ==> discardN const
-             ;; const stack-set(1)          ==> discard const
-	     ;;
-	     ((and (eq (car lap0) 'byte-constant)
+             ;;
+             ;; UNARY discardN-preserve-tos --> discardN-preserve-tos UNARY
+             ;;  where UNARY takes and produces a single value on the stack
+             ;;
+             ((and (memq (car lap0) unary-ops)
 	           (or (eq (car lap1) 'byte-discardN-preserve-tos)
                        (and (eq (car lap1) 'byte-stack-set)
-                            (eql (cdr lap1) 1))))
+                            (eql (cdr lap1) 1)))
+                   ;; unless followed by return (which will eat the discard)
+                   (not (eq (car lap2) 'byte-return)))
+	      (setq keep-going t)
+	      (byte-compile-log-lap "  %s %s\t-->\t%s %s" lap0 lap1 lap1 lap0)
+	      (setcar rest lap1)
+	      (setcar (cdr rest) lap0))
+
+	     ;;
+	     ;; PRODUCER discardN-preserve-tos(X) --> discard(X) PRODUCER
+             ;;  where PRODUCER pushes a result without looking at the stack:
+             ;;                 const, varref, point etc.
+	     ;;
+	     ((and (memq (car lap0) producer-ops)
+	           (or (eq (car lap1) 'byte-discardN-preserve-tos)
+                       (and (eq (car lap1) 'byte-stack-set)
+                            (eql (cdr lap1) 1)))
+                   ;; unless followed by return (which will eat the discard)
+                   (not (eq (car lap2) 'byte-return)))
 	      (setq keep-going t)
               (let ((newdiscard (if (eql (cdr lap1) 1)
                                     (cons 'byte-discard nil)
@@ -2801,6 +2818,7 @@ If FOR-EFFECT is non-nil, the return value is assumed to be of no importance."
 	         "  %s %s\t-->\t%s %s" lap0 lap1 newdiscard lap0)
 	        (setf (car rest) newdiscard)
 	        (setf (cadr rest) lap0)))
+
              (t
               ;; If no rule matched, advance and try again.
               (setq prev (cdr prev))))))))

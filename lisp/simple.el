@@ -1088,7 +1088,8 @@ Leave one space or none, according to the context."
 
 (defun delete-horizontal-space (&optional backward-only)
   "Delete all spaces and tabs around point.
-If BACKWARD-ONLY is non-nil, delete them only before point."
+If BACKWARD-ONLY is non-nil (interactively, the prefix argument), delete
+them only before point."
   (interactive "*P")
   (delete-space--internal " \t" backward-only))
 
@@ -1114,6 +1115,7 @@ If BACKWARD-ONLY is non-nil, delete them only before point."
 
 (defun just-one-space (&optional n)
   "Delete all spaces and tabs around point, leaving one space (or N spaces).
+Interactively, N is the prefix numeric argument.
 If N is negative, delete newlines as well, leaving -N spaces.
 See also `cycle-spacing'."
   (interactive "*p")
@@ -1755,6 +1757,7 @@ not at the start of a line.
 
 When IGNORE-INVISIBLE-LINES is non-nil, invisible lines are not
 included in the count."
+  (declare (side-effect-free t))
   (save-excursion
     (save-restriction
       (narrow-to-region start end)
@@ -6830,6 +6833,7 @@ is active, and returns an integer or nil in the usual way.
 
 If you are using this in an editing command, you are most likely making
 a mistake; see the documentation of `set-mark'."
+  (declare (side-effect-free t))
   (if (or force (not transient-mark-mode) mark-active mark-even-if-inactive)
       (marker-position (mark-marker))
     (signal 'mark-inactive nil)))
@@ -10830,7 +10834,8 @@ If the buffer doesn't exist, create it first."
            '((?y "yes" "kill buffer without saving")
              (?n "no" "exit without doing anything")
              (?s "save and then kill" "save the buffer and then kill it"))
-           nil nil (not use-short-answers)))))
+           nil nil (and (not use-short-answers)
+                        (not (use-dialog-box-p)))))))
     (if (equal response "no")
         nil
       (unless (equal response "yes")
@@ -10840,6 +10845,7 @@ If the buffer doesn't exist, create it first."
 
 (defsubst string-empty-p (string)
   "Check whether STRING is empty."
+  (declare (pure t) (side-effect-free t))
   (string= string ""))
 
 (defun read-signal-name ()
@@ -10857,7 +10863,7 @@ If the buffer doesn't exist, create it first."
 
 (defun lax-plist-get (plist prop)
   "Extract a value from a property list, comparing with `equal'."
-  (declare (obsolete plist-get "29.1"))
+  (declare (pure t) (side-effect-free t) (obsolete plist-get "29.1"))
   (plist-get plist prop #'equal))
 
 (defun lax-plist-put (plist prop val)

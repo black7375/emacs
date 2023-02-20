@@ -641,10 +641,11 @@ This regexp must match both `tramp-initial-end-of-output' and
   :type 'regexp)
 
 (defcustom tramp-password-prompt-regexp
-  (rx
-   bol (* nonl)
-   (group (regexp (regexp-opt password-word-equivalents)))
-   (* nonl) (any ":：៖") (? "\^@") (* blank))
+  (rx-to-string
+   `(: bol (* nonl)
+       (group (| . ,password-word-equivalents))
+       (* nonl) (any . ,tramp-compat-password-colon-equivalents)
+       (? "\^@") (* blank)))
   "Regexp matching password-like prompts.
 The regexp should match at end of buffer.
 
@@ -2975,8 +2976,9 @@ not in completion mode."
   ;; We need special handling only when a method is needed.  Then we
   ;; regard all files "/method:" or "/[method/" as existent, if
   ;; "method" is a valid Tramp method.  And we regard all files
-  ;; "/method:user@host" or "/[method/user@host" as existent, if
-  ;; "user@host" is a valid file name completion.
+  ;; "/method:user@", "/user@" or "/[method/user@" as existent, if
+  ;; "user@" is a valid file name completion.  Host completion is
+  ;; performed in the respective backen operation.
   (or (and (cond
             ;; Completion styles like `flex' and `substring' check for
             ;; the file name "/".  This does exist.
@@ -2988,27 +2990,30 @@ not in completion mode."
 	            (regexp tramp-prefix-regexp)
 		    (* (regexp tramp-remote-file-name-spec-regexp)
 		       (regexp tramp-postfix-hop-regexp))
-	            (group (regexp tramp-method-regexp))
+	            (group-n 9 (regexp tramp-method-regexp))
 	            (? (regexp tramp-postfix-method-regexp))
                     eos)
                    filename))
-             (assoc (match-string 1 filename) tramp-methods))
-            ;; Is it a valid user@host?
+             (assoc (match-string 9 filename) tramp-methods))
+            ;; Is it a valid user?
             ((string-match
 	      (rx
                (regexp tramp-prefix-regexp)
 	       (* (regexp tramp-remote-file-name-spec-regexp)
 		  (regexp tramp-postfix-hop-regexp))
-               (group (regexp tramp-remote-file-name-spec-regexp))
+               (group-n 10
+		 (regexp tramp-method-regexp)
+		 (regexp tramp-postfix-method-regexp))
+	       (group-n 11
+		 (regexp tramp-user-regexp)
+		 (regexp tramp-postfix-user-regexp))
                eos)
               filename)
-             (member
-              (concat
-               (file-name-nondirectory filename) tramp-postfix-host-format)
-              (file-name-all-completions
-               (file-name-nondirectory filename)
-               (file-name-directory filename)))))
-           t)
+	     (member
+	      (match-string 11 filename)
+	      (file-name-all-completions
+	       "" (concat tramp-prefix-format (match-string 10 filename))))))
+	   t)
 
       (tramp-run-real-handler #'file-exists-p (list filename))))
 
@@ -3628,6 +3633,25 @@ BODY is the backend specific code."
 	 (tramp-dissect-file-name ,directory) 'file-missing ,directory)
       nil)))
 
+(defmacro tramp-skeleton-file-exists-p (filename &rest body)
+  "Skeleton for `tramp-*-handle-file-exists-p'.
+BODY is the backend specific code."
+  (declare (indent 1) (debug t))
+  ;; `file-exists-p' is used as predicate in file name completion.
+  `(or (and minibuffer-completing-file-name
+	    (file-name-absolute-p ,filename)
+	    (tramp-string-empty-or-nil-p
+	     (tramp-file-name-localname (tramp-dissect-file-name ,filename))))
+       ;; We don't want to run it when `non-essential' is t, or there
+       ;; is no connection process yet.
+       (when (tramp-connectable-p ,filename)
+	 (with-parsed-tramp-file-name (expand-file-name ,filename) nil
+	   (with-tramp-file-property v localname "file-exists-p"
+	     (if (tramp-file-property-p v localname "file-attributes")
+		 (not
+		  (null (tramp-get-file-property v localname "file-attributes")))
+	       ,@body))))))
+
 (defmacro tramp-skeleton-file-local-copy (filename &rest body)
   "Skeleton for `tramp-*-handle-file-local-copy'.
 BODY is the backend specific code."
@@ -4065,13 +4089,8 @@ Let-bind it when necessary.")
 
 (defun tramp-handle-file-exists-p (filename)
   "Like `file-exists-p' for Tramp files."
-  ;; `file-exists-p' is used as predicate in file name completion.
-  ;; We don't want to run it when `non-essential' is t, or there is
-  ;; no connection process yet.
-  (when (tramp-connectable-p filename)
-    (with-parsed-tramp-file-name (expand-file-name filename) nil
-      (with-tramp-file-property v localname "file-exists-p"
-	(not (null (file-attributes filename)))))))
+  (tramp-skeleton-file-exists-p filename
+    (not (null (file-attributes filename)))))
 
 (defun tramp-handle-file-in-directory-p (filename directory)
   "Like `file-in-directory-p' for Tramp files."
@@ -4526,8 +4545,7 @@ Return it as number of seconds.  Used in `tramp-process-attributes-ps-format'."
 (defconst tramp-process-attributes-ps-args
   `("-eww"
     "-o"
-    ,(mapconcat
-     #'identity
+    ,(string-join
      '("pid"
        "euid"
        "euser"
@@ -5001,7 +5019,7 @@ substitution.  SPEC-LIST is a list of char/value pairs used for
 		(if (consp (tramp-get-method-parameter v 'tramp-direct-async))
 		    (append
 		     (tramp-get-method-parameter v 'tramp-direct-async)
-                     `(,(mapconcat #'identity command " ")))
+                     `(,(string-join command " ")))
 		  command)))
 
 	  ;; Check for `tramp-sh-file-name-handler', because something
@@ -5897,8 +5915,7 @@ the remote host use line-endings as defined in the variable
       (let ((inhibit-read-only t)) (delete-region (point-min) (point-max)))
       ;; Replace "\n" by `tramp-rsh-end-of-line'.
       (setq string
-	    (mapconcat
-	     #'identity (split-string string "\n") tramp-rsh-end-of-line))
+	    (string-join (split-string string "\n") tramp-rsh-end-of-line))
       (unless (or (string-empty-p string)
 		  (string-equal (substring string -1) tramp-rsh-end-of-line))
 	(setq string (concat string tramp-rsh-end-of-line)))
@@ -6596,7 +6613,7 @@ verbosity of 6."
 	      (apply #'process-lines program args)
 	    (error
 	     (tramp-error vec (car err) (cdr err)))))
-    (tramp-message vec 6 "\n%s" (mapconcat #'identity result "\n"))
+    (tramp-message vec 6 "\n%s" (string-join result "\n"))
     result))
 
 (defun tramp-process-running-p (process-name)
