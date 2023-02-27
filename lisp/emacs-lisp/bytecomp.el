@@ -3416,7 +3416,7 @@ lambda-expression."
       (let* ((fn (car form))
              (handler (get fn 'byte-compile))
 	     (interactive-only
-	      (or (get fn 'interactive-only)
+	      (or (function-get fn 'interactive-only)
 		  (memq fn byte-compile-interactive-only-functions))))
         (when (memq fn '(set symbol-value run-hooks ;; add-to-list
                              add-hook remove-hook run-hook-with-args
@@ -3443,7 +3443,7 @@ lambda-expression."
 				      (format "; %s"
 					      (substitute-command-keys
 					       interactive-only)))
-				     ((and (symbolp 'interactive-only)
+				     ((and (symbolp interactive-only)
 					   (not (eq interactive-only t)))
 				      (format-message "; use `%s' instead."
                                                       interactive-only))
@@ -5079,7 +5079,10 @@ binding slots have been popped."
 (defun byte-compile-suppressed-warnings (form)
   (let ((byte-compile--suppressed-warnings
          (append (cadadr form) byte-compile--suppressed-warnings)))
-    (byte-compile-form (macroexp-progn (cddr form)))))
+    ;; Propagate the for-effect mode explicitly so that warnings about
+    ;; ignored return values can be detected and suppressed correctly.
+    (byte-compile-form (macroexp-progn (cddr form)) byte-compile--for-effect)
+    (setq byte-compile--for-effect nil)))
 
 ;; Warn about misuses of make-variable-buffer-local.
 (byte-defop-compiler-1 make-variable-buffer-local
