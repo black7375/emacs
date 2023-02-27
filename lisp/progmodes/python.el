@@ -1070,7 +1070,7 @@ fontified."
     ;; Don't highlight string prefixes like f/r/b.
     (save-excursion
       (goto-char string-beg)
-      (when (search-forward "\"" string-end t)
+      (when (re-search-forward "[\"']" string-end t)
         (setq string-beg (match-beginning 0))))
     (treesit-fontify-with-override
      string-beg string-end face override start end)))
@@ -1106,24 +1106,25 @@ fontified."
    :language 'python
    '((interpolation) @python--treesit-fontify-string-interpolation)
 
-   :feature 'definition
-   :language 'python
-   '((function_definition
-      name: (identifier) @font-lock-function-name-face)
-     (class_definition
-      name: (identifier) @font-lock-type-face))
-
-   :feature 'function
-   :language 'python
-   '((call function: (identifier) @font-lock-function-name-face)
-     (call function: (attribute
-                      attribute: (identifier) @font-lock-function-name-face)))
-
    :feature 'keyword
    :language 'python
    `([,@python--treesit-keywords] @font-lock-keyword-face
      ((identifier) @font-lock-keyword-face
       (:match "^self$" @font-lock-keyword-face)))
+
+   :feature 'definition
+   :language 'python
+   '((function_definition
+      name: (identifier) @font-lock-function-name-face)
+     (class_definition
+      name: (identifier) @font-lock-type-face)
+     (parameters (identifier) @font-lock-variable-name-face))
+
+   :feature 'function
+   :language 'python
+   '((call function: (identifier) @font-lock-function-call-face)
+     (call function: (attribute
+                      attribute: (identifier) @font-lock-function-call-face)))
 
    :feature 'builtin
    :language 'python
@@ -1146,7 +1147,7 @@ fontified."
                  @font-lock-variable-name-face)
      (assignment left: (attribute
                         attribute: (identifier)
-                        @font-lock-property-face))
+                        @font-lock-property-ref-face))
      (pattern_list (identifier)
                    @font-lock-variable-name-face)
      (tuple_pattern (identifier)
@@ -1183,12 +1184,12 @@ fontified."
    :feature 'property
    :language 'python
    '((attribute
-      attribute: (identifier) @font-lock-property-face)
+      attribute: (identifier) @font-lock-property-ref-face)
      (class_definition
       body: (block
              (expression_statement
               (assignment left:
-                          (identifier) @font-lock-property-face)))))
+                          (identifier) @font-lock-property-ref-face)))))
 
    :feature 'operator
    :language 'python
@@ -1211,10 +1212,10 @@ fontified."
   "Check whether NODE is a variable.
 NODE's type should be \"identifier\"."
   ;; An identifier can be a function/class name, a property, or a
-  ;; variables.  This function filters out function/class names and
-  ;; properties.
+  ;; variables.  This function filters out function/class names,
+  ;; properties and method parameters.
   (pcase (treesit-node-type (treesit-node-parent node))
-    ((or "function_definition" "class_definition") nil)
+    ((or "function_definition" "class_definition" "parameters") nil)
     ("attribute"
      (pcase (treesit-node-field-name node)
        ("object" t)
@@ -6376,7 +6377,7 @@ for key in sorted(result):
   "List files containing Python imports that may be useful in the current buffer."
   (if-let (((featurep 'project))        ;For compatibility with Emacs < 26
            (proj (project-current)))
-      (seq-filter (lambda (s) (string-match-p "\\.py[ciw]?\\'" s))
+      (seq-filter (lambda (s) (string-match-p "\\.py[iwx]?\\'" s))
                   (project-files proj))
     (list default-directory)))
 
