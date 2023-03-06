@@ -137,10 +137,11 @@ See `icomplete-delay-completions-threshold'."
   "Maximum number of initial chars to apply `icomplete-compute-delay'."
   :type 'integer)
 
-(defvar icomplete-in-buffer nil
+(defcustom icomplete-in-buffer nil
   "If non-nil, also use Icomplete when completing in non-mini buffers.
 This affects commands like `completion-in-region', but not commands
-that use their own completions setup.")
+that use their own completions setup."
+  :type 'boolean)
 
 (defcustom icomplete-minibuffer-setup-hook nil
   "Icomplete-specific customization of minibuffer setup.
@@ -215,15 +216,29 @@ the default otherwise."
        ;; calculated, This causes the first cached completion to
        ;; be taken (i.e. the one that the user sees highlighted)
        completion-all-sorted-completions)
-      (minibuffer-force-complete-and-exit)
+      (if (window-minibuffer-p)
+          (minibuffer-force-complete-and-exit)
+        (minibuffer-force-complete (icomplete--field-beg)
+                                   (icomplete--field-end)
+                                   'dont-cycle)
+        (completion-in-region-mode -1))
     ;; Otherwise take the faster route...
-    (minibuffer-complete-and-exit)))
+    (if (window-minibuffer-p)
+        (minibuffer-complete-and-exit)
+      (completion-complete-and-exit
+       (icomplete--field-beg)
+       (icomplete--field-end)
+       (lambda () (completion-in-region-mode -1))))))
 
 (defun icomplete-force-complete ()
   "Complete the icomplete minibuffer."
   (interactive)
   ;; We're not at all interested in cycling here (bug#34077).
-  (minibuffer-force-complete nil nil 'dont-cycle))
+  (if (window-minibuffer-p)
+      (minibuffer-force-complete nil nil 'dont-cycle)
+    (minibuffer-force-complete (icomplete--field-beg)
+                               (icomplete--field-end)
+                               'dont-cycle)))
 
 ;; Apropos `icomplete-scroll', we implement "scrolling icomplete"
 ;; within classic icomplete, which is "rotating", by contrast.
@@ -429,9 +444,12 @@ more like `ido-mode' than regular `icomplete-mode'."
   :global t
   (remove-hook 'minibuffer-setup-hook #'icomplete-minibuffer-setup)
   (remove-hook 'minibuffer-setup-hook #'icomplete--fido-mode-setup)
+  (remove-hook 'completion-in-region-mode-hook #'icomplete--in-region-setup)
   (when fido-mode
     (icomplete-mode -1)
     (setq icomplete-mode t)
+    (when icomplete-in-buffer
+      (add-hook 'completion-in-region-mode-hook #'icomplete--in-region-setup))
     (add-hook 'minibuffer-setup-hook #'icomplete-minibuffer-setup)
     (add-hook 'minibuffer-setup-hook #'icomplete--fido-mode-setup)))
 

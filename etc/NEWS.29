@@ -832,8 +832,8 @@ These faces are primarily meant for use with tree-sitter.  They are:
 'font-lock-escape-face', 'font-lock-function-call-face',
 'font-lock-misc-punctuation-face', 'font-lock-number-face',
 'font-lock-operator-face', 'font-lock-property-name-face',
-'font-lock-property-ref-face', 'font-lock-punctuation-face',
-'font-lock-regexp-face', and 'font-lock-variable-ref-face'.
+'font-lock-property-use-face', 'font-lock-punctuation-face',
+'font-lock-regexp-face', and 'font-lock-variable-use-face'.
 
 +++
 ** New face 'variable-pitch-text'.
@@ -3231,8 +3231,11 @@ manually if needed, using the new user options 'wallpaper-command' and
 
 +++
 ** New package 'oclosure'.
-This allows the creation of "functions with slots" or "function
-objects" via the macros 'oclosure-define' and 'oclosure-lambda'.
+This allows the creation of OClosures, which are "functions with
+slots" or "function objects" that expose additional information about
+themselves.  Use the new macros 'oclosure-define' and
+'oclosure-lambda' to create OClosures.  See the "(elisp) OClosures"
+node for more information.
 
 +++
 *** New generic function 'oclosure-interactive-form'.
