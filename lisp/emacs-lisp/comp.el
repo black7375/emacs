@@ -1137,10 +1137,12 @@ with `message'.  Otherwise, log with `comp-log-to-buffer'."
           (comp-cstr-to-type-spec mvar)))
 
 (defun comp-prettyformat-insn (insn)
-  (cl-typecase insn
-    (comp-mvar (comp-prettyformat-mvar insn))
-    (atom (prin1-to-string insn))
-    (cons (concat "(" (mapconcat #'comp-prettyformat-insn insn " ") ")"))))
+  (cond
+   ((comp-mvar-p insn)
+    (comp-prettyformat-mvar insn))
+   ((proper-list-p insn)
+    (concat "(" (mapconcat #'comp-prettyformat-insn insn " ") ")"))
+   (t (prin1-to-string insn))))
 
 (defun comp-log-func (func verbosity)
   "Log function FUNC at VERBOSITY.
@@ -3724,7 +3726,8 @@ Prepare every function for final compilation and drive the C back-end."
              (temp-file (make-temp-file
 			 (concat "emacs-int-comp-"
 				 (file-name-base output) "-")
-			 nil ".el")))
+			 nil ".el"))
+             (default-directory invocation-directory))
 	(with-temp-file temp-file
           (insert ";; -*-coding: utf-8-emacs-unix; -*-\n")
           (mapc (lambda (e)
@@ -4021,6 +4024,7 @@ display a message."
                         (comp-log "\n")
                         (mapc #'comp-log expr-strings)))
                    (load1 load)
+                   (default-directory invocation-directory)
                    (process (make-process
                              :name (concat "Compiling: " source-file)
                              :buffer (with-current-buffer
