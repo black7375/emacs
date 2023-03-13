@@ -705,7 +705,7 @@ same way.
 Normally, when @var{tree} is anything other than a cons cell,
 @code{copy-tree} simply returns @var{tree}.  However, if @var{vecp} is
 non-@code{nil}, it copies vectors too (and operates recursively on
-their elements).
+their elements).  This function cannot cope with circular lists.
 @end defun
 
 @defun flatten-tree tree
