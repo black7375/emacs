@@ -990,7 +990,7 @@ implementation will be used."
 				  (progn
 				    (goto-char (point-min))
 				    (not (search-forward "\n" nil t)))
-			        (tramp-accept-process-output p 0))
+			        (tramp-accept-process-output p))
 			      (delete-region (point-min) (point)))
 			    ;; Provide error buffer.  This shows only
 			    ;; initial error messages; messages
@@ -1249,7 +1249,7 @@ connection if a previous connection has died for some reason."
 
 	    ;; Set sentinel and query flag.  Initialize variables.
 	    (set-process-sentinel p #'tramp-process-sentinel)
-	    (process-put p 'vector vec)
+	    (process-put p 'tramp-vector vec)
 	    (process-put p 'adjust-window-size-function #'ignore)
 	    (set-process-query-on-exit-flag p nil)
 

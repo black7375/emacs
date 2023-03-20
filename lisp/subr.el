@@ -163,7 +163,7 @@ of previous VARs.
 (defmacro setq-local (&rest pairs)
   "Make each VARIABLE buffer-local and assign to it the corresponding VALUE.
 
-The arguments are variable/value pairs  For each VARIABLE in a pair,
+The arguments are variable/value pairs.  For each VARIABLE in a pair,
 make VARIABLE buffer-local and assign to it the corresponding VALUE
 of the pair.  The VARIABLEs are literal symbols and should not be quoted.
 
@@ -5531,7 +5531,7 @@ See also `string-equal'."
   "Return non-nil if PREFIX is a prefix of STRING.
 If IGNORE-CASE is non-nil, the comparison is done without paying attention
 to case differences."
-  (declare (pure t) (side-effect-free t))
+  (declare (side-effect-free t))
   (let ((prefix-length (length prefix)))
     (if (> prefix-length (length string)) nil
       (eq t (compare-strings prefix 0 prefix-length string
@@ -5541,7 +5541,7 @@ to case differences."
   "Return non-nil if SUFFIX is a suffix of STRING.
 If IGNORE-CASE is non-nil, the comparison is done without paying
 attention to case differences."
-  (declare (pure t) (side-effect-free t))
+  (declare (side-effect-free t))
   (let ((start-pos (- (length string) (length suffix))))
     (and (>= start-pos 0)
          (eq t (compare-strings suffix nil nil
