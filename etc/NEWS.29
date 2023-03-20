@@ -2540,8 +2540,16 @@ the project by a VC project based on that VCS.
 
 +++
 *** New command 'xref-go-forward'.
-It is bound to 'C-M-,' and jumps to the location where 'xref-go-back'
-('M-,', also known as 'xref-pop-marker-stack') was invoked previously.
+It is bound to 'C-M-,' and jumps to the location where you previously
+invoked 'xref-go-back' ('M-,', also known as 'xref-pop-marker-stack').
+
++++
+*** The depth of the Xref marker stack is now infinite.
+The implementation of the Xref marker stack was changed in a way that
+allows as many places to be saved on the stack as needed, limited only
+by the available memory.  Therefore, the variables
+'find-tag-marker-ring-length' and 'xref-marker-ring-length' are now
+obsolete and unused; setting them has no effect.
 
 +++
 *** 'xref-query-replace-in-results' prompting change.
@@ -3214,7 +3222,8 @@ Imenu now lists the members directly nested in R6RS Scheme libraries
 Emacs now comes with the Eglot package, which enhances various Emacs
 features, such as completion, documentation, error detection, etc.,
 based on data provided by language servers using the Language Server
-Protocol (LSP).  See the new Info manual "(eglot) Top" for more.
+Protocol (LSP).  See the new Info manual "(eglot) Top" for more.  Also
+see "etc/EGLOT-NEWS".
 
 +++
 ** use-package: Declarative package configuration.
@@ -4883,6 +4892,12 @@ two buttons: "Yes" and "No".
 
 ---
 *** 'process-attributes' is now implemented.
+
+** macOS
+
++++
+*** The 'ns-popup-font-panel' command has been removed.
+Use the general command 'M-x menu-set-font' instead.
 
 
 ----------------------------------------------------------------------
