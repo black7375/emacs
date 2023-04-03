@@ -689,6 +689,10 @@ To record all your input, use `open-dribble-file'."
       (with-current-buffer standard-output
 	(goto-char (point-min))
 	(let ((comment-start ";; ")
+              ;; Prevent 'comment-indent' from handling a single
+              ;; semicolon as the beginning of a comment.
+              (comment-start-skip ";; ")
+              (comment-use-syntax nil)
               (comment-column 24))
           (while (not (eobp))
             (comment-indent)
@@ -713,6 +717,12 @@ Return nil if KEYS is nil."
 
 (defcustom describe-bindings-outline t
   "Non-nil enables outlines in the output buffer of `describe-bindings'."
+  :type 'boolean
+  :group 'help
+  :version "29.1")
+
+(defcustom describe-bindings-show-prefix-commands nil
+  "Non-nil means show prefix commands in the output of `describe-bindings'."
   :type 'boolean
   :group 'help
   :version "29.1")
@@ -1699,6 +1709,7 @@ in `describe-map-tree'."
               (setq vect (cdr vect))
               (setq end (caar vect))))
           (when (or (not (eq start end))
+                    describe-bindings-show-prefix-commands
                     ;; Don't output keymap prefixes.
                     (not (keymapp definition)))
             (when first
