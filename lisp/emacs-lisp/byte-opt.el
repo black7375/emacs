@@ -506,13 +506,7 @@ for speeding up processing.")
       ((guard (when for-effect
 		(if-let ((tmp (byte-opt--fget fn 'side-effect-free)))
 		    (or byte-compile-delete-errors
-		        (eq tmp 'error-free)
-		        (progn
-			  (byte-compile-warn-x
-                           form
-                           "value returned from %s is unused"
-			   form)
-			  nil)))))
+		        (eq tmp 'error-free)))))
        (byte-compile-log "  %s called for effect; deleted" fn)
        (byte-optimize-form (cons 'progn (cdr form)) t))
 
@@ -1712,7 +1706,7 @@ See Info node `(elisp) Integer Basics'."
 	 charsetp commandp cons consp
 	 current-buffer current-global-map current-indentation
 	 current-local-map current-minor-mode-maps current-time
-	 eobp eolp eq equal
+	 eobp eolp eq equal eql
 	 floatp following-char framep
 	 hash-table-p
 	 identity indirect-function integerp integer-or-marker-p

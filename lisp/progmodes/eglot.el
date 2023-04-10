@@ -107,6 +107,7 @@
   (require 'subr-x))
 (require 'filenotify)
 (require 'ert)
+(require 'text-property-search nil t)
 
 ;; These dependencies are also GNU ELPA core packages.  Because of
 ;; bug#62576, since there is a risk that M-x package-install, despite
@@ -402,7 +403,7 @@ done by `eglot-reconnect'."
 If set to `messages', use *Messages* buffer, else use Eglot's
 mode line indicator."
   :type 'boolean
-  :version "29.1")
+  :version "1.10")
 
 (defvar eglot-withhold-process-id nil
   "If non-nil, Eglot will not send the Emacs process id to the language server.
@@ -486,9 +487,7 @@ This can be useful when using docker to run a language server.")
       (SymbolInformation (:name :kind :location)
                          (:deprecated :containerName))
       (DocumentSymbol (:name :range :selectionRange :kind)
-                      ;; `:containerName' isn't really allowed , but
-                      ;; it simplifies the impl of `eglot-imenu'.
-                      (:detail :deprecated :children :containerName))
+                      (:detail :deprecated :children))
       (TextDocumentEdit (:textDocument :edits) ())
       (TextEdit (:range :newText))
       (VersionedTextDocumentIdentifier (:uri :version) ())
@@ -1481,11 +1480,11 @@ Unless IMMEDIATE, send pending changes before making request."
 ;;; Encoding fever
 ;;;
 (define-obsolete-function-alias
-  'eglot-lsp-abiding-column 'eglot-utf-16-linepos "29.1")
+  'eglot-lsp-abiding-column 'eglot-utf-16-linepos "1.12")
 (define-obsolete-function-alias
-  'eglot-current-column 'eglot-utf-32-linepos "29.1")
+  'eglot-current-column 'eglot-utf-32-linepos "1.12")
 (define-obsolete-variable-alias
-  'eglot-current-column-function 'eglot-current-linepos-function "29.1")
+  'eglot-current-column-function 'eglot-current-linepos-function "1.12")
 
 (defvar eglot-current-linepos-function #'eglot-utf-16-linepos
   "Function calculating position relative to line beginning.
@@ -1526,11 +1525,11 @@ LBP defaults to `eglot--bol'."
                            (funcall eglot-current-linepos-function)))))
 
 (define-obsolete-function-alias
-  'eglot-move-to-current-column 'eglot-move-to-utf-32-linepos "29.1")
+  'eglot-move-to-current-column 'eglot-move-to-utf-32-linepos "1.12")
 (define-obsolete-function-alias
-  'eglot-move-to-lsp-abiding-column 'eglot-move-to-utf-16-linepos "29.1")
+  'eglot-move-to-lsp-abiding-column 'eglot-move-to-utf-16-linepos "1.12")
 (define-obsolete-variable-alias
-'eglot-move-to-column-function 'eglot-move-to-linepos-function "29.1")
+'eglot-move-to-column-function 'eglot-move-to-linepos-function "1.12")
 
 (defvar eglot-move-to-linepos-function #'eglot-move-to-utf-16-linepos
   "Function to move to a position within a line reported by the LSP server.
@@ -1626,6 +1625,7 @@ If optional MARKER, return a marker instead"
                (directory-file-name (file-local-name truepath))
                eglot--uri-path-allowed-chars)))))
 
+(declare-function w32-long-file-name "w32proc.c" (fn))
 (defun eglot--uri-to-path (uri)
   "Convert URI to file path, helped by `eglot--current-server'."
   (when (keywordp uri) (setq uri (substring (symbol-name uri) 1)))
@@ -1673,9 +1673,11 @@ Doubles as an indicator of snippet support."
         (ignore-errors (delay-mode-hooks (funcall mode)))
         (font-lock-ensure)
         (goto-char (point-min))
-        (while (setq match (text-property-search-forward 'invisible))
-          (delete-region (prop-match-beginning match)
-                         (prop-match-end match)))
+        (let ((inhibit-read-only t))
+          (when (fboundp 'text-property-search-forward) ;; FIXME: use compat
+            (while (setq match (text-property-search-forward 'invisible))
+              (delete-region (prop-match-beginning match)
+                             (prop-match-end match)))))
         (string-trim (buffer-string))))))
 
 (define-obsolete-variable-alias 'eglot-ignored-server-capabilites
@@ -1986,8 +1988,8 @@ If it is activated, also signal textDocument/didOpen."
                                            (when update-mode-line
                                              (force-mode-line-update t)))))))
 
-(defun eglot-manual () "Open documentation."
-       (declare (obsolete info "29.1"))
+(defun eglot-manual () "Read Eglot's manual."
+       (declare (obsolete info "1.10"))
        (interactive) (info "(eglot)"))
 
 (easy-menu-define eglot-menu nil "Eglot"
@@ -3116,56 +3118,55 @@ for which LSP on-type-formatting should be requested."
   (mapconcat #'eglot--format-markup
              (if (vectorp contents) contents (list contents)) "\n"))
 
-(defun eglot--sig-info (sig &optional _activep sig-help-active-param)
-  (eglot--dbind ((SignatureInformation) label documentation parameters activeParameter)
+(defun eglot--sig-info (sig &optional sig-active briefp)
+  (eglot--dbind ((SignatureInformation)
+                 ((:label siglabel))
+                 ((:documentation sigdoc)) parameters activeParameter)
       sig
     (with-temp-buffer
-      (save-excursion (insert label))
-      (let ((active-param (or activeParameter sig-help-active-param))
-            params-start params-end)
-        ;; Ad-hoc attempt to parse label as <name>(<params>)
+      (save-excursion (insert siglabel))
+      ;; Ad-hoc attempt to parse label as <name>(<params>)
         (when (looking-at "\\([^(]*\\)(\\([^)]+\\))")
-          (setq params-start (match-beginning 2) params-end (match-end 2))
           (add-face-text-property (match-beginning 1) (match-end 1)
                                   'font-lock-function-name-face))
-        ;; Decide whether to add one-line-summary to signature line
-        (when (and (stringp documentation)
-                   (string-match "[[:space:]]*\\([^.\r\n]+[.]?\\)"
-                                 documentation))
-          (setq documentation (match-string 1 documentation))
-          (unless (string-prefix-p (string-trim documentation) label)
-            (goto-char (point-max))
-            (insert ": " (eglot--format-markup documentation))))
-        ;; Decide what to do with the active parameter...
-        (when (and active-param (< -1 active-param (length parameters)))
-          (eglot--dbind ((ParameterInformation) label documentation)
-              (aref parameters active-param)
-            ;; ...perhaps highlight it in the formals list
-            (when params-start
-              (goto-char params-start)
-              (pcase-let
-                  ((`(,beg ,end)
-                    (if (stringp label)
-                        (let ((case-fold-search nil))
-                          (and (re-search-forward
-                                (concat "\\<" (regexp-quote label) "\\>")
-                                params-end t)
-                               (list (match-beginning 0) (match-end 0))))
-                      (mapcar #'1+ (append label nil)))))
-                (if (and beg end)
-                    (add-face-text-property
-                     beg end
-                     'eldoc-highlight-function-argument))))
-            ;; ...and/or maybe add its doc on a line by its own.
-            (when documentation
-              (goto-char (point-max))
-              (insert "\n"
-                      (propertize
-                       (if (stringp label)
-                           label
-                         (apply #'buffer-substring (mapcar #'1+ label)))
-                       'face 'eldoc-highlight-function-argument)
-                      ": " (eglot--format-markup documentation))))))
+        ;; Add documentation, indented so we can distinguish multiple signatures
+        (when-let (doc (and (not briefp) sigdoc (eglot--format-markup sigdoc)))
+          (goto-char (point-max))
+          (insert "\n" (replace-regexp-in-string "^" "  " doc)))
+        ;; Now to the parameters
+        (cl-loop
+         with active-param = (or sig-active activeParameter)
+         for i from 0 for parameter across parameters do
+         (eglot--dbind ((ParameterInformation)
+                        ((:label parlabel))
+                        ((:documentation pardoc)))
+             parameter
+           ;; ...perhaps highlight it in the formals list
+           (when (and (eq i active-param))
+             (save-excursion
+               (goto-char (point-min))
+               (pcase-let
+                   ((`(,beg ,end)
+                     (if (stringp parlabel)
+                         (let ((case-fold-search nil))
+                           (and (search-forward parlabel (line-end-position) t)
+                                (list (match-beginning 0) (match-end 0))))
+                       (mapcar #'1+ (append parlabel nil)))))
+                 (if (and beg end)
+                     (add-face-text-property
+                      beg end
+                      'eldoc-highlight-function-argument)))))
+           ;; ...and/or maybe add its doc on a line by its own.
+           (let (fpardoc)
+             (when (and pardoc (not briefp)
+                        (not (string-empty-p
+                              (setq fpardoc (eglot--format-markup pardoc)))))
+               (insert "\n  "
+                       (propertize
+                        (if (stringp parlabel) parlabel
+                          (apply #'substring siglabel (mapcar #'1+ parlabel)))
+                        'face (and (eq i active-param) 'eldoc-highlight-function-argument))
+                       ": " fpardoc)))))
       (buffer-string))))
 
 (defun eglot-signature-eldoc-function (cb)
@@ -3177,14 +3178,18 @@ for which LSP on-type-formatting should be requested."
        :textDocument/signatureHelp (eglot--TextDocumentPositionParams)
        :success-fn
        (eglot--lambda ((SignatureHelp)
-                       signatures activeSignature activeParameter)
+                       signatures activeSignature (activeParameter 0))
          (eglot--when-buffer-window buf
            (let ((active-sig (and (cl-plusp (length signatures))
                                   (aref signatures (or activeSignature 0)))))
              (if (not active-sig) (funcall cb nil)
-               (funcall cb
-                        (mapconcat #'eglot--sig-info signatures "\n")
-                        :echo (eglot--sig-info active-sig t activeParameter))))))
+               (funcall
+                cb (mapconcat (lambda (s)
+                                (eglot--sig-info s (and (eq s active-sig)
+                                                        activeParameter)
+                                                 nil))
+                              signatures "\n")
+                :echo (eglot--sig-info active-sig activeParameter t))))))
        :deferred :textDocument/signatureHelp))
     t))
 
@@ -3234,49 +3239,55 @@ for which LSP on-type-formatting should be requested."
        :deferred :textDocument/documentHighlight)
       nil)))
 
+(defun eglot--imenu-SymbolInformation (res)
+  "Compute `imenu--index-alist' for RES vector of SymbolInformation."
+  (mapcar
+   (pcase-lambda (`(,kind . ,objs))
+     (cons
+      (alist-get kind eglot--symbol-kind-names "Unknown")
+      (mapcan
+       (pcase-lambda (`(,container . ,objs))
+         (let ((elems (mapcar
+                       (eglot--lambda ((SymbolInformation) kind name location)
+                         (let ((reg (eglot--range-region
+                                     (plist-get location :range)))
+                               (kind (alist-get kind eglot--symbol-kind-names)))
+                           (cons (propertize name
+                                             'breadcrumb-region reg
+                                             'breadcrumb-kind kind)
+                                 (car reg))))
+                       objs)))
+           (if container (list (cons container elems)) elems)))
+       (seq-group-by
+        (eglot--lambda ((SymbolInformation) containerName) containerName) objs))))
+   (seq-group-by (eglot--lambda ((SymbolInformation) kind) kind) res)))
+
+(defun eglot--imenu-DocumentSymbol (res)
+  "Compute `imenu--index-alist' for RES vector of DocumentSymbol."
+  (cl-labels ((dfs (&key name children range kind &allow-other-keys)
+                (let* ((reg (eglot--range-region range))
+                       (kind (alist-get kind eglot--symbol-kind-names))
+                       (name (propertize name
+                                         'breadcrumb-region reg
+                                         'breadcrumb-kind kind)))
+                  (if (seq-empty-p children)
+                      (cons name (car reg))
+                    (cons name
+                            (mapcar (lambda (c) (apply #'dfs c)) children))))))
+    (mapcar (lambda (s) (apply #'dfs s)) res)))
+
 (defun eglot-imenu ()
   "Eglot's `imenu-create-index-function'.
 Returns a list as described in docstring of `imenu--index-alist'."
-  (cl-labels
-      ((unfurl (obj)
-         (eglot--dcase obj
-           (((SymbolInformation)) (list obj))
-           (((DocumentSymbol) name children)
-            (cons obj
-                  (mapcar
-                   (lambda (c)
-                     (plist-put
-                      c :containerName
-                      (let ((existing (plist-get c :containerName)))
-                        (if existing (format "%s::%s" name existing)
-                          name))))
-                   (mapcan #'unfurl children)))))))
-    (mapcar
-     (pcase-lambda (`(,kind . ,objs))
-       (cons
-        (alist-get kind eglot--symbol-kind-names "Unknown")
-        (mapcan (pcase-lambda (`(,container . ,objs))
-                  (let ((elems (mapcar
-                                (lambda (obj)
-                                  (cons (plist-get obj :name)
-                                        (car (eglot--range-region
-                                              (eglot--dcase obj
-                                                (((SymbolInformation) location)
-                                                 (plist-get location :range))
-                                                (((DocumentSymbol) selectionRange)
-                                                 selectionRange))))))
-                                objs)))
-                    (if container (list (cons container elems)) elems)))
-                (seq-group-by
-                 (lambda (e) (plist-get e :containerName)) objs))))
-     (seq-group-by
-      (lambda (obj) (plist-get obj :kind))
-      (mapcan #'unfurl
-              (eglot--request (eglot--current-server-or-lose)
+  (let* ((res (eglot--request (eglot--current-server-or-lose)
                               :textDocument/documentSymbol
                               `(:textDocument
                                 ,(eglot--TextDocumentIdentifier))
-                              :cancel-on-input non-essential))))))
+                              :cancel-on-input non-essential))
+         (head (and res (elt res 0))))
+    (eglot--dcase head
+      (((SymbolInformation)) (eglot--imenu-SymbolInformation res))
+      (((DocumentSymbol)) (eglot--imenu-DocumentSymbol res)))))
 
 (cl-defun eglot--apply-text-edits (edits &optional version)
   "Apply EDITS for current buffer if at VERSION, or if it's nil."
@@ -3488,8 +3499,9 @@ at point.  With prefix argument, prompt for ACTION-KIND."
       (unwind-protect
           (progn
             (dolist (dir dirs-to-watch)
-              (push (file-notify-add-watch dir '(change) #'handle-event)
-                    (gethash id (eglot--file-watches server))))
+              (when (file-readable-p dir)
+                (push (file-notify-add-watch dir '(change) #'handle-event)
+                      (gethash id (eglot--file-watches server)))))
             (setq
              success
              `(:message ,(format "OK, watching %s directories in %s watchers"
