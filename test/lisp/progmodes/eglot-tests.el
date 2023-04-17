@@ -85,31 +85,31 @@ directory hierarchy."
 
 (defun eglot--call-with-fixture (fixture fn)
   "Helper for `eglot--with-fixture'.  Run FN under FIXTURE."
-  (let* ((fixture-directory (make-nearby-temp-file "eglot--fixture" t))
-         (default-directory fixture-directory)
+  (let* ((fixture-directory (make-nearby-temp-file "eglot--fixture-" t))
+         (default-directory (file-name-as-directory fixture-directory))
          created-files
          new-servers
          test-body-successful-p)
     (eglot--test-message "[%s]: test start" (ert-test-name (ert-running-test)))
     (unwind-protect
-        (let* ((process-environment
-                (append
-                 `(;; Set XDF_CONFIG_HOME to /dev/null to prevent
-                   ;; user-configuration to have an influence on
-                   ;; language servers. (See github#441)
-                   "XDG_CONFIG_HOME=/dev/null"
-                   ;; ... on the flip-side, a similar technique by
-                   ;; Emacs's test makefiles means that HOME is
-                   ;; spoofed to /nonexistent, or sometimes /tmp.
-                   ;; This breaks some common installations for LSP
-                   ;; servers like pylsp, rust-analyzer making these
-                   ;; tests mostly useless, so we hack around it here
-                   ;; with a great big hack.
-                   ,(format "HOME=%s"
-                            (expand-file-name (format "~%s" (user-login-name)))))
-                 process-environment))
-               (eglot-server-initialized-hook
-                (lambda (server) (push server new-servers))))
+        (let ((process-environment
+               `(;; Set XDG_CONFIG_HOME to /dev/null to prevent
+                 ;; user-configuration influencing language servers
+                 ;; (see github#441).
+                 ,(format "XDG_CONFIG_HOME=%s" null-device)
+                 ;; ... on the flip-side, a similar technique in
+                 ;; Emacs's `test/Makefile' spoofs HOME as
+                 ;; /nonexistent (and as `temporary-file-directory' in
+                 ;; `ert-remote-temporary-file-directory').
+                 ;; This breaks some common installations for LSP
+                 ;; servers like rust-analyzer, making these tests
+                 ;; mostly useless, so we hack around it here with a
+                 ;; great big hack.
+                 ,(format "HOME=%s"
+                          (expand-file-name (format "~%s" (user-login-name))))
+                 ,@process-environment))
+              (eglot-server-initialized-hook
+               (lambda (server) (push server new-servers))))
           (setq created-files (mapcan #'eglot--make-file-or-dir fixture))
           (prog1 (funcall fn)
             (setq test-body-successful-p t)))
@@ -804,6 +804,7 @@ int main() {
 (ert-deftest eglot-test-json-basic ()
   "Test basic autocompletion in vscode-json-languageserver."
   (skip-unless (executable-find "vscode-json-languageserver"))
+  (skip-unless (fboundp 'yas-minor-mode))
   (eglot--with-fixture
       '(("project" .
          (("p.json" . "{\"foo.b")
@@ -1041,7 +1042,8 @@ int main() {
 (cl-defmacro eglot--guessing-contact ((interactive-sym
                                        prompt-args-sym
                                        guessed-class-sym guessed-contact-sym
-                                       &optional guessed-lang-id-sym)
+                                       &optional guessed-major-modes-sym
+                                       guessed-lang-ids-sym)
                                       &body body)
   "Guess LSP contact with `eglot--guessing-contact', evaluate BODY.
 
@@ -1051,10 +1053,10 @@ BODY is evaluated twice, with INTERACTIVE bound to the boolean passed to
 If the user would have been prompted, PROMPT-ARGS-SYM is bound to
 the list of arguments that would have been passed to
 `read-shell-command', else nil.  GUESSED-CLASS-SYM,
-GUESSED-CONTACT-SYM and GUESSED-LANG-ID-SYM are bound to the
-useful return values of `eglot--guess-contact'.  Unless the
-server program evaluates to \"a-missing-executable.exe\", this
-macro will assume it exists."
+GUESSED-CONTACT-SYM, GUESSED-LANG-IDS-SYM and
+GUESSED-MAJOR-MODES-SYM are bound to the useful return values of
+`eglot--guess-contact'.  Unless the server program evaluates to
+\"a-missing-executable.exe\", this macro will assume it exists."
   (declare (indent 1) (debug t))
   (let ((i-sym (cl-gensym)))
     `(dolist (,i-sym '(nil t))
@@ -1070,8 +1072,9 @@ macro will assume it exists."
                          `(lambda (&rest args) (setq ,prompt-args-sym args) "")
                        `(lambda (&rest _dummy) ""))))
            (cl-destructuring-bind
-               (_ _ ,guessed-class-sym ,guessed-contact-sym
-                  ,(or guessed-lang-id-sym '_))
+               (,(or guessed-major-modes-sym '_)
+                _ ,guessed-class-sym ,guessed-contact-sym
+                  ,(or guessed-lang-ids-sym '_))
                (eglot--guess-contact ,i-sym)
              ,@body))))))
 
@@ -1166,16 +1169,17 @@ macro will assume it exists."
 (ert-deftest eglot-test-server-programs-guess-lang ()
   (let ((major-mode 'foo-mode))
     (let ((eglot-server-programs '((foo-mode . ("prog-executable")))))
-      (eglot--guessing-contact (_ nil _ _ guessed-lang)
-        (should (equal guessed-lang "foo"))))
+      (eglot--guessing-contact (_ nil _ _ _ guessed-langs)
+        (should (equal guessed-langs '("foo")))))
     (let ((eglot-server-programs '(((foo-mode :language-id "bar")
                                     . ("prog-executable")))))
-      (eglot--guessing-contact (_ nil _ _ guessed-lang)
-        (should (equal guessed-lang "bar"))))
+      (eglot--guessing-contact (_ nil _ _ _ guessed-langs)
+        (should (equal guessed-langs '("bar")))))
     (let ((eglot-server-programs '(((baz-mode (foo-mode :language-id "bar"))
                                     . ("prog-executable")))))
-      (eglot--guessing-contact (_ nil _ _ guessed-lang)
-        (should (equal guessed-lang "bar"))))))
+      (eglot--guessing-contact (_ nil _ _ modes guessed-langs)
+        (should (equal guessed-langs '("bar" "baz")))
+        (should (equal modes '(foo-mode baz-mode)))))))
 
 (defun eglot--glob-match (glob str)
   (funcall (eglot--glob-compile glob t t) str))
