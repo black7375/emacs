@@ -3732,6 +3732,7 @@ Prepare every function for final compilation and drive the C back-end."
                            ',native-comp-compiler-options
                            native-comp-driver-options
                            ',native-comp-driver-options
+                           byte-compile-warnings ',byte-compile-warnings
                            load-path ',load-path)
                      ,native-comp-async-env-modifier-form
                      (message "Compiling %s..." ',output)
@@ -4004,6 +4005,7 @@ display a message."
                                              native-comp-driver-options
                                              load-path
                                              backtrace-line-length
+                                             byte-compile-warnings
                                              ;; package-load-list
                                              ;; package-user-dir
                                              ;; package-directory-list
@@ -4237,8 +4239,9 @@ bytecode definition was not changed in the meantime)."
           ;; compilation, so update `comp-files-queue' to reflect that.
           (unless (or (null load)
                       (eq load (cdr entry)))
-            (cl-substitute (cons file load) (car entry) comp-files-queue
-                           :key #'car :test #'string=))
+            (setf comp-files-queue
+                  (cl-substitute (cons file load) (car entry) comp-files-queue
+                                 :key #'car :test #'string=)))
 
         (unless (native-compile-async-skip-p file load selector)
           (let* ((out-filename (comp-el-to-eln-filename file))
