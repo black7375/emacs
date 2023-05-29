@@ -3127,7 +3127,7 @@ implementation will be used."
             (if (tramp-compat-string-search "=" elt)
                 (setq env (append env `(,elt)))
               (setq uenv (cons elt uenv)))))
-      (setenv-internal env "INSIDE_EMACS" (tramp-inside-emacs) 'keep)
+      (setq env (setenv-internal env "INSIDE_EMACS" (tramp-inside-emacs) 'keep))
       (when env
 	(setq command
 	      (format
@@ -4868,8 +4868,11 @@ Goes through the list `tramp-inline-compress-commands'."
          (if (eq tramp-use-connection-share 'suppress)
              "none"
            ;; Hashed tokens are introduced in OpenSSH 6.7.
-	   (if (tramp-ssh-option-exists-p vec "ControlPath=tramp.%C")
-	       "tramp.%%C" "tramp.%%r@%%h:%%p"))
+	   (expand-file-name
+	    (if (tramp-ssh-option-exists-p vec "ControlPath=tramp.%C")
+		"tramp.%%C" "tramp.%%r@%%h:%%p")
+	    (or small-temporary-file-directory
+		tramp-compat-temporary-file-directory)))
 
          ;; ControlPersist option is introduced in OpenSSH 5.6.
 	 (when (and (not (eq tramp-use-connection-share 'suppress))
@@ -5294,10 +5297,10 @@ function waits for output unless NOOUTPUT is set."
     (tramp-error proc 'file-error "Process `%s' not available, try again" proc))
   (with-current-buffer (process-buffer proc)
     (let* (;; Initially, `tramp-end-of-output' is "#$ ".  There might
-	   ;; be leading escape sequences, which must be ignored.
-	   ;; Busyboxes built with the EDITING_ASK_TERMINAL config
-	   ;; option send also escape sequences, which must be
-	   ;; ignored.
+	   ;; be leading ANSI control escape sequences, which must be
+	   ;; ignored.  Busyboxes built with the EDITING_ASK_TERMINAL
+	   ;; config option send also ANSI control escape sequences,
+	   ;; which must be ignored.
 	   (regexp (rx
 		    (* (not (any "#$\n")))
 		    (literal tramp-end-of-output)

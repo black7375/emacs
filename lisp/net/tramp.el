@@ -697,7 +697,7 @@ See also `tramp-yesno-prompt-regexp'."
 (defcustom tramp-terminal-type "dumb"
   "Value of TERM environment variable for logging in to remote host.
 Because Tramp wants to parse the output of the remote shell, it is easily
-confused by ANSI color escape sequences and suchlike.  Often, shell init
+confused by ANSI control escape sequences and suchlike.  Often, shell init
 files conditionalize this setup based on the TERM environment variable."
   :group 'tramp
   :type 'string)
@@ -1802,7 +1802,9 @@ the form (METHOD USER DOMAIN HOST PORT LOCALNAME &optional HOP)."
       (when (cadr args)
 	(setq localname (and (stringp (cadr args)) (cadr args))))
       (when hop
-	(setq hop nil)
+	;; Keep hop in file name for completion.
+	(unless minibuffer-completing-file-name
+	  (setq hop nil))
 	;; Assure that the hops are in `tramp-default-proxies-alist'.
 	;; In tramp-archive.el, the slot `hop' is used for the archive
 	;; file name.
@@ -4135,8 +4137,10 @@ Let-bind it when necessary.")
 (defun tramp-handle-file-name-as-directory (file)
   "Like `file-name-as-directory' for Tramp files."
   ;; `file-name-as-directory' would be sufficient except localname is
-  ;; the empty string.
-  (let ((v (tramp-dissect-file-name file t)))
+  ;; the empty string.  Suppress adding a hop to
+  ;; `tramp-default-proxies-alist' due to non-expanded default values.
+  (let ((v (tramp-dissect-file-name file t))
+	tramp-default-proxies-alist)
     ;; Run the command on the localname portion only unless we are in
     ;; completion mode.
     (tramp-make-tramp-file-name
@@ -4225,8 +4229,10 @@ Let-bind it when necessary.")
   "Like `file-name-directory' for Tramp files."
   ;; Everything except the last filename thing is the directory.  We
   ;; cannot apply `with-parsed-tramp-file-name', because this expands
-  ;; the remote file name parts.
-  (let ((v (tramp-dissect-file-name file t)))
+  ;; the remote file name parts.  Suppress adding a hop to
+  ;; `tramp-default-proxies-alist' due to non-expanded default values.
+  (let ((v (tramp-dissect-file-name file t))
+	tramp-default-proxies-alist)
     ;; Run the command on the localname portion only.  If this returns
     ;; nil, mark also the localname part of `v' as nil.
     (tramp-make-tramp-file-name
@@ -4845,25 +4851,29 @@ Do not set it manually, it is used buffer-local in `tramp-get-lock-pid'.")
   "Add ad-hoc proxy definitions to `tramp-default-proxies-alist'."
   (when-let ((hops (tramp-file-name-hop vec))
 	     (item vec))
-    (dolist (proxy (reverse (split-string hops tramp-postfix-hop-regexp 'omit)))
-      (let* ((host-port (tramp-file-name-host-port item))
-	     (user-domain (tramp-file-name-user-domain item))
-	     (proxy (concat
-		     tramp-prefix-format proxy tramp-postfix-host-format))
-	     (entry
-	      (list (and (stringp host-port)
-			 (rx bol (literal host-port) eol))
-		    (and (stringp user-domain)
-			 (rx bol (literal user-domain) eol))
-		    (propertize proxy 'tramp-ad-hoc t))))
-	(tramp-message vec 5 "Add %S to `tramp-default-proxies-alist'" entry)
-	;; Add the hop.
-	(add-to-list 'tramp-default-proxies-alist entry)
-	(setq item (tramp-dissect-file-name proxy))))
-    ;; Save the new value.
-    (when tramp-save-ad-hoc-proxies
-      (customize-save-variable
-       'tramp-default-proxies-alist tramp-default-proxies-alist))))
+    (let (signal-hook-function changed)
+      (dolist
+	  (proxy (reverse (split-string hops tramp-postfix-hop-regexp 'omit)))
+	(let* ((host-port (tramp-file-name-host-port item))
+	       (user-domain (tramp-file-name-user-domain item))
+	       (proxy (concat
+		       tramp-prefix-format proxy tramp-postfix-host-format))
+	       (entry
+		(list (and (stringp host-port)
+			   (rx bol (literal host-port) eol))
+		      (and (stringp user-domain)
+			   (rx bol (literal user-domain) eol))
+		      (propertize proxy 'tramp-ad-hoc t))))
+	  ;; Add the hop.
+	  (unless (member entry tramp-default-proxies-alist)
+	    (tramp-message vec 5 "Add %S to `tramp-default-proxies-alist'" entry)
+	    (add-to-list 'tramp-default-proxies-alist entry)
+	    (setq changed t))
+	  (setq item (tramp-dissect-file-name proxy))))
+      ;; Save the new value.
+      (when (and tramp-save-ad-hoc-proxies changed)
+	(customize-save-variable
+	 'tramp-default-proxies-alist tramp-default-proxies-alist)))))
 
 (defun tramp-compute-multi-hops (vec)
   "Expands VEC according to `tramp-default-proxies-alist'."
@@ -5709,18 +5719,17 @@ Wait, until the connection buffer changes."
   "Wait for output from the shell and perform one action.
 See `tramp-process-actions' for the format of ACTIONS."
   (let ((case-fold-search t)
-	(shell-prompt-pattern
-	 (rx (regexp shell-prompt-pattern)
-	     (? (regexp ansi-color-control-seq-regexp))))
-	(tramp-shell-prompt-pattern
-	 (rx (regexp tramp-shell-prompt-pattern)
-	     (? (regexp ansi-color-control-seq-regexp))))
 	tramp-process-action-regexp
 	found todo item pattern action)
     (while (not found)
       ;; Reread output once all actions have been performed.
       ;; Obviously, the output was not complete.
       (while (tramp-accept-process-output proc))
+      ;; Remove ANSI control escape sequences.
+      (with-current-buffer (tramp-get-connection-buffer vec)
+	(goto-char (point-min))
+	(while (re-search-forward ansi-color-control-seq-regexp nil t)
+	  (replace-match "")))
       (setq todo actions)
       (while todo
 	(setq item (pop todo)
@@ -6280,7 +6289,7 @@ to cache the result.  Return the modified ATTR."
 	   (with-tramp-file-property ,vec ,localname "file-attributes"
 	     (when-let ((attr ,attr))
 	       (save-match-data
-		 ;; Remove color escape sequences from symlink.
+		 ;; Remove ANSI control escape sequences from symlink.
 		 (when (stringp (car attr))
 		   (while (string-match ansi-color-control-seq-regexp (car attr))
 		     (setcar attr (replace-match "" nil nil (car attr)))))
