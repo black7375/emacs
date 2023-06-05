@@ -710,7 +710,15 @@ the C sources, too."
               (high-doc (cdr high)))
           (unless (and (symbolp function)
                        (get function 'reader-construct))
-            (insert high-usage "\n"))
+            (insert high-usage "\n")
+            (when-let* ((res (comp-function-type-spec function))
+                        (type-spec (car res))
+                        (kind (cdr res)))
+              (insert (format
+                       (if (eq kind 'inferred)
+                           "\nInferred type: %s\n"
+                         "\nType: %s\n")
+                       type-spec))))
           (fill-region fill-begin (point))
           high-doc)))))
 
