@@ -561,6 +561,10 @@ test-src-inotify:
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
       when: never
     - changes:
+        - src/treesit.{h,c}
+        - test/src/treesit-tests.el
+      when: never
+    - changes:
         - src/*.{h,c}
         - test/src/*resources/**
         - test/src/*.el
@@ -578,3 +582,4 @@ test-src-inotify:
       lisp/progmodes/java-ts-mode-tests.log
       lisp/progmodes/ruby-ts-mode-tests.log
       lisp/progmodes/typescript-ts-mode-tests.log
+      src/treesit-tests.log

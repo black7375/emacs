@@ -3074,6 +3074,12 @@ safe__eval (bool inhibit_quit, Lisp_Object sexpr)
   return safe__call1 (inhibit_quit, Qeval, sexpr);
 }
 
+Lisp_Object
+safe_eval_inhibit_quit (Lisp_Object sexpr)
+{
+  return safe__eval (true, sexpr);
+}
+
 /* Call function FN with two arguments ARG1 and ARG2.
    Return the result, or nil if something went wrong.  */
 
@@ -15361,7 +15367,7 @@ redisplay_tool_bar (struct frame *f)
 		    0, 0, 0, STRING_MULTIBYTE (f->desired_tool_bar_string));
   /* FIXME: This should be controlled by a user option.  But it
      doesn't make sense to have an R2L tool bar if the menu bar cannot
-     be drawn also R2L, and making the menu bar R2L is tricky due
+     be drawn also R2L, and making the menu bar R2L is tricky due to
      toolkit-specific code that implements it.  If an R2L tool bar is
      ever supported, display_tool_bar_line should also be augmented to
      call unproduce_glyphs like display_line and display_string
