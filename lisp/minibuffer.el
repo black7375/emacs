@@ -2395,7 +2395,11 @@ These include:
              (prefix (unless (zerop base-size) (substring string 0 base-size)))
              (base-prefix (buffer-substring (minibuffer--completion-prompt-end)
                                             (+ start base-size)))
-             (base-suffix (buffer-substring (point) (point-max)))
+             (base-suffix
+              (if (eq (alist-get 'category (cdr md)) 'file)
+                  (buffer-substring (save-excursion (or (search-forward "/" nil t) (point-max)))
+                                    (point-max))
+                ""))
              (all-md (completion--metadata (buffer-substring-no-properties
                                             start (point))
                                            base-size md
@@ -4395,9 +4399,9 @@ after the end of the prompt, move to the end of the prompt.
 Otherwise move to the start of the buffer."
   (declare (interactive-only "use `(goto-char (point-min))' instead."))
   (interactive "^P")
-  (when (or (consp arg)
-            (region-active-p))
-    (push-mark))
+  (or (consp arg)
+      (region-active-p)
+      (push-mark))
   (goto-char (cond
               ;; We want to go N/10th of the way from the beginning.
               ((and arg (not (consp arg)))
