@@ -3074,12 +3074,6 @@ safe__eval (bool inhibit_quit, Lisp_Object sexpr)
   return safe__call1 (inhibit_quit, Qeval, sexpr);
 }
 
-Lisp_Object
-safe_eval_inhibit_quit (Lisp_Object sexpr)
-{
-  return safe__eval (true, sexpr);
-}
-
 /* Call function FN with two arguments ARG1 and ARG2.
    Return the result, or nil if something went wrong.  */
 
@@ -37494,7 +37488,7 @@ init_xdisp (void)
       r->pixel_top = r->top_line * FRAME_LINE_HEIGHT (f);
       r->total_cols = FRAME_COLS (f);
       r->pixel_width = r->total_cols * FRAME_COLUMN_WIDTH (f);
-      r->total_lines = FRAME_TOTAL_LINES (f) - 1 - FRAME_TOP_MARGIN (f);
+      r->total_lines = FRAME_TOTAL_LINES (f) - 1 - FRAME_MARGINS (f);
       r->pixel_height = r->total_lines * FRAME_LINE_HEIGHT (f);
 
       m->top_line = FRAME_TOTAL_LINES (f) - 1;
