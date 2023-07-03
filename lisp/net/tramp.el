@@ -1950,8 +1950,11 @@ version, the function does nothing."
   "Return contents of BUFFER.
 If BUFFER is not a buffer or a buffer name, return the contents
 of `current-buffer'."
-  (with-current-buffer (or buffer (current-buffer))
-    (substring-no-properties (buffer-string))))
+  (or (let ((buf (or buffer (current-buffer))))
+        (when (bufferp buf)
+          (with-current-buffer (or buffer (current-buffer))
+	    (substring-no-properties (buffer-string)))))
+      ""))
 
 (defun tramp-debug-buffer-name (vec)
   "A name for the debug buffer for VEC."
@@ -4968,7 +4971,8 @@ a connection-local variable."
     ;; Merge both spec lists.  Remove duplicate entries.
     (while spec-list
       (unless (member (car spec-list) extra-spec-list)
-	(setq extra-spec-list (append (take 2 spec-list) extra-spec-list)))
+	(setq extra-spec-list
+	      (append (tramp-compat-take 2 spec-list) extra-spec-list)))
       (setq spec-list (cddr spec-list)))
     (setq spec (apply #'format-spec-make extra-spec-list))
     ;; Expand format spec.
