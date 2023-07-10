@@ -387,7 +387,7 @@
 	      (parse-sexp-lookup-properties
 	       (cc-eval-when-compile
 		 (boundp 'parse-sexp-lookup-properties))))
-	  ,(c-make-font-lock-search-form regexp highlights))
+	  ,(c-make-font-lock-search-form regexp highlights t))
 	nil)))
 
   (defun c-make-font-lock-BO-decl-search-function (regexp &rest highlights)
@@ -2308,7 +2308,7 @@ on level 2 only and so aren't combined with `c-complex-decl-matchers'."
 		     (c-forward-syntactic-ws))
 		   (goto-char (match-end ,type-match))))))))
 
-      ;; Fontify special declarations that lacks a type.
+      ;; Fontify special declarations that lack a type.
       ,@(when (c-lang-const c-typeless-decl-kwds)
 	  `((,(c-make-font-lock-search-function
 	       (concat "\\<\\("
