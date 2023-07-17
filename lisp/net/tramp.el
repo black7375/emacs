@@ -1950,11 +1950,10 @@ version, the function does nothing."
   "Return contents of BUFFER.
 If BUFFER is not a buffer or a buffer name, return the contents
 of `current-buffer'."
-  (or (let ((buf (or buffer (current-buffer))))
-        (when (bufferp buf)
-          (with-current-buffer (or buffer (current-buffer))
-	    (substring-no-properties (buffer-string)))))
-      ""))
+  (with-current-buffer
+      (if (or (bufferp buffer) (and (stringp buffer) (get-buffer buffer)))
+	  buffer (current-buffer))
+    (substring-no-properties (buffer-string))))
 
 (defun tramp-debug-buffer-name (vec)
   "A name for the debug buffer for VEC."
@@ -4336,13 +4335,14 @@ Let-bind it when necessary.")
   (let ((tramp-verbose (min tramp-verbose 3)))
     (when (tramp-tramp-file-p filename)
       (let* ((o (tramp-dissect-file-name filename))
-	     (p (tramp-get-connection-process o))
+	     (p (and (not (eq connected 'never))
+                     (tramp-get-connection-process o)))
 	     (c (and (process-live-p p)
 		     (tramp-get-connection-property p "connected"))))
 	;; We expand the file name only, if there is already a connection.
 	(with-parsed-tramp-file-name
 	    (if c (expand-file-name filename) filename) nil
-	  (and (or (not connected) c)
+	  (and (or (memq connected '(nil never)) c)
 	       (cond
 		((eq identification 'method) method)
 		;; Domain and port are appended to user and host,
