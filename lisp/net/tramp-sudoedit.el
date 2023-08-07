@@ -234,7 +234,7 @@ OK-IF-ALREADY-EXISTS means don't barf if NEWNAME exists already.
 KEEP-DATE means to make sure that NEWNAME has the same timestamp
 as FILENAME.  PRESERVE-UID-GID, when non-nil, instructs to keep
 the uid and gid if both files are on the same host.
-PRESERVE-EXTENDED-ATTRIBUTES activates selinux and acl commands.
+PRESERVE-EXTENDED-ATTRIBUTES activates SELinux and ACL commands.
 
 This function is invoked by `tramp-sudoedit-handle-copy-file' and
 `tramp-sudoedit-handle-rename-file'.  It is an error if OP is
@@ -434,14 +434,37 @@ the result will be a local, non-Tramp, file name."
   "stat format string to produce output suitable for use with
 `file-attributes' on the remote file system.")
 
+(defconst tramp-sudoedit-file-attributes-with-selinux
+  (format
+   ;; Apostrophes in the stat output are masked as
+   ;; `tramp-stat-marker', in order to make a proper shell escape of
+   ;; them in file names.  They are replaced in
+   ;; `tramp-sudoedit-send-command-and-read'.
+   (concat "((%s%%N%s) %%h (%s%%U%s . %%u) (%s%%G%s . %%g)"
+	   " %%X %%Y %%Z %%s %s%%A%s t %%i -1 %s%%C%s)")
+   tramp-stat-marker tramp-stat-marker  ; %%N
+   tramp-stat-marker tramp-stat-marker  ; %%U
+   tramp-stat-marker tramp-stat-marker  ; %%G
+   tramp-stat-marker tramp-stat-marker  ; %%A
+   tramp-stat-marker tramp-stat-marker) ; %%C
+  "stat format string to produce output suitable for use with
+`file-attributes' on the remote file system, including SELinux context.")
+
 (defun tramp-sudoedit-handle-file-attributes (filename &optional id-format)
   "Like `file-attributes' for Tramp files."
   ;; The result is cached in `tramp-convert-file-attributes'.
   (with-parsed-tramp-file-name (expand-file-name filename) nil
     (tramp-convert-file-attributes v localname id-format
-      (tramp-sudoedit-send-command-and-read
-       v "env" "QUOTING_STYLE=locale" "stat" "-c"
-       tramp-sudoedit-file-attributes (file-name-unquote localname)))))
+      (cond
+       ((tramp-sudoedit-remote-selinux-p v)
+	(tramp-sudoedit-send-command-and-read
+	 v "env" "QUOTING_STYLE=locale" "stat" "-c"
+	 tramp-sudoedit-file-attributes-with-selinux
+	 (file-name-unquote localname)))
+       (t
+	(tramp-sudoedit-send-command-and-read
+	 v "env" "QUOTING_STYLE=locale" "stat" "-c"
+	 tramp-sudoedit-file-attributes (file-name-unquote localname)))))))
 
 (defun tramp-sudoedit-handle-file-executable-p (filename)
   "Like `file-executable-p' for Tramp files."
@@ -507,7 +530,7 @@ the result will be a local, non-Tramp, file name."
 	 v 'file-error "Error while changing file's mode %s" filename)))))
 
 (defun tramp-sudoedit-remote-selinux-p (vec)
-  "Check, whether SELINUX is enabled on the remote host."
+  "Check, whether SELinux is enabled on the remote host."
   (with-tramp-connection-property (tramp-get-process vec) "selinux-p"
     (zerop (tramp-call-process vec "selinuxenabled"))))
 
@@ -574,9 +597,9 @@ the result will be a local, non-Tramp, file name."
   (with-parsed-tramp-file-name (expand-file-name filename) nil
     (with-tramp-file-property v localname "file-writable-p"
       (if (file-exists-p filename)
+	  ;; Examine `file-attributes' cache to see if request can be
+	  ;; satisfied without remote operation.
 	  (if (tramp-file-property-p v localname "file-attributes")
-	      ;; Examine `file-attributes' cache to see if request can
-	      ;; be satisfied without remote operation.
 	      (tramp-check-cached-permissions v ?w)
 	    (tramp-sudoedit-send-command
 	     v "test" "-w" (file-name-unquote localname)))
@@ -596,7 +619,7 @@ the result will be a local, non-Tramp, file name."
 (defun tramp-sudoedit-handle-make-symbolic-link
     (target linkname &optional ok-if-already-exists)
   "Like `make-symbolic-link' for Tramp files."
-  (tramp-skeleton-handle-make-symbolic-link target linkname ok-if-already-exists
+  (tramp-skeleton-make-symbolic-link target linkname ok-if-already-exists
     (tramp-sudoedit-send-command
      v "ln" "-sf"
      (file-name-unquote target)

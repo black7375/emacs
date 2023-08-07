@@ -3883,7 +3883,7 @@ xic_string_conversion_callback (XIC ic, XPointer client_data,
     request.operation = TEXTCONV_RETRIEVAL;
 
   /* Now perform the string conversion.  */
-  rc = textconv_query (f, &request);
+  rc = textconv_query (f, &request, 0);
 
   if (rc)
     {
@@ -5393,6 +5393,17 @@ This function is an internal primitive--use `make-frame' instead.  */)
   gui_default_parameter (f, parms, Qfullscreen, Qnil,
                          "fullscreen", "Fullscreen", RES_TYPE_SYMBOL);
 
+#ifdef USE_CAIRO
+  /* Set the initial size of the Cairo surface to the frame's current
+     width and height.  If the window manager doesn't resize the new
+     frame after it's first mapped, Emacs will create a surface with
+     empty dimensions in response to to the initial exposure event,
+     which will persist until the next time it's resized.
+     (bug#64923) */
+  x_cr_update_surface_desired_size (f, FRAME_PIXEL_WIDTH (f),
+				    FRAME_PIXEL_HEIGHT (f));
+#endif /* USE_CAIRO */
+
   /* Make the window appear on the frame and enable display, unless
      the caller says not to.  However, with explicit parent, Emacs
      cannot control visibility, so don't try.  */
@@ -5718,6 +5729,8 @@ that operating systems cannot be developed and distributed noncommercially.)
 The optional argument TERMINAL specifies which display to ask about.
 
 For GNU and Unix systems, this queries the X server software.
+For Android systems, value is the manufacturer who developed the Android
+system that is being used.
 For MS Windows and Nextstep the result is hard-coded.
 
 TERMINAL should be a terminal object, a frame or a display name (a string).
@@ -5741,7 +5754,8 @@ Protocol used on TERMINAL and the 3rd number is the distributor-specific
 release number.  For MS Windows, the 3 numbers report the OS major and
 minor version and build number.  For Nextstep, the first 2 numbers are
 hard-coded and the 3rd represents the OS version.  For Haiku, all 3
-numbers are hard-coded.
+numbers are hard-coded.  For Android, the first number represents the
+Android API level, and the next two numbers are all zero.
 
 See also the function `x-server-vendor'.
 
