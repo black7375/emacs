@@ -2765,14 +2765,13 @@ android_content_initial (char *name, size_t length)
 /* Return the content URI corresponding to a `/content/by-authority'
    file name, or NULL if it is invalid for some reason.  FILENAME
    should be relative to /content/by-authority, with no leading
-   directory separator character.
+   directory separator character.  */
 
-   This function is not reentrant.  */
-
-static const char *
+static char *
 android_get_content_name (const char *filename)
 {
-  static char buffer[PATH_MAX + 1], *fill;
+  char *fill, *buffer;
+  size_t length;
 
   /* Make sure FILENAME isn't obviously invalid: it must contain an
      authority name and a file name component.  */
@@ -2784,48 +2783,53 @@ android_get_content_name (const char *filename)
       return NULL;
     }
 
-  /* FILENAME must also not be a directory.  */
+  /* FILENAME must also not be a directory.  Accessing content
+     provider directories is not supported by this interface.  */
 
-  if (filename[strlen (filename)] == '/')
+  length = strlen (filename);
+  if (filename[length] == '/')
     {
       errno = ENOTDIR;
       return NULL;
     }
 
-  snprintf (buffer, PATH_MAX + 1, "content://%s", filename);
+  /* Prefix FILENAME with content:// and return the buffer containing
+     that URI.  */
+
+  buffer = xmalloc (sizeof "content://" + length);
+  sprintf (buffer, "content://%s", filename);
   return buffer;
 }
 
 /* Return whether or not the specified URI is an accessible content
-   URI.  MODE specifies what to check.  */
+   URI.  MODE specifies what to check.
+
+   URI must be a string in the JVM's extended UTF-8 format.  */
 
 static bool
 android_check_content_access (const char *uri, int mode)
 {
   jobject string;
   size_t length;
-  jboolean rc;
+  jboolean rc, read, write;
 
   length = strlen (uri);
 
-  string = (*android_java_env)->NewByteArray (android_java_env,
-					      length);
+  string = (*android_java_env)->NewStringUTF (android_java_env, uri);
   android_exception_check ();
 
-  (*android_java_env)->SetByteArrayRegion (android_java_env,
-					   string, 0, length,
-					   (jbyte *) uri);
+  /* Establish what is being checked.  Checking for read access is
+     identical to checking if the file exists.  */
+
+  read = (bool) (mode & R_OK || (mode == F_OK));
+  write = (bool) (mode & W_OK);
+
   rc = (*android_java_env)->CallBooleanMethod (android_java_env,
 					       emacs_service,
 					       service_class.check_content_uri,
-					       string,
-					       (jboolean) ((mode & R_OK)
-							   != 0),
-					       (jboolean) ((mode & W_OK)
-							   != 0));
+					       string, read, write);
   android_exception_check_1 (string);
   ANDROID_DELETE_LOCAL_REF (string);
-
   return rc;
 }
 
@@ -2889,7 +2893,7 @@ android_authority_name (struct android_vnode *vnode, char *name,
 			size_t length)
 {
   struct android_authority_vnode *vp;
-  const char *uri_name;
+  char *uri_name;
 
   if (!android_init_gui)
     {
@@ -2922,6 +2926,12 @@ android_authority_name (struct android_vnode *vnode, char *name,
       if (*name == '/')
 	name++, length -= 1;
 
+      /* NAME must be a valid JNI string, so that it can be encoded
+	 properly.  */
+
+      if (android_verify_jni_string (name))
+	goto no_entry;
+
       uri_name = android_get_content_name (name);
       if (!uri_name)
 	goto error;
@@ -2931,11 +2941,12 @@ android_authority_name (struct android_vnode *vnode, char *name,
       vp->vnode.ops = &authority_vfs_ops;
       vp->vnode.type = ANDROID_VNODE_CONTENT_AUTHORITY;
       vp->vnode.flags = 0;
-      vp->uri = xstrdup (uri_name);
+      vp->uri = uri_name;
       return &vp->vnode;
     }
 
   /* Content files can't have children.  */
+ no_entry:
   errno = ENOENT;
  error:
   return NULL;
@@ -3932,12 +3943,15 @@ android_saf_exception_check (int n, ...)
 /* Return file status for the document designated by ID_NAME within
    the document tree identified by URI_NAME.
 
+   If NO_CACHE, don't cache the resulting file status.  Enable this
+   option if the file status is subject to imminent change.
+
    If the file status is available, place it within *STATB and return
    0.  If not, return -1 and set errno to EPERM.  */
 
 static int
 android_saf_stat (const char *uri_name, const char *id_name,
-		  struct stat *statb)
+		  struct stat *statb, bool no_cache)
 {
   jmethodID method;
   jstring uri, id;
@@ -3969,10 +3983,12 @@ android_saf_stat (const char *uri_name, const char *id_name,
   /* Try to retrieve the file status.  */
   method = service_class.stat_document;
   inside_saf_critical_section = true;
-  status = (*android_java_env)->CallNonvirtualObjectMethod (android_java_env,
-							    emacs_service,
-							    service_class.class,
-							    method, uri, id);
+  status
+    = (*android_java_env)->CallNonvirtualObjectMethod (android_java_env,
+						       emacs_service,
+						       service_class.class,
+						       method, uri, id,
+						       (jboolean) no_cache);
   inside_saf_critical_section = false;
 
   /* Check for exceptions and release unneeded local references.  */
@@ -4013,6 +4029,7 @@ android_saf_stat (const char *uri_name, const char *id_name,
   memset (statb, 0, sizeof *statb);
   statb->st_size = MAX (0, MIN (TYPE_MAXIMUM (off_t), size));
   statb->st_mode = mode;
+  statb->st_dev = -4;
 #ifdef STAT_TIMESPEC
   STAT_TIMESPEC (statb, st_mtim).tv_sec = mtim / 1000;
   STAT_TIMESPEC (statb, st_mtim).tv_nsec = (mtim % 1000) * 1000000;
@@ -5075,7 +5092,7 @@ android_saf_tree_stat (struct android_vnode *vnode,
   vp = (struct android_saf_tree_vnode *) vnode;
 
   return android_saf_stat (vp->tree_uri, vp->document_id,
-			   statb);
+			   statb, false);
 }
 
 static int
@@ -5590,7 +5607,7 @@ android_saf_file_open (struct android_vnode *vnode, int flags,
   struct android_saf_file_vnode *vp;
   jobject uri, id, descriptor;
   jmethodID method;
-  jboolean trunc, write;
+  jboolean read, trunc, write;
   jint fd;
   struct android_parcel_fd *info;
   struct stat statb;
@@ -5598,6 +5615,15 @@ android_saf_file_open (struct android_vnode *vnode, int flags,
   if (inside_saf_critical_section)
     {
       errno = EIO;
+      return -1;
+    }
+
+  /* O_APPEND isn't supported as a consequence of Android content
+     providers defaulting to truncating the file.  */
+
+  if (flags & O_APPEND)
+    {
+      errno = EOPNOTSUPP;
       return -1;
     }
 
@@ -5611,18 +5637,45 @@ android_saf_file_open (struct android_vnode *vnode, int flags,
 					  vp->document_id);
   android_exception_check_1 (uri);
 
-  /* Open a parcel file descriptor according to flags.  */
+  /* Open a parcel file descriptor according to flags.  Documentation
+     for the SAF openDocument operation is scant and seldom helpful.
+     From observations made, it is clear that their file access modes
+     are inconsistently implemented, and that at least:
+
+       r   = either an FIFO or a real file, without truncation.
+       w   = either an FIFO or a real file, with OR without truncation.
+       wt  = either an FIFO or a real file, with truncation.
+       rw  = a real file, without truncation.
+       rwt = a real file, with truncation.
+
+     This diverges from the self-contradicting documentation, where
+     openDocument says nothing about truncation, and openFile mentions
+     that w can elect not to truncate and programs which rely on
+     truncation should use wt.
+
+     Since Emacs is prepared to handle FIFOs within fileio.c, simply
+     specify the straightforward relationship between FLAGS and the
+     file access modes listed above.  */
 
   method = service_class.open_document;
-  trunc  = (flags & O_TRUNC);
-  write  = (((flags & O_RDWR) == O_RDWR) || (flags & O_WRONLY));
+  read = trunc = write = false;
+
+  if ((flags & O_RDWR) == O_RDWR || (flags & O_WRONLY))
+    write = true;
+
+  if (flags & O_TRUNC)
+    trunc = true;
+
+  if ((flags & O_RDWR) == O_RDWR || !write)
+    read = true;
+
   inside_saf_critical_section = true;
   descriptor
     = (*android_java_env)->CallNonvirtualObjectMethod (android_java_env,
 						       emacs_service,
 						       service_class.class,
 						       method, uri, id,
-						       write, trunc);
+						       read, write, trunc);
   inside_saf_critical_section = false;
 
   if (android_saf_exception_check (2, uri, id))
@@ -5679,10 +5732,15 @@ android_saf_file_open (struct android_vnode *vnode, int flags,
   ANDROID_DELETE_LOCAL_REF (descriptor);
 
   /* Try to retrieve the modification time of this file from the
-     content provider.  */
+     content provider.
+
+     Refrain from introducing the file status into the file status
+     cache if FLAGS & O_RDWR or FLAGS & O_WRONLY: the cached file
+     status will contain a size and modification time inconsistent
+     with the result of any modifications that later transpire.  */
 
   if (!android_saf_stat (vp->tree_uri, vp->document_id,
-			 &statb))
+			 &statb, write))
     info->mtime = get_stat_mtime (&statb);
   else
     info->mtime = invalid_timespec ();
@@ -6133,7 +6191,14 @@ NATIVE_NAME (safPostRequest) (JNIEnv *env, jobject object)
 JNIEXPORT jboolean JNICALL
 NATIVE_NAME (ftruncate) (JNIEnv *env, jobject object, jint fd)
 {
-  return ftruncate (fd, 0) != -1;
+  if (ftruncate (fd, 0) < 0)
+    return false;
+
+  /* Reset the file pointer.  */
+  if (lseek (fd, 0, SEEK_SET) < 0)
+    return false;
+
+  return true;
 }
 
 #ifdef __clang__
@@ -6448,6 +6513,8 @@ android_vfs_init (JNIEnv *env, jobject manager)
    vnodes may not be reentrant, but operating on them from within an
    async input handler will at worst cause an error to be returned.
 
+   The eight is that some vnode types do not support O_APPEND.
+
    And the final drawback is that directories cannot be directly
    opened.  Instead, `dirfd' must be called on a directory stream used
    by `openat'.
@@ -6684,6 +6751,11 @@ android_fstat (int fd, struct stat *statb)
   parcel_fd = open_parcel_fds;
   for (; parcel_fd; parcel_fd = parcel_fd->next)
     {
+      if (parcel_fd->fd == fd)
+	/* Set STATB->st_dev to a negative device number, signifying
+	   that it's contained within a content provider.  */
+	statb->st_dev = -4;
+
       if (parcel_fd->fd == fd
 	  && timespec_valid_p (parcel_fd->mtime))
 	{

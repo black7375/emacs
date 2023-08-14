@@ -305,7 +305,8 @@ AC_DEFUN([OPTION_DEFAULT_OFF], [dnl
 ])dnl
 
 dnl OPTION_DEFAULT_IFAVAILABLE(NAME, HELP-STRING)
-dnl Create a new --with option that defaults to 'ifavailable'.
+dnl Create a new --with option that defaults to 'ifavailable',
+dnl unless it is overriden by $with_features being equal to 'no'.
 dnl NAME is the base name of the option.  The shell variable with_NAME
 dnl   will be set to either the user's value (if the option is
 dnl   specified; 'yes' for a plain --with-NAME) or to 'ifavailable' (if the
@@ -315,9 +316,11 @@ dnl   characters with "_".
 dnl HELP-STRING is the help text for the option.
 AC_DEFUN([OPTION_DEFAULT_IFAVAILABLE], [dnl
   AC_ARG_WITH([$1],[AS_HELP_STRING([--with-$1],[$2])],[],[dnl
-    m4_bpatsubst([with_$1], [[^0-9a-z]], [_])=ifavailable])dnl
+    AS_IF([test "$with_features" != no],
+      [m4_bpatsubst([with_$1], [[^0-9a-z]], [_])=ifavailable],
+      [m4_bpatsubst([with_$1], [[^0-9a-z]], [_])=no])dnl
+  ])dnl
 ])dnl
-
 
 dnl OPTION_DEFAULT_ON(NAME, HELP-STRING)
 dnl Create a new --with option that defaults to $with_features.
@@ -342,22 +345,13 @@ AC_ARG_WITH([mailutils],
       options are irrelevant; this is the default if GNU Mailutils is
       installed])],
   [],
-  [with_mailutils=$with_features
-   AS_IF([test "$with_mailutils" = yes],
-     [AS_IF([test "x$XCONFIGURE" != "xandroid" \
-             && test "$with_android" = "no"],
-       [(movemail --version) >/dev/null 2>&1 || with_mailutils=no],
-       [dnl Don't check for movemail if cross-compiling.
-        dnl instead, default to false.
-        with_mailutils=no])])])
-AS_IF([test "$with_mailutils" = no],
-  [with_mailutils=])
-
-AS_IF([test x"$with_mailutils" = xyes],
-  [AC_DEFINE([HAVE_MAILUTILS], [1],
-     [Define to 1 if Emacs was configured with mailutils])])
-
-AC_SUBST([with_mailutils])
+  [AS_IF([test "$with_features" != "no"],
+   [with_mailutils=yes-unless-android
+    AS_IF([test "x$XCONFIGURE" != "xandroid"],
+     [(movemail --version) >/dev/null 2>&1 || with_mailutils=no],
+     [dnl Don't check for movemail if cross-compiling.
+      dnl instead, default to false.
+      with_mailutils=no])])])
 
 AC_ARG_WITH([pop],
   [AS_HELP_STRING([--with-pop],
@@ -594,6 +588,25 @@ OPTION_DEFAULT_OFF([small-ja-dic],[generate a smaller-size Japanese dictionary])
 OPTION_DEFAULT_OFF([android],[cross-compile Android application package])
 OPTION_DEFAULT_ON([android-debug],[don't build Emacs as a debug package on Android])
 
+# Find out of Android support is enabled and mailutils has defaulted
+# to `yes-unless-android'.  Disable it if so.
+
+AS_IF([test "x$with_mailutils" = "xyes-unless-android"],
+  [AS_IF([test "x$with_android" != "xno"],
+     [with_mailutils=no],
+     [with_mailutils=yes])])
+
+# Clear with_mailutils if it's set to no.
+
+AS_IF([test "$with_mailutils" = no],
+  [with_mailutils=])
+
+AS_IF([test x"$with_mailutils" = xyes],
+  [AC_DEFINE([HAVE_MAILUTILS], [1],
+     [Define to 1 if Emacs was configured with mailutils])])
+
+AC_SUBST([with_mailutils])
+
 AC_ARG_WITH([shared-user-id],
   [AS_HELP_STRING([--with-shared-user-id=ID],
     [use the given shared user ID in Android builds])])
@@ -723,7 +736,7 @@ AS_IF([test "x$XCONFIGURE" = "xandroid" \
 
 # There is little point in enabling checking in the build machine if
 # cross-compiling for Android.
-AS_IF([test -z "$with_android" || test -n "$XCONFIGURE"],[
+AS_IF([test "$with_android" = no || test -n "$XCONFIGURE"],[
   if test x$ac_enable_checking != x ; then
     AC_DEFINE([ENABLE_CHECKING], [1],
   [Define to 1 if expensive run-time data type and consistency checks are enabled.])
@@ -2526,7 +2539,7 @@ AC_CHECK_HEADERS_ONCE(
   sys/sysinfo.h
   coff.h pty.h
   sys/resource.h
-  sys/utsname.h pwd.h utmp.h util.h
+  sys/utsname.h pwd.h util.h
   sanitizer/lsan_interface.h
   sanitizer/asan_interface.h
   sanitizer/common_interface_defs.h])
@@ -2698,7 +2711,7 @@ for Android, but all API calls need to be stubbed out])
     # Check for some functions not always present in the NDK.
     AC_CHECK_DECLS([android_get_device_api_level])
 
-    # Say this build is really for Android.
+    # Mention this build is really for Android.
     REALLY_ANDROID=yes])])
 
 AC_SUBST([ANDROID])
@@ -2759,16 +2772,16 @@ if test x"${x_includes}" = x; then
   bitmapdir=/usr/include/X11/bitmaps
 else
   # accumulate include directories that have X11 bitmap subdirectories
-  bmd_acc=
+  AS_UNSET([bmd_acc])
   for bmd in `AS_ECHO(["$x_includes"]) | sed -e 's/:/ /g'`; do
     if test -d "${bmd}/X11/bitmaps"; then
-      bmd_acc="${bmd_acc}:${bmd}/X11/bitmaps"
+      bmd_acc="${bmd_acc+$bmd_acc:}${bmd}/X11/bitmaps"
     fi
     if test -d "${bmd}/bitmaps"; then
-      bmd_acc="${bmd_acc}:${bmd}/bitmaps"
+      bmd_acc="${bmd_acc+$bmd_acc:}${bmd}/bitmaps"
     fi
   done
-  bitmapdir=${bmd_acc#:}
+  bitmapdir=$bmd_acc
 fi
 
 NATIVE_IMAGE_API=no
@@ -4020,6 +4033,7 @@ if test "${with_tree_sitter}" != "no"; then
     [HAVE_TREE_SITTER=yes], [HAVE_TREE_SITTER=no])
   if test "${HAVE_TREE_SITTER}" = yes; then
     AC_DEFINE(HAVE_TREE_SITTER, 1, [Define if using tree-sitter.])
+    NEED_DYNLIB=yes
   else
     EMACS_CHECK_MODULES([TREE_SITTER], [tree-sitter >= 0.6.3],
       [HAVE_TREE_SITTER=yes], [HAVE_TREE_SITTER=no])
@@ -7768,7 +7782,7 @@ AC_SUBST([SUBDIR_MAKEFILES_IN])
 SMALL_JA_DIC=$with_small_ja_dic
 AC_SUBST([SMALL_JA_DIC])
 
-dnl The following commands are run on the host system when building
+dnl The following commands are run on the build system when building
 dnl Emacs.
 
 if test "$XCONFIGURE" != "android"; then
@@ -7848,19 +7862,20 @@ if test "$XCONFIGURE" != "android"; then
   dnl machine.
   AS_MKDIR_P([cross/etc])
 
-  dnl Link gnulib files to cross/lib as well.
-  dnl af_alg.h and lib/save-cwd.h are copied manually from
-  dnl gnulib, and as such aren't specified in gl_FILE_LIST.
-  emacs_files='gl_FILE_LIST lib/af_alg.h lib/save-cwd.h'
-  dnl These files are specific to Emacs.
-  emacs_files="$emacs_files lib/fingerprint.c lib/fingerprint.h \
-                 lib/save-cwd.c lib/openat-die.c lib/save-cwd.c \
-		 lib/min-max.h"
-  for file in $emacs_files; do
-    AS_IF([expr "X${file}J" : "Xlib/.*[[ch]]J" >/dev/null],
-      [AS_IF([test -f "$srcdir/$file"],
-        [AC_CONFIG_LINKS([cross/$file:$file])])])
-  done
+  AS_IF([test "x$with_android" != "xno"], [
+    dnl Link gnulib files to cross/lib as well.  af_alg.h and
+    dnl lib/save-cwd.h are copied manually from gnulib, and as such
+    dnl aren't specified in gl_FILE_LIST.
+    emacs_files='gl_FILE_LIST lib/af_alg.h lib/save-cwd.h'
+    dnl These files are specific to Emacs.
+    emacs_files="$emacs_files lib/fingerprint.c lib/fingerprint.h \
+		   lib/save-cwd.c lib/openat-die.c lib/save-cwd.c \
+		   lib/min-max.h"
+    for file in $emacs_files; do
+      AS_IF([expr "X${file}J" : "Xlib/.*[[ch]]J" >/dev/null],
+	[AS_IF([test -f "$srcdir/$file"],
+	  [AC_CONFIG_LINKS([cross/$file:$file])])])
+    done])
 fi
 
 # Make java/Makefile

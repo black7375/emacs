@@ -15,8 +15,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
-along with GNU Emacs.  If not, write to the Free Software Foundation,
-Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.  */
+along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 
 #include <config.h>
 
@@ -1006,7 +1005,7 @@ sfnt_read_cmap_table (int fd, struct sfnt_offset_subtable *subtable,
       /* Read the common part of the new subtable.  */
       rc = read (fd, &(*subtables)[i], sizeof (*subtables)[i]);
 
-      if (rc < sizeof (*subtables))
+      if (rc < sizeof (*subtables)[i])
 	{
 	  xfree (cmap);
 	  xfree (*subtables);
