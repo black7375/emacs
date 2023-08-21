@@ -5846,10 +5846,13 @@ getrlimit setrlimit shutdown \
 pthread_sigmask strsignal setitimer \
 sendto recvfrom getsockname getifaddrs freeifaddrs \
 gai_strerror sync \
-getpwent endpwent getgrent endgrent \
+endpwent getgrent endgrent \
 renameat2 \
 cfmakeraw cfsetspeed __executable_start log2 pthread_setname_np \
 pthread_set_name_np])
+
+# getpwent is not present in older versions of Android.  (bug#65319)
+gl_CHECK_FUNCS_ANDROID([getpwent], [[#include <pwd.h>]])
 
 if test "$ac_cv_func_cfmakeraw" != "yes"; then
   # On some systems (Android), cfmakeraw is inline, so AC_CHECK_FUNCS
@@ -5989,7 +5992,7 @@ AC_DEFUN([tputs_link_source], [
 # than to expect to find it in ncurses.
 # Also we need tputs and friends to be able to build at all.
 AC_CACHE_CHECK([for library containing tputs], [emacs_cv_tputs_lib],
-[if test "${opsys}" = "mingw32" || test "$opsys" = "android"; then
+[if test "${opsys}" = "mingw32" || test x"$REALLY_ANDROID" = "xyes"; then
   emacs_cv_tputs_lib='none required'
 else
   # curses precedes termcap because of AIX (Bug#9736#35) and OpenIndiana.
@@ -6027,7 +6030,7 @@ TERMINFO=yes
 ## LIBS_TERMCAP="-lncurses", this overrides LIBS_TERMCAP = -ltinfo,
 ## if that was found above to have tputs.
 ## Should we use the gnu* logic everywhere?
-case "$opsys" in
+case "$opsys$REALLY_ANDROID" in
   ## darwin: Prevents crashes when running Emacs in Terminal.app under 10.2.
   ##  The ncurses library has been moved out of the System framework in
   ##  Mac OS X 10.2.  So if configure detects it, set the command-line
@@ -6056,7 +6059,10 @@ fail;
     fi
     ;;
 
-  mingw32 | android)
+  # The case condition is a concatenation of both $opsys and
+  # $REALLY_ANDROID.  Only disable termcap if building a GUI program.
+  # (bug#65340)
+  mingw32 | androidyes)
     TERMINFO=no
     LIBS_TERMCAP=
     ;;
