@@ -24,6 +24,7 @@ applies, and please also update docstrings as needed.
 
 * Installation Changes in Emacs 30.1
 
++++
 ** Emacs has been ported to the Android operating system.
 This requires Emacs to be compiled on another computer.  The Android
 NDK, SDK, and a suitable Java compiler must also be installed.
@@ -151,6 +152,13 @@ right-aligned to is controlled by the new user option
 *** New user option 'tab-bar-tab-name-format-functions'.
 It can be used to add, remove and reorder functions that change
 the appearance of every tab on the tab bar.
+
+** Miscellaneous
+
+---
+*** New face 'appt-notification' for 'appt-display-mode-line'.
+It can be used to customize the look of the appointment notification
+displayed on the mode line when 'appt-display-mode-line' is non-nil.
 
 
 * Editing Changes in Emacs 30.1
@@ -281,6 +289,15 @@ current diff, regenerating them without whitespace changes.
 This allows changing which type of whitespace changes are ignored when
 regenerating hunks with 'diff-ignore-whitespace-hunk'.  Defaults to
 the previously hard-coded "-b".
+
+** Dired
+
+---
+*** New user option 'dired-movement-style'.
+When non-nil, make 'dired-next-line' and 'dired-previous-line' skip
+empty lines.  It also controls how to move point when encountering a
+boundary (e.g., if every line is visible, invoking 'dired-next-line'
+at the last line will move to the first line).  The default is nil.
 
 ** Ediff
 
@@ -443,7 +460,7 @@ sessions, respectively.
 
 +++
 *** New command 'tramp-cleanup-some-buffers'.
-It allows to kill only selected remote buffers, controlled by user
+It kills only a subset of opened remote buffers, subject to the user
 option 'tramp-cleanup-some-buffers-hook'.
 
 +++
@@ -724,6 +741,13 @@ without specifying a file, like this:
 *** New user option 'image-dired-thumb-naming'.
 You can now configure how a thumbnail is named using this option.
 
+** ERT
+
+*** New macro `skip-when' to skip 'ert-deftest' tests.
+This can help avoid some awkward skip conditions.  For example
+'(skip-unless (not noninteractive))' can be changed to the easier
+to read '(skip-when noninteractive)'.
+
 ** checkdoc
 
 ---
@@ -760,6 +784,13 @@ A major mode based on the tree-sitter library for editing HEEx files.
 A major mode based on the tree-sitter library for editing Elixir
 files.
 
++++
+** New global minor mode 'minibuffer-regexp-mode'.
+This is a minor mode for editing regular expressions in the minibuffer.
+It highlight parens via ‘show-paren-mode’ and ‘blink-matching-paren’ in
+a user-friendly way, avoids reporting alleged paren mismatches and makes
+sexp navigation more intuitive.
+
 ---
 ** The highly accessible Modus themes collection has eight items.
 The 'modus-operandi' and 'modus-vivendi' are the main themes that have
@@ -782,6 +813,13 @@ the current project.
 *** New user option 'project-key-prompt-style'.
 The look of the key prompt in the project switcher has been changed
 slightly.  To get the previous one, set this option to 'brackets'.
+
+*** 'project-try-vc' tries harder to find the responsible VCS.
+When 'project-vc-extra-root-markers' is non-nil, and causes
+subdirectory project to be detected which is not a VCS root, we now
+additionally traverse the parent directories until a VCS root is found
+(if any), so that the ignore rules for that repository are used, and
+the file listing's performance is still optimized.
 
 
 * Incompatible Lisp Changes in Emacs 30.1
@@ -864,15 +902,27 @@ Use 'define-minor-mode' and 'define-globalized-minor-mode' instead.
 
 * Lisp Changes in Emacs 30.1
 
++++
+** XLFDs are no longer restricted to 255 characters.
+'font-xlfd-name' now returns an XLFD even if it is greater than 255
+characters in length, provided that the LONG_XLFDs argument is true.
+
+Other features in Emacs which employ XLFDs have been modified to
+produce and understand XLFDs larger than 255 characters.
+
 ** 'defadvice' is marked as obsolete.
 See the "(elisp) Porting Old Advice" node for help converting them
 to use 'advice-add' or 'define-advice' instead.
 
+** 'cl-old-struct-compat-mode' is marked as obsolete.
+You may need to recompile our code if it was compiled with Emacs<24.3.
+
 +++
-** New macro 'static-if' for conditional compilation of code.
-This macro hides a form from the compiler based on a compile-time
-condition.  This is handy for avoiding byte-compilation warnings about
-code that will never actually run under some conditions.
+** New macro 'static-if' for conditional evaluation of code.
+This macro hides a form from the evaluator or byte-compiler based on a
+compile-time condition.  This is handy for avoiding byte-compilation
+warnings about code that will never actually run under some
+conditions.
 
 +++
 ** Desktop notifications are now supported on the Haiku operating system.
@@ -1039,6 +1089,21 @@ because the behavior is identical to that of the argument; there is
 no protection of any kind.  Perhaps the intended unwind forms have
 been misplaced or forgotten, or the use of 'unwind-protect' could be
 simplified away.
+
+This warning can be suppressed using 'with-suppressed-warnings' with
+the warning name 'suspicious'.
+
+---
+*** Warn about useless trailing 'cond' clauses.
+The compiler now warns when a 'cond' form contains clauses following a
+default (unconditional) clause.  Example:
+
+    (cond ((= x 0) (say "none"))
+          (t (say "some"))
+          (say "goodbye"))
+
+Such a clause will never be executed but is likely to be a mistake,
+perhaps due to misplaced brackets.
 
 This warning can be suppressed using 'with-suppressed-warnings' with
 the warning name 'suspicious'.

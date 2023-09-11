@@ -2610,7 +2610,7 @@ sfntfont_probe_widths (struct sfnt_font_info *font_info)
 
   /* Next, loop through the common ASCII characters.  Tally up their
      advance widths and set space_width if necessary.  */
-  for (i = 0; i < 127; ++i)
+  for (i = 32; i < 127; ++i)
     {
       glyph = sfntfont_lookup_glyph (font_info, i);
 
@@ -3293,7 +3293,7 @@ sfntfont_open (struct frame *f, Lisp_Object font_entity,
 
  cancel_blend:
   /* Calculate the xfld name.  */
-  font->props[FONT_NAME_INDEX] = Ffont_xlfd_name (font_object, Qnil);
+  font->props[FONT_NAME_INDEX] = Ffont_xlfd_name (font_object, Qnil, Qt);
 
 #ifdef HAVE_HARFBUZZ
   /* HarfBuzz will potentially read font tables after the font has
@@ -3312,6 +3312,21 @@ sfntfont_open (struct frame *f, Lisp_Object font_entity,
   font_info->next = open_fonts;
   open_fonts = font_info;
 #endif /* HAVE_MMAP */
+
+  /* Now ascertain if vertical centering is desired by matching the
+     font XLFD against vertical-centering-font-regexp.  */
+
+  if (!NILP (font->props[FONT_NAME_INDEX]))
+    font->vertical_centering
+      = (STRINGP (Vvertical_centering_font_regexp)
+	 && (fast_string_match_ignore_case
+	     (Vvertical_centering_font_regexp,
+	      font->props[FONT_NAME_INDEX]) >= 0));
+
+  /* And set a reasonable full name, namely the name of the font
+     file.  */
+  font->props[FONT_FULLNAME_INDEX]
+    = DECODE_FILE (build_unibyte_string (desc->path));
 
   /* All done.  */
   unblock_input ();
