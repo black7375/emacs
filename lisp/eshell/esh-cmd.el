@@ -990,15 +990,19 @@ process(es) in a cons cell like:
 
   (:eshell-background . PROCESS)"
   (if eshell-current-command
-      ;; We can just stick the new command at the end of the current
-      ;; one, and everything will happen as it should.
-      (setcdr (last (cdr eshell-current-command))
-              (list `(let ((here (and (eobp) (point))))
-                       ,(and input
-                             `(insert-and-inherit ,(concat input "\n")))
-                       (if here
-                           (eshell-update-markers here))
-                       (eshell-do-eval ',command))))
+      (progn
+        ;; We can just stick the new command at the end of the current
+        ;; one, and everything will happen as it should.
+        (setcdr (last (cdr eshell-current-command))
+                (list `(let ((here (and (eobp) (point))))
+                         ,(and input
+                               `(insert-and-inherit ,(concat input "\n")))
+                         (if here
+                             (eshell-update-markers here))
+                         (eshell-do-eval ',command))))
+        (eshell-debug-command 'form
+          "enqueued command form for %S\n\n%s"
+          (or input "<no string>") (eshell-stringify eshell-current-command)))
     (eshell-debug-command-start input)
     (setq eshell-current-command command)
     (let* (result
@@ -1018,7 +1022,7 @@ process(es) in a cons cell like:
              ;; Make sure PROC is one of our foreground processes and
              ;; that all of those processes are now dead.
              (member proc eshell-last-async-procs)
-             (not (seq-some #'process-live-p eshell-last-async-procs)))
+             (not (seq-some #'eshell-process-active-p eshell-last-async-procs)))
     (eshell-resume-eval)))
 
 (defun eshell-resume-eval ()
