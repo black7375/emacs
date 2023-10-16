@@ -104,6 +104,7 @@ struct android_emacs_window
   jmethodID make_input_focus;
   jmethodID raise;
   jmethodID lower;
+  jmethodID reconfigure;
   jmethodID get_window_geometry;
   jmethodID translate_coordinates;
   jmethodID set_dont_accept_focus;
@@ -1755,6 +1756,7 @@ android_init_emacs_window (void)
   FIND_METHOD (make_input_focus, "makeInputFocus", "(J)V");
   FIND_METHOD (raise, "raise", "()V");
   FIND_METHOD (lower, "lower", "()V");
+  FIND_METHOD (reconfigure, "reconfigure", "(Lorg/gnu/emacs/EmacsWindow;I)V");
   FIND_METHOD (get_window_geometry, "getWindowGeometry",
 	       "()[I");
   FIND_METHOD (translate_coordinates, "translateCoordinates",
@@ -1824,7 +1826,7 @@ NATIVE_NAME (initEmacs) (JNIEnv *env, jobject object, jarray argv,
   android_java_env = env;
 
   nelements = (*env)->GetArrayLength (env, argv);
-  c_argv = alloca (sizeof *c_argv * nelements);
+  c_argv = alloca (sizeof *c_argv * (nelements + 1));
 
   for (i = 0; i < nelements; ++i)
     {
@@ -1841,6 +1843,8 @@ NATIVE_NAME (initEmacs) (JNIEnv *env, jobject object, jarray argv,
       strcpy (c_argv[i], c_argument);
       (*env)->ReleaseStringUTFChars (env, (jstring) argument, c_argument);
     }
+
+  c_argv[nelements] = NULL;
 
   android_init_emacs_service ();
   android_init_emacs_pixmap ();
@@ -2312,6 +2316,100 @@ NATIVE_NAME (sendExpose) (JNIEnv *env, jobject object,
   event.xexpose.y = y;
   event.xexpose.width = width;
   event.xexpose.height = height;
+
+  android_write_event (&event);
+  return event_serial;
+}
+
+JNIEXPORT jboolean JNICALL
+NATIVE_NAME (sendDndDrag) (JNIEnv *env, jobject object,
+			   jshort window, jint x, jint y)
+{
+  JNI_STACK_ALIGNMENT_PROLOGUE;
+
+  union android_event event;
+
+  event.dnd.type = ANDROID_DND_DRAG_EVENT;
+  event.dnd.serial = ++event_serial;
+  event.dnd.window = window;
+  event.dnd.x = x;
+  event.dnd.y = y;
+  event.dnd.uri_or_string = NULL;
+  event.dnd.length = 0;
+
+  android_write_event (&event);
+  return event_serial;
+}
+
+JNIEXPORT jboolean JNICALL
+NATIVE_NAME (sendDndUri) (JNIEnv *env, jobject object,
+			  jshort window, jint x, jint y,
+			  jstring string)
+{
+  JNI_STACK_ALIGNMENT_PROLOGUE;
+
+  union android_event event;
+  const jchar *characters;
+  jsize length;
+  uint16_t *buffer;
+
+  event.dnd.type = ANDROID_DND_URI_EVENT;
+  event.dnd.serial = ++event_serial;
+  event.dnd.window = window;
+  event.dnd.x = x;
+  event.dnd.y = y;
+
+  length = (*env)->GetStringLength (env, string);
+  buffer = malloc (length * sizeof *buffer);
+  characters = (*env)->GetStringChars (env, string, NULL);
+
+  if (!characters)
+    /* The JVM has run out of memory; return and let the out of memory
+       error take its course.  */
+    return 0;
+
+  memcpy (buffer, characters, length * sizeof *buffer);
+  (*env)->ReleaseStringChars (env, string, characters);
+
+  event.dnd.uri_or_string = buffer;
+  event.dnd.length = length;
+
+  android_write_event (&event);
+  return event_serial;
+}
+
+JNIEXPORT jboolean JNICALL
+NATIVE_NAME (sendDndText) (JNIEnv *env, jobject object,
+			   jshort window, jint x, jint y,
+			   jstring string)
+{
+  JNI_STACK_ALIGNMENT_PROLOGUE;
+
+  union android_event event;
+  const jchar *characters;
+  jsize length;
+  uint16_t *buffer;
+
+  event.dnd.type = ANDROID_DND_TEXT_EVENT;
+  event.dnd.serial = ++event_serial;
+  event.dnd.window = window;
+  event.dnd.x = x;
+  event.dnd.y = y;
+
+  length = (*env)->GetStringLength (env, string);
+  buffer = malloc (length * sizeof *buffer);
+  characters = (*env)->GetStringChars (env, string, NULL);
+
+  if (!characters)
+    /* The JVM has run out of memory; return and let the out of memory
+       error take its course.  */
+    return 0;
+
+  memcpy (buffer, characters, length * sizeof *buffer);
+  (*env)->ReleaseStringChars (env, string, characters);
+
+  event.dnd.uri_or_string = buffer;
+  event.dnd.length = length;
 
   android_write_event (&event);
   return event_serial;
@@ -4407,6 +4505,7 @@ android_fill_polygon (android_drawable drawable, struct android_gc *gc,
 						 service_class.fill_polygon,
 						 drawable_object,
 						 gcontext, array);
+  android_exception_check_1 (array);
   ANDROID_DELETE_LOCAL_REF (array);
 }
 
@@ -4429,6 +4528,10 @@ android_draw_rectangle (android_drawable handle, struct android_gc *gc,
 						 drawable, gcontext,
 						 (jint) x, (jint) y,
 						 (jint) width, (jint) height);
+
+  /* In lieu of android_exception_check, clear all exceptions after
+     calling this frequently called graphics operation.  */
+  (*android_java_env)->ExceptionClear (android_java_env);
 }
 
 void
@@ -4449,6 +4552,10 @@ android_draw_point (android_drawable handle, struct android_gc *gc,
 						 service_class.draw_point,
 						 drawable, gcontext,
 						 (jint) x, (jint) y);
+
+  /* In lieu of android_exception_check, clear all exceptions after
+     calling this frequently called graphics operation.  */
+  (*android_java_env)->ExceptionClear (android_java_env);
 }
 
 void
@@ -4470,6 +4577,10 @@ android_draw_line (android_drawable handle, struct android_gc *gc,
 						 drawable, gcontext,
 						 (jint) x, (jint) y,
 						 (jint) x2, (jint) y2);
+
+  /* In lieu of android_exception_check, clear all exceptions after
+     calling this frequently called graphics operation.  */
+  (*android_java_env)->ExceptionClear (android_java_env);
 }
 
 android_pixmap
@@ -4963,6 +5074,37 @@ android_lower_window (android_window handle)
   android_exception_check ();
 }
 
+void
+android_reconfigure_wm_window (android_window handle,
+			       enum android_wc_value_mask value_mask,
+			       struct android_window_changes *values)
+{
+  jobject sibling, window;
+
+  window = android_resolve_handle (handle, ANDROID_HANDLE_WINDOW);
+
+  if (!(value_mask & ANDROID_CW_STACK_MODE))
+    return;
+
+  /* If value_mask & ANDROID_CW_SIBLING, place HANDLE above or below
+     values->sibling pursuant to values->stack_mode; else, reposition
+     it at the top or the bottom of its parent.  */
+
+  sibling = NULL;
+
+  if (value_mask & ANDROID_CW_SIBLING)
+    sibling = android_resolve_handle (values->sibling,
+				      ANDROID_HANDLE_WINDOW);
+
+  (*android_java_env)->CallNonvirtualVoidMethod (android_java_env,
+						 window,
+						 window_class.class,
+						 window_class.reconfigure,
+						 sibling,
+						 (jint) values->stack_mode);
+  android_exception_check ();
+}
+
 int
 android_query_tree (android_window handle, android_window *root_return,
 		    android_window *parent_return,
@@ -5246,7 +5388,7 @@ android_wc_lookup_string (android_key_pressed_event *event,
    The caller must take care to unlock the bitmap data afterwards.  */
 
 unsigned char *
-android_lock_bitmap (android_window drawable,
+android_lock_bitmap (android_drawable drawable,
 		     AndroidBitmapInfo *bitmap_info,
 		     jobject *bitmap_return)
 {
@@ -5262,9 +5404,15 @@ android_lock_bitmap (android_window drawable,
 						  object,
 						  drawable_class.get_bitmap);
   if (!bitmap)
-    /* NULL is returned when the bitmap does not currently exist due
-       to ongoing reconfiguration on the main thread.  */
-    return NULL;
+    {
+      /* Report any exception signaled.  */
+      android_exception_check ();
+
+      /* If no exception was signaled, then NULL was returned as the
+	 bitmap does not presently exist due to window reconfiguration
+	 on the main thread.  */
+      return NULL;
+    }
 
   memset (bitmap_info, 0, sizeof *bitmap_info);
 
@@ -5490,22 +5638,40 @@ android_toggle_on_screen_keyboard (android_window window, bool show)
 
 
 
+#if defined __clang_major__ && __clang_major__ < 5
+# define HAS_BUILTIN_TRAP 0
+#elif 3 < __GNUC__ + (3 < __GNUC_MINOR__ + (4 <= __GNUC_PATCHLEVEL__))
+# define HAS_BUILTIN_TRAP 1
+#elif defined __has_builtin
+# define HAS_BUILTIN_TRAP __has_builtin (__builtin_trap)
+#else /* !__has_builtin */
+# define HAS_BUILTIN_TRAP 0
+#endif /* defined __clang_major__ && __clang_major__ < 5 */
+
 /* emacs_abort implementation for Android.  This logs a stack
    trace.  */
 
 void
 emacs_abort (void)
 {
+#ifndef HAS_BUILTIN_TRAP
   volatile char *foo;
+#endif /* !HAS_BUILTIN_TRAP */
 
   __android_log_print (ANDROID_LOG_FATAL, __func__,
-		       "emacs_abort called, please review the ensuing"
+		       "emacs_abort called, please review the following"
 		       " stack trace");
 
-  /* Cause a NULL pointer dereference to make debuggerd generate a
+#ifndef HAS_BUILTIN_TRAP
+  /* Induce a NULL pointer dereference to make debuggerd generate a
      tombstone.  */
   foo = NULL;
   *foo = '\0';
+#else /* HAS_BUILTIN_TRAP */
+  /* Crash through __builtin_trap instead.  This appears to more
+     uniformly elicit crash reports from debuggerd.  */
+  __builtin_trap ();
+#endif /* !HAS_BUILTIN_TRAP */
 
   abort ();
 }
