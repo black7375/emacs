@@ -187,6 +187,11 @@ right-aligned to is controlled by the new user option
 It can be used to add, remove and reorder functions that change
 the appearance of every tab on the tab bar.
 
++++
+** New optional argument for modifying directory local variables
+The commands 'add-dir-local-variable', 'delete-dir-local-variable' and
+'copy-file-locals-to-dir-locals' now take an optional prefix argument,
+to enter the file you want to modify.
 ** Miscellaneous
 
 ---
@@ -282,6 +287,15 @@ functions in CJK locales.
 
 
 * Changes in Specialized Modes and Packages in Emacs 30.1
+
++++
+** New command 'lldb'.
+Run the LLDB debugger, analogous to the 'gud-gdb' command.  Note that
+you might want to add these settings to your .lldbinit file, to reduce
+the output in the LLDB output when stepping through source files.
+
+    settings set stop-line-count-before 0
+    settings set stop-line-count-after 0
 
 ** gdb-mi
 
@@ -476,6 +490,10 @@ calling external rgrep.
 When this option is non-nil, remote file names are not completed by
 Pcomplete.  Packages, like 'shell-mode', could set this in order to
 suppress remote file name completion at all.
+
+---
+*** Completion for the 'doas' command has been added.
+Command completion for 'doas' in Eshell and Shell mode will now work.
 
 ** Shell Mode
 
@@ -845,14 +863,6 @@ This can help avoid some awkward skip conditions.  For example
 '(skip-unless (not noninteractive))' can be changed to the easier
 to read '(skip-when noninteractive)'.
 
-** Checkdoc
-
----
-*** New checkdock warning if not using lexical-binding.
-Checkdoc now warns if the first line of an Emacs Lisp file does not
-end with a "-*- lexical-binding: t -*-" cookie.  Customize the user
-option 'checkdoc-lexical-binding-flag' to nil to disable this warning.
-
 ** URL
 
 +++
@@ -861,6 +871,13 @@ This option was intended for use on SunOS 4.x and Ultrix systems,
 neither of which have been supported by Emacs since version 23.1.
 The user option 'url-gateway-nslookup-program' and the function
 'url-gateway-nslookup-host' are consequently also obsolete.
+
+** socks
+
++++
+*** SOCKS supports version 4a.
+The 'socks-server' option accepts '4a' as a value for its version
+field.
 
 ** Edmacro
 
@@ -945,6 +962,13 @@ the file listing's performance is still optimized.
 
 * Incompatible Lisp Changes in Emacs 30.1
 
+** `buffer-match-p and `match-buffers` take `&rest args`
+They used to take a single `&optional arg` and were documented to use
+an unreliable hack to try and support condition predicates that
+don't accept this optional arg.
+The new semantics makes no such accommodation, but the code still
+supports it (with a warning) for backward compatibility.
+
 ** 'post-gc-hook' runs after updating 'gcs-done' and 'gcs-elapsed'.
 
 ---
@@ -1024,6 +1048,13 @@ Use 'define-minor-mode' and 'define-globalized-minor-mode' instead.
 
 ** The obsolete calling convention of 'sit-for' has been removed.
 That convention was: (sit-for SECONDS MILLISEC &optional NODISP)
+
+** The 'millisec' argument of 'sleep-for' has been declared obsolete.
+Use a float value for the first argument instead.
+
+** 'eshell-process-wait-{seconds,milliseconds}' options are now obsolete.
+Instead, use 'eshell-process-wait-time', which supports floating-point
+values.
 
 
 * Lisp Changes in Emacs 30.1
@@ -1148,6 +1179,30 @@ that have defined 'sexp' in 'treesit-thing-settings' to enable
 sexp-related motion commands.
 
 ** New or changed byte-compilation warnings
+
+---
+*** Warn about missing 'lexical-binding' directive.
+The compiler now warns if an Elisp file lacks the standard
+'-*- lexical-binding: ... -*-' cookie on the first line.
+This line typically looks something like
+
+    ;;; My little pony mode  -*- lexical-binding: t -*-
+
+It is needed to inform the compiler about which dialect of ELisp
+your code is using: the modern dialect with lexical binding or
+the old dialect with only dynamic binding.
+
+Lexical binding avoids some name conflicts and allows the compiler to
+detect more mistakes and generate more efficient code, so it is
+recommended.  For how to adapt your code to lexical binding, see the
+manual section "(elisp) Converting to Lexical Binding".
+
+If your code cannot be converted to lexical binding, you can insert
+the line
+
+    ;;; -*- lexical-binding: nil -*-
+
+first in the file to declare that it uses the old dialect.
 
 ---
 *** Warn about empty bodies for more special forms and macros.
@@ -1307,6 +1362,16 @@ Since circular alias chains now cannot occur, 'function-alias-p',
 'indirect-function' and 'indirect-variable' will never signal an error.
 Their 'noerror' arguments have no effect and are therefore obsolete.
 
++++
+** 'treesit-font-lock-rules' now accepts additional global keywords.
+When supplied with ':default-language LANGUAGE', rules after it will
+default to use 'LANGUAGE'.
+
+---
+** New optional argument to 'modify-dir-local-variable'
+A 5th argument, optional, has been added to
+'modify-dir-local-variable'.  It can be used to specify which
+dir-locals file to modify.
 
 * Changes in Emacs 30.1 on Non-Free Operating Systems
 

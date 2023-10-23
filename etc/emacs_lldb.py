@@ -203,15 +203,6 @@ def xdebug_print(debugger, command, result, internal_dict):
     """Print Lisp_Objects using safe_debug_print()"""
     debugger.HandleCommand(f"expr safe_debug_print({command})")
 
-def xcomplete(debugger, command, result, internal_dict):
-    """Print completions for COMMAND."""
-    interpreter = debugger.GetCommandInterpreter()
-    string_list = lldb.SBStringList()
-    interpreter.HandleCompletion(command, len(command), len(command),
-                                 -1, string_list)
-    for i in range(string_list.GetSize()):
-        result.AppendMessage(string_list.GetStringAtIndex(i))
-
 
 ########################################################################
 #                             Formatters
@@ -316,7 +307,6 @@ def enable_type_category(debugger, category):
 def __lldb_init_module(debugger, internal_dict):
     define_command(debugger, xbacktrace)
     define_command(debugger, xdebug_print)
-    define_command(debugger, xcomplete)
     define_type_summary(debugger, "Lisp_Object", type_summary_Lisp_Object)
     define_type_synthetic(debugger, "Lisp_Object", Lisp_Object_Provider)
     enable_type_category(debugger, "Emacs")
