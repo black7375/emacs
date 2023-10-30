@@ -60,8 +60,12 @@ The frame is displayed on a GNUstep or Macintosh Cocoa graphical
 terminal.
 @item pc
 The frame is displayed on an MS-DOS terminal.
+@item haiku
+The frame is displayed using the Haiku Application Kit.
 @item pgtk
 The frame is displayed using pure GTK facilities.
+@item android
+The frame is displayed on an Android device.
 @end table
 @end defun
 
@@ -224,8 +228,8 @@ The terminal and keyboard coding systems used on the terminal.
 @item
 The kind of display associated with the terminal.  This is the symbol
 returned by the function @code{terminal-live-p} (i.e., @code{x},
-@code{t}, @code{w32}, @code{ns}, @code{pc}, @code{haiku}, or @code{pgtk}).
-@xref{Frames}.
+@code{t}, @code{w32}, @code{ns}, @code{pc}, @code{haiku}, @code{pgtk},
+or @code{android}).  @xref{Frames}.
 
 @item
 A list of terminal parameters.  @xref{Terminal Parameters}.
@@ -4053,10 +4057,30 @@ under X, and @xref{Other Selections} for those elsewhere.
 @end defun
 
 @defopt selection-coding-system
-This variable specifies the coding system to use when reading and
-writing selections or the clipboard.  @xref{Coding
-Systems}.  The default is @code{compound-text-with-extensions}, which
-converts to the text representation that X11 normally uses.
+This variable provides a coding system (@pxref{Coding Systems}) which
+is used to encode selection data, and takes effect on MS-Windows and
+X@.  It is also used in the MS-DOS port when it runs on MS-Windows and
+can access the Windows clipboard text.
+
+On X, the value of this variable provides the coding system which
+@code{gui-get-selection} will use to decode selection data for a
+subset of text data types, and also forces replies to selection
+requests for the polymorphic @code{TEXT} data type to be encoded by
+the @code{compound-text-with-extensions} coding system rather than
+Unicode.
+
+On MS-Windows, this variable is generally ignored, as the MS-Windows
+clipboard provides the information about decoding as part of the
+clipboard data, and uses either UTF-16 or locale-specific encoding
+automatically as appropriate.  We recommend to set the value of this
+variable only on the older Windows 9X, as it is otherwise used only in
+the very rare cases when the information provided by the clipboard
+data is unusable for some reason.
+
+The default value of this variable is the system code page under
+MS-Windows 95, 98 or Me, @code{utf-16le-dos} on Windows
+NT/W2K/XP/Vista/7/8/10/11, @code{iso-latin-1-dos} on MS-DOS, and
+@code{nil} elsewhere.
 @end defopt
 
 For backward compatibility, there are obsolete aliases
@@ -4076,12 +4100,12 @@ complexity: its @var{data} argument is given verbatim to
 system-specific code to be rendered suitable for transfer to the
 window system or requesting clients.
 
-  The most comprehensive implementation of selections is that under
-the X Window System.  This is both an artifact of history (X was the
-first window system supported by Emacs) and one occasioned by
-technical considerations: X selections are not merely an expedient for
-the transfer of text and multimedia content between clients, but a
-general inter-client communication system, a design that has yielded a
+  The most comprehensive implementation of selections exists under the
+X Window System.  This is both an artifact of history (X was the first
+window system supported by Emacs) and one occasioned by technical
+considerations: X selections are not merely an expedient for the
+transfer of text and multimedia content between clients, but a general
+inter-client communication system, a design that has yielded a
 proliferation of selection and data types.
 
   Compounding this confusion, there is another inter-client
@@ -4144,12 +4168,12 @@ format and data type to convert the data transferred by the selection
 owner to a Lisp representation, which @code{gui-get-selection}
 returns.
 
-  By default, Emacs converts selection data consisting of any series
-of bytes to a unibyte string holding those bytes, that consisting of a
-single 16-bit or 32-bit word as an unsigned number, and that
-consisting of multiple such words as a vector of unsigned numbers.
-However, Emacs applies special treatment for data from the following
-conversion targets:
+  Emacs converts selection data consisting of any series of bytes to a
+unibyte string holding those bytes, that consisting of a single 16-bit
+or 32-bit word as an unsigned number, and that consisting of multiple
+such words as a vector of unsigned numbers.  The exceptions to this
+general pattern are that Emacs applies special treatment for data from
+the following conversion targets:
 
 @table @code
 @item INTEGER
@@ -4374,8 +4398,8 @@ This selection converter returns selection data as:
 @itemize @bullet
 @item
 A string of type @code{C_STRING}, if the selection contents contain no
-multibyte characters, or contains 8-bit characters with all 8 bits
-set.
+multibyte characters, or contain ``raw 8-bit bytes'' (@pxref{Text
+Representations}).
 
 @item
 A string of type @code{STRING}, if the selection contents can be
@@ -4589,7 +4613,7 @@ non-@code{nil}, its return value must be a list of the form
 @w{@code{(@var{key} @var{type} @var{value})}}.  In this list,
 @var{key} must be the name of the data being transferred, generally
 that of a MIME type, for example @samp{"text/plain"}, and @var{type}
-is a symbol or a number designating the type of the data, thus also
+is a symbol or a number designating the type of the data; thus also
 governing the interpretation of @var{value}; following is a list of
 valid data types and how each of them will cause @var{value} to be
 interpreted.
@@ -4660,132 +4684,188 @@ startup (@emph{not} a timestamp), and that for the other is a vector
 of available selection data types, as elsewhere.
 
 @cindex Android selections
-  Under Android, @code{gui-get-selection} is capable of returning
-UTF-8 string data of the type @code{STRING}, or image and application
-data associated with a MIME type.  @code{gui-set-selection} will only
-set string data, as on MS-Windows.
+  Much like MS-Windows, Android provides a clipboard but no primary or
+secondary selection; @code{gui-set-selection} simulates the primary
+selection by saving the value supplied into a variable subsequent
+calls to @code{gui-get-selection} return.
+
+  From the clipboard, @code{gui-get-selection} is capable of returning
+UTF-8 string data of the type @code{STRING}, the @code{TAREGTS} data
+type, or image and application data of any MIME type.
+@code{gui-set-selection} sets only string data, much as under
+MS-Windows, although this data is not affected by the value of
+@code{selection-coding-system}.
 
 @node Yanking Media
 @section Yanking Media
 
-  If you choose, for instance, ``Copy Image'' in a web browser, that
-image is put onto the clipboard, and Emacs can access it via
-@code{gui-get-selection}.  But in general, inserting image data into
-an arbitrary buffer isn't very useful---you can't really do much with
-it by default.
-
-  So Emacs has a system to let modes register handlers for these
-``complicated'' selections.
+  Data saved within window system selections is not restricted to
+plain text.  It is possible for selection data to encompass images or
+other binary data of the like, as well as rich text content instanced
+by HTML, and also PostScript.  Since the selection data types incident
+to this data are at variance with those for plain text, the insertion
+of such data is facilitated by a set of functions dubbed
+@dfn{yank-media handlers}, which are registered by each major mode
+undertaking its insertion and called where warranted upon the
+execution of the @code{yank-media} command.
 
 @defun yank-media-handler types handler
-@var{types} can be a @acronym{MIME} media type symbol, a regexp to
-match these, or a list of these symbols and regexps.  For instance:
+Register a yank-media handler which applies to the current buffer.
+
+@var{types} can be a symbol designating a selection data type
+(@pxref{Accessing Selections}), a regexp against which such types are
+matched, or a list of these symbols and regexps.  For instance:
 
 @example
 (yank-media-handler 'text/html #'my-html-handler)
 (yank-media-handler "image/.*" #'my-image-handler)
 @end example
 
-A mode can register as many handlers as required.
-
-  The @var{handler} function is called with two parameters: The
-@acronym{MIME} media type symbol and the data (as a string).  The
-handler should then insert the object into the buffer, or save it, or
-do whatever is appropriate for the mode.
+When a selection offers a data type matching @var{types}, the function
+@var{handler} is called to insert its data, with the symbol
+designating the matching selection data type, and the data returned by
+@code{gui-get-selection}.
 @end defun
 
-  The @code{yank-media} command will consult the registered handlers in
-the current buffer, compare that with the available media types on the
-clipboard, and then pass on the matching selection to the handler (if
-any).  If there's more than one matching selection, the user is
-queried first.
-
-  The @code{yank-media-types} command can be used to explore the
-clipboard/primary selection.  It lists all the media types that are
-currently available, and can be handy when creating handlers---to see
-what data is actually available.  Some applications put a surprising
-amount of different data types on the clipboard.
+The @code{yank-media-types} command presents a list of selection data
+types that are currently available, which is useful when implementing
+yank-media handlers; for programs generally offer an eclectic and
+seldom consistent medley of data types.
 
 @node Drag and Drop
 @section Drag and Drop
 @cindex drag and drop
 
-  When the user drops something from another application over Emacs,
-Emacs will try to insert any text and open any URL that was dropped.
-If text was dropped, then it will always be inserted at the location
-of the mouse pointer where the drop happened, or saved in the kill
-ring if insertion failed, which could happen if the buffer was
-read-only.  If a URL was dropped instead, then Emacs will first try to
-call an appropriate handler function by matching the URL against
-regexps defined in the variable @code{dnd-protocol-alist}, and then
-against those defined in the variables @code{browse-url-handlers} and
-@code{browse-url-default-handlers}.  Should no suitable handler be
-located, Emacs will fall back to inserting the URL as plain text.
+  Data transferred by drag and drop is generally either plain text or
+a list of URLs designating files or other resources.  When text is
+dropped, it is inserted at the location of the drop, with recourse to
+saving it into the kill ring if that is not possible.
+
+  URLs dropped are supplied to pertinent @dfn{DND handler functions}
+in the variable @code{dnd-protocol-alist}, or alternatively ``URL
+handlers'' as set forth by the variables @code{browse-url-handlers}
+and @code{browse-url-default-handlers}; absent matching handlers of
+either type, they are treated as plain text and inserted in the
+buffer.
 
 @defvar dnd-protocol-alist
-  This variable is a list of cons cells of the form
-@w{@code{(@var{pattern} . @var{action})}}.  @var{pattern} is a regexp
-that URLs are matched against after being dropped.  @var{action} is a
-function that is called with two arguments, should a URL being dropped
-match @var{pattern}: the URL being dropped, and the action being
-performed for the drop, which is one of the symbols @code{copy},
-@code{move}, @code{link}, @code{private} or @code{ask}.
+This variable is an alist between regexps against which URLs are
+matched and DND handler functions called on the dropping of matching
+URLs.
 
-If @var{action} is @var{private}, then it means the program that
-initiated the drop wants Emacs to perform an unspecified action with
-the URL; a reasonable action to perform in that case is to open the URL
-or copy its contents into the current buffer.  Otherwise, @var{action}
-has the same meaning as the @var{action} argument to
+@cindex dnd-multiple-handler, a symbol property
+If a handler function is a symbol whose @code{dnd-multiple-handler}
+property (@pxref{Symbol Properties}) is set, then upon a drop it is
+given a list of every URL that matches its regexp; absent this
+property, it is called once for each of those URLs.  Following this
+first argument is one of the symbols @code{copy}, @code{move},
+@code{link}, @code{private} or @code{ask} identifying the action to be
+taken.
+
+If @var{action} is @code{private}, the program that initiated the drop
+does not insist on any particular behavior on the part of its
+recipient; a reasonable action to take in that case is to open the URL
+or copy its contents into the current buffer.  The other values of
+@var{action} imply much the same as in the @var{action} argument to
 @code{dnd-begin-file-drag}.
+
+Once its work completes, a handler function must return a symbol
+designating the action it took: either the action it was provided, or
+the symbol @code{private}, which communicates to the source of the
+drop that the action it prescribed has not been executed.
+
+When multiple handlers match an overlapping subset of items within a
+drop, the handler matched against by the greatest number of items is
+called to open that subset.  The items it is supplied are subsequently
+withheld from other handlers, even those they also match.
 @end defvar
 
 @cindex drag and drop, X
 @cindex drag and drop, other formats
-  Emacs implements receiving text and URLs individually for each
-window system, and does not by default support receiving other kinds
-of data as drops.  To support receiving other kinds of data, use the
-X-specific interface described below.
+  Emacs does not take measures to accept data besides text and URLs,
+for the window system interfaces which enable this are too far removed
+from each other to abstract over consistently.  Nor are DND handlers
+accorded influence over the actions they are meant to take, as
+particular drag-and-drop protocols deny recipients such control.  The
+X11 drag-and-drop implementation rests on several underlying protocols
+that make use of selection transfer and share much in common, to which
+low level access is provided through the following functions and
+variables:
 
-@vindex x-dnd-test-function
-@vindex x-dnd-known-types
-  When a user drags something from another application over Emacs
-under the X Window System, that other application expects Emacs to
-tell it if Emacs understands the data being dragged.  The function in
-the variable @code{x-dnd-test-function} is called by Emacs to
-determine what to reply to any such inquiry.  The default value is
-@code{x-dnd-default-test-function}, which accepts drops if the type of
-the data to be dropped is present in @code{x-dnd-known-types}.
-Changing the variables @code{x-dnd-test-function} and
-@code{x-dnd-known-types} can make Emacs accept or reject drops based
-on some other criteria.
+@defvar x-dnd-test-function
+This function is called to ascertain whether Emacs should accept a
+drop.  It is called with three arguments:
 
-@vindex x-dnd-types-alist
-  If you want to change the way Emacs receives drops of different data
-types, or you want to enable it to understand a new type, change the variable
-@code{x-dnd-types-alist}.  Doing so correctly requires detailed
-knowledge of what data types other applications use for drag and drop.
+@itemize @bullet
+@item
+The window under the item being dragged, which is to say the window
+whose buffer is to receive the drop.  If the item is situated over a
+non-window component of a frame (such as scroll bars, tool bars and
+things to that effect), the frame itself is provided in its place.
 
-  These data types are typically implemented as special data types
-that can be obtained from an X selection provided by the other
-application.  In most cases, they are either the same data types that
-are typically accepted by @code{gui-set-selection}, or MIME types,
-depending on the specific drag-and-drop protocol being used.  For
-example, the data type used for plain text may be either
-@code{"STRING"} or @code{"text/plain"}.
+@item
+One of the symbols @code{move}, @code{copy}, @code{link} or
+@code{ask}, representing an action to take on the item data suggested
+by the drop source.  These symbols carry the same implications as in
+@code{x-begin-drag}.
+
+@item
+A vector of selection data types (@pxref{X Selections}) the item
+provides.
+@end itemize
+
+This function must return @code{nil} to reject the drop or a cons of
+the action that will be taken (such as through transfer to a DND
+handler function) and the selection data type to be requested.  The
+action returned in that cons may also be the symbol @code{private},
+which intimates that the action taken is as yet indeterminate.
+@end defvar
+
+@defvar x-dnd-known-types
+Modifying @code{x-dnd-test-function} is generally unwarranted, for its
+default set of criteria for accepting a drop can be adjusted by
+changing this list of selection data types.  Each element is a string,
+which if found as the symbol name of an element within the list of
+data types by the default ``test function'', will induce that function
+to accept the drop.
+
+Introducing a new entry into this list is not useful unless a
+counterpart handler function is appended to @code{x-dnd-types-alist}.
+@end defvar
+
+@defvar x-dnd-types-alist
+This variable is an alist between strings designating selection data
+types and functions which are called when things of such types are
+dropped.
+
+Each such function is supplied three arguments; the first is the
+window or frame below the location of the drop, as in
+@code{x-dnd-test-function}; the second is the action to be taken,
+which may be any of the actions returned by test functions, and third
+is the selection data itself (@pxref{Accessing Selections}).
+@end defvar
+
+  Selection data types as provided by X11 drag-and-drop protocols are
+sometimes distinct from those provided by the ICCCM and conforming
+clipboard or primary selection owners.  Frequently, the name of a MIME
+type, such as @code{"text/plain;charset=utf-8"} (with discrepant
+capitalization of the ``utf-8''), is substitued for a standard X
+selection name such as @code{UTF8_STRING}.
 
 @cindex XDS
 @cindex direct save protocol
 @vindex x-dnd-direct-save-function
-  When Emacs runs on X window system, it supports the X Direct Save
-(@acronym{XDS}) protocol, which allows users to save a file by
-dragging and dropping it onto an Emacs window, such as a Dired window.
-To comply with the unique requirements of @acronym{XDS}, these
-drag-and-drop requests are processed specially: instead of being
-handled according to @code{x-dnd-types-alist}, they are handled by the
-@dfn{direct-save function} that is the value of the variable
-@code{x-dnd-direct-save-function}.  The value should be a function of
-two arguments, @var{need-name} and @var{filename}.  The @acronym{XDS}
-protocol uses a two-step procedure for dragging files:
+  The X Direct Save (@acronym{XDS}) protocol enables programs to
+devolve responsibility for naming a dropped file upon the recipient.
+When such a drop transpires, DND handlers and the foregoing X-specific
+interface are largely circumvented, tasking a different function with
+responding to the drop.
+
+@defvar x-dnd-direct-save-function
+This variable should be set to a function that registers and names
+files dropped using the @acronym{XDS} protocol in a two-step
+procedure.  It is provided two arguments, @var{need-name} and
+@var{filename}.
 
 @enumerate 1
 @item
@@ -4813,8 +4893,9 @@ Dired should update the directory on display by showing the new file
 there.
 @end enumerate
 
-The default value of @code{x-dnd-direct-save-function} is
+Its default @code{x-dnd-direct-save-function} is
 @code{x-dnd-save-direct}.
+@end defvar
 
 @defun x-dnd-save-direct need-name filename
 When called with the @var{need-name} argument non-@code{nil}, this
@@ -4840,48 +4921,47 @@ default directory.)
 @end defun
 
 @cindex initiating drag-and-drop
-  On capable window systems, Emacs also supports dragging contents
-from its frames to windows of other applications.
+  It is also possible to drag content from Emacs to other programs
+when this is supported by the current window-system.  The functions
+which provide for this are as follows:
 
 @cindex drop target, in drag-and-drop operations
 @defun dnd-begin-text-drag text &optional frame action allow-same-frame
-This function begins dragging text from @var{frame} to another program
-(known as the @dfn{drop target}), and returns the result of
-drag-and-drop operation when the text is dropped or the drag-and-drop
-operation is canceled.  @var{text} is the text that will be inserted
-by the drop target.
+This function starts a drag-and-drop operation from @var{frame} to
+another program (dubbed the @dfn{drop target}), and returns when
+@var{text} is dropped or the operation is canceled.
 
 @var{action} must be one of the symbols @code{copy} or @code{move},
 where @code{copy} means that @var{text} should be inserted by the drop
-target, and @code{move} means the same as @code{copy}, but in addition
-the caller may have to delete @var{text} from its source as explained
+target, and @code{move} means the same as @code{copy}, but the caller
+must also delete @var{text} from its source as explained in the list
 below.
 
 @var{frame} is the frame where the mouse is currently held down, or
-@code{nil}, which means to use the selected frame.  This function may
-return immediately if no mouse buttons are held down, so it should be
-only called immediately after a @code{down-mouse-1} or similar event
-(@pxref{Mouse Events}), with @var{frame} set to the frame where that
-event was generated (@pxref{Click Events}).
+@code{nil}, which means to use the selected frame.  Since this
+function might return promptly if no mouse buttons are held down, it
+should be only called in response to a @code{down-mouse-1} or
+analogous event (@pxref{Mouse Events}), with @var{frame} set to the
+frame where that event was generated (@pxref{Click Events}).
 
-@var{allow-same-frame} specifies whether or not drops on top of
-@var{frame} itself are to be ignored.
+If @var{allow-same-frame} is @code{nil}, drops on top of @var{frame}
+will be ignored.
 
-The return value specifies the action that the drop target actually
-performed, and optionally what the caller should do.  It can be one of
-the following symbols:
+The return value reflects the action that the drop target actually
+performed, and thus also what action, if any, the caller should in
+turn take.  It is one of the following symbols:
 
 @table @code
 @item copy
 The drop target inserted the dropped text.
 
 @item move
-The drop target inserted the dropped text, but in addition the caller
-should delete @var{text} from wherever it originated, such as its
-buffer.
+The drop target inserted the dropped text, and the caller should
+delete @var{text} from the buffer where it was extracted from, if
+applicable.
 
 @item private
-The drop target performed some other unspecified action.
+The drop target took some other unspecified action.
 
 @item nil
 The drag-and-drop operation was canceled.
@@ -4890,11 +4970,12 @@ The drag-and-drop operation was canceled.
 @end defun
 
 @defun dnd-begin-file-drag file &optional frame action allow-same-frame
-This function begins dragging @var{file} from @var{frame} to another
-program, and returns the result of the drag-and-drop operation when
-the file is dropped or the drag-and-drop operation is canceled.
+This function starts a drag-and-drop operation from @var{frame} to
+another program (dubbed the @dfn{drop target}), and returns when
+@var{file} is dropped or the operation is canceled.
 
-If @var{file} is a remote file, then a temporary copy will be made.
+If @var{file} is a remote file, then a temporary local copy will be
+made.
 
 @var{action} must be one of the symbols @code{copy}, @code{move} or
 @code{link}, where @code{copy} means that @var{file} should be opened
@@ -4903,11 +4984,11 @@ move the file to another location, and @code{link} means the drop
 target should create a symbolic link to @var{file}.  It is an error to
 specify @code{link} as the action if @var{file} is a remote file.
 
-@var{frame} and @var{allow-same-frame} have the same meaning as in
-@code{dnd-begin-text-drag}.
+@var{frame} and @var{allow-same-frame} mean the same as they do in
+calls to @code{dnd-begin-text-drag}.
 
 The return value is the action that the drop target actually
-performed, which can be one of the following symbols:
+performed, which is one of the following symbols:
 
 @table @code
 @item copy
@@ -4936,19 +5017,18 @@ dropping multiple files, then the first file will be used instead.
 @end defun
 
 @defun dnd-direct-save file name &optional frame allow-same-frame
-This function is similar to @code{dnd-begin-file-drag} (with the
-default action of copy), but instead of specifying the action you
-specify the name of the copy created by the target program in
-@code{name}.
+The behavior of this function is akin to that of
+@code{dnd-begin-file-drag} (when the default action @code{copy} is
+used), except that it accepts a name under which the copy is meant to
+be filed.
 @end defun
 
 @cindex initiating drag-and-drop, low-level
   The high-level interfaces described above are implemented on top of
-a lower-level primitive.  If you need to drag content other than files
-or text, use the low-level interface @code{x-begin-drag}
-instead.  However, using it will require detailed knowledge of the
-data types and actions used by the programs to transfer content via
-drag-and-drop on each platform you want to support.
+a lower-level primitive.  The low-level interface @code{x-begin-drag}
+is also available for dragging content besides text and files.  It
+demands detailed knowledge of the data types and actions understood by
+programs on each platform its callers wish to support.
 
 @defun x-begin-drag targets &optional action frame return-frame allow-current-frame follow-tooltip
 This function begins a drag from @var{frame}, and returns when the
@@ -4960,60 +5040,59 @@ non-@code{nil}.  If no mouse buttons are held down when the
 drag-and-drop operation begins, this function may immediately return
 @code{nil}.
 
-@var{targets} is a list of strings describing selection targets, much
-like the @var{data-type} argument to @code{gui-get-selection}, that
-the drop target can request from Emacs (@pxref{Window System
+@var{targets} is a list of strings representing selection targets,
+much like the @var{data-type} argument to @code{gui-get-selection},
+that the drop target can request from Emacs (@pxref{Window System
 Selections}).
 
-@var{action} is a symbol describing the action recommended to the
-target.  It can either be @code{XdndActionCopy}, which
-means to copy the contents of the selection @code{XdndSelection} to
-the drop target; or @code{XdndActionMove}, which means copy as with
-@code{XdndActionCopy}, and in addition the caller should delete
-whatever was stored in that selection after copying it.
+@var{action} is a symbol designating the action recommended to the
+target.  It can either be @code{XdndActionCopy} or
+@code{XdndActionMove}; both imply copying the contents of the
+selection @code{XdndSelection} to the drop target, but the latter
+moreover conveys a promise to delete the contents of the selection
+after the copying.
 
 @var{action} may also be an alist which associates between symbols
-describing the available actions, and strings that the drop target is
-expected to present to the user to choose between the available
-actions.
+representing available actions, and strings that the drop target
+presents to the user for him to select between those actions.
 
 If @var{return-frame} is non-@code{nil} and the mouse moves over an
 Emacs frame after first moving out of @var{frame}, then the frame to
 which the mouse moves will be returned immediately.  If
-@var{return-frame} is the symbol @code{now}, then any frame underneath
+@var{return-frame} is the symbol @code{now}, then any frame beneath
 the mouse pointer will be returned without waiting for the mouse to
 first move out of @var{frame}.  @var{return-frame} is useful when you
 want to treat dragging content from one frame to another specially,
-while also being able to drag content to other programs, but it is not
-guaranteed to work on all systems and with all window managers.
+while also dragging content to other programs, but it is not
+guaranteed to function on all systems and with all window managers.
 
 If @var{follow-tooltip} is non-@code{nil}, the position of any tooltip
-(such as one shown by @code{tooltip-show}) will follow the location of
-the mouse pointer whenever it moves during the drag-and-drop
+(such as one displayed by @code{tooltip-show}) will follow the
+location of the mouse pointer as it moves during the drag-and-drop
 operation.  The tooltip will be hidden once all mouse buttons are
 released.
 
 If the drop was rejected or no drop target was found, this function
-returns @code{nil}.  Otherwise, it returns a symbol describing the
-action the target chose to perform, which can differ from @var{action}
-if that isn't supported by the drop target.  @code{XdndActionPrivate}
-is also a valid return value in addition to @code{XdndActionCopy} and
-@code{XdndActionMove}; it means that the drop target chose to perform
-an unspecified action, and no further processing is required by the
-caller.
+returns @code{nil}.  Otherwise, it returns a symbol representing the
+action the target opted to take, which can differ from @var{action} if
+that isn't supported by the drop target.  @code{XdndActionPrivate} is
+also a valid return value in addition to @code{XdndActionCopy} and
+@code{XdndActionMove}; it suggests that the drop target opted for an
+indeterminate action, and no further action is required of the caller.
 
-The caller must cooperate with the target to fully perform the action
-chosen by the target.  For example, callers should delete the buffer
-text that was dragged if this function returns @code{XdndActionMove}.
+The caller must cooperate with the target to complete the action
+selected by the target.  For example, callers should delete any buffer
+text that was dragged if this function returns @code{XdndActionMove},
+and likewise for other drag data where comparable criteria apply.
 @end defun
 
 @cindex drag and drop protocols, X
 
-  On X Windows, several different drag-and-drop protocols are
-supported by @code{x-begin-drag}.  When dragging content that is known
-to not be supported by a specific drag-and-drop protocol, it might be
-desirable to turn that protocol off, by changing the values of the
-following variables:
+  The function @code{x-begin-drag} leverages several drag-and-drop
+protocols ``behind the scenes''.  When dragging content that is known
+to not be supported by a specific drag-and-drop protocol, that
+protocol can be disabled by changing the values of the following
+variables:
 
 @defvar x-dnd-disable-motif-protocol
 When this is non-@code{nil}, the Motif drag and drop protocols are
@@ -5037,8 +5116,8 @@ events and the primary selection to insert the text if the drop target
 doesn't support any drag-and-drop protocol at all.
 
 A side effect is that Emacs will become the owner of the primary
-selection upon such a drop.  If that is not desired, then the drop
-emulation can be disabled by setting this variable to @code{nil}.
+selection upon such a drop.  Such emulation can be disabled by setting
+this variable to @code{nil}.
 @end defvar
 
 @node Color Names

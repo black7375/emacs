@@ -3868,33 +3868,72 @@ so they have been disabled."))
 
 (defun gud-lldb-marker-filter (string)
   "Deduce interesting stuff from process output STRING."
-  (cond
-   ;; gud-info: (function-name args...)
-   ((string-match (rx line-start (0+ blank) "gud-info:" (0+ blank)
-                      (group "(" (1+ (not ")")) ")"))
-                  string)
-    (let* ((form (string-replace "///" "\"" (match-string 1 string)))
-           (form (car (read-from-string form))))
-      (when (eq (car form) 'gud-lldb-stop)
-        (let ((plist (cdr form)))
-          (setq gud-last-frame (list (plist-get plist :file)
-                                     (plist-get plist :line)
-                                     (plist-get plist :column)))))))
-   ;; Process 72874 exited with status = 9 (0x00000009) killed.
-   ;; Doesn't seem to be changeable as of LLDB 17.0.2.
-    ((string-match (rx "Process " (1+ digit) " exited with status")
-                   string)
-     (setq gud-last-last-frame nil)
-     (setq gud-overlay-arrow-position nil)))
-  ;; While being attached to a process, LLDB emits control sequences,
-  ;; even if TERM is "dumb".  This is the case in at least LLDB
-  ;; version 14 to 17.  The control sequences are filtered out by
-  ;; Emacs after this process filter runs, but LLDB also prints an
-  ;; extra space after the prompt, which we fix here.
-  (replace-regexp-in-string (rx "(lldb)" (group (1+ blank)) "\e[8")
-                            " " string nil nil 1))
 
-;; According to SBCommanInterpreter.cpp, the return value of
+  ;; Pick information from our own frame info line "!gud LINE:COL:FILE"
+  ;; because the file name in the standard LLDB frame-format doesn't have
+  ;; a directory.
+  (setq string
+        (replace-regexp-in-string
+         (rx bol "!gud "
+             (group (+ digit)) ":"            ; 1: line
+             (group (* digit)) ":"            ; 2: column
+             (group (+ (not (in "\n\r"))))    ; 3: file
+             (* "\r") "\n")
+         (lambda (m)
+           (let ((line (string-to-number (match-string 1 m)))
+                 (col (string-to-number (match-string 2 m)))
+                 (file  (match-string 3 m)))
+             (setq gud-last-frame (list file line col)))
+           ;; Remove the line so that the user won't see it.
+           "")
+         string t t))
+
+  (when (string-match (rx "Process " (1+ digit) " exited with status")
+                      string)
+    ;; Process 72874 exited with status = 9 (0x00000009) killed.
+    ;; Doesn't seem to be changeable as of LLDB 17.0.2.
+    (setq gud-last-last-frame nil)
+    (setq gud-overlay-arrow-position nil))
+
+  ;; LLDB sometimes emits certain ECMA-48 sequences even if TERM is "dumb":
+  ;; CHA (Character Horizontal Absolute) and ED (Erase in Display),
+  ;; seemingly to undo previous output on the same line.
+  ;; Filter out these sequences here while carrying out their edits.
+  (let ((bol (pos-bol)))
+    (when (> (point) bol)
+      ;; Move the current line to the string, so that control sequences
+      ;; can delete parts of it.
+      (setq string (concat (buffer-substring-no-properties bol (point))
+                           string))
+      (let ((inhibit-read-only t))
+        (delete-region bol (point)))))
+  (let ((ofs 0))
+    (while (string-match (rx (group (* (not (in "\e\n"))))  ; preceding chars
+                             "\e["                          ; CSI
+                             (? (group (+ digit)))          ; argument
+                             (group (in "GJ")))             ; CHA or ED
+                         string ofs)
+      (let* ((start (match-beginning 1))
+             (prefix-end (match-end 1))
+             (op (aref string (match-beginning 3)))
+             (end (match-end 0))
+             (keep-end
+              (if (eq op ?G)
+                  ;; Move to absolute column (CHA)
+                  (min prefix-end
+                       (+ start
+                          (if (match-beginning 2)
+                              (1- (string-to-number (match-string 2 string)))
+                            0)))
+                ;; Erase in display (ED): no further action.
+                prefix-end)))
+        ;; Delete the control sequence and possibly part of the preceding chars.
+        (setq string (concat (substring string 0 keep-end)
+                             (substring string end)))
+        (setq ofs start))))
+  string)
+
+;; According to SBCommandInterpreter.cpp, the return value of
 ;; HandleCompletions is as follows:
 ;;
 ;; Index 1 to the end contain all the completions.
@@ -3917,8 +3956,13 @@ so they have been disabled."))
   :type 'integer
   :version "30.1")
 
-(defvar gud-lldb-def-python-completion-function
-  "
+(defconst gud--lldb-python-init-string
+  "\
+deb = lldb.debugger
+inst = deb.GetInstanceName()
+ff = deb.GetInternalVariableValue('frame-format', inst).GetStringAtIndex(0)
+ff = ff[:-1] + '!gud ${line.number}:${line.column}:${line.file.fullpath}\\\\n\"'
+_ = deb.SetInternalVariable('frame-format', ff, inst)
 def gud_complete(s, max):
     interpreter = lldb.debugger.GetCommandInterpreter()
     string_list = lldb.SBStringList()
@@ -3930,7 +3974,7 @@ def gud_complete(s, max):
         print(f'\"{string_list.GetStringAtIndex(i)}\" ')
     print(')##')
 "
-  "LLDB Python function for completion.")
+  "Python code sent to LLDB for gud-specific initialisation.")
 
 (defun gud-lldb-fetch-completions (context command)
   "Return the data to complete the LLDB command before point.
@@ -3981,15 +4025,6 @@ by `gud-lldb-max-completions', which see."
           (completion-table-dynamic
            (apply-partially #'gud-lldb-completions context)))))
 
-(defvar gud-lldb-frame-format
-  (concat "gud-info: (gud-lldb-stop "
-          ;; Quote the filename this way to avoid quoting issues in
-          ;; the interplay between Emacs and LLDB.  The quotes are
-          ;; corrected in the process filter.
-          ":file ///${line.file.fullpath}/// "
-          ":line ${line.number} "
-          ":column ${line.column})\\n"))
-
 (defun gud-lldb-send-python (python)
   (gud-basic-call "script --language python --")
   (mapc #'gud-basic-call (split-string python "\n"))
@@ -3997,12 +4032,9 @@ by `gud-lldb-max-completions', which see."
 
 (defun gud-lldb-initialize ()
   "Initialize the LLDB process as needed for this debug session."
-  (gud-lldb-send-python gud-lldb-def-python-completion-function)
+  (gud-lldb-send-python gud--lldb-python-init-string)
   (gud-basic-call "settings set stop-line-count-before 0")
-  (gud-basic-call "settings set stop-line-count-after 0")
-  (gud-basic-call (format "settings set frame-format \"%s\""
-                          gud-lldb-frame-format))
-  (gud-basic-call "script --language python -- print('Gud initialized.')"))
+  (gud-basic-call "settings set stop-line-count-after 0"))
 
 ;;;###autoload
 (defun lldb (command-line)
