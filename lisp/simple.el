@@ -1029,7 +1029,7 @@ that if you use overwrite mode as your normal editing mode, you can use
 this function to insert characters when necessary.
 
 In binary overwrite mode, this function does overwrite, and octal
-(or decimal or hex) digits are interpreted as a character code.  This
+\(or decimal or hex) digits are interpreted as a character code.  This
 is intended to be useful for editing binary files."
   (interactive "*p")
   (let* ((char
@@ -2989,11 +2989,17 @@ this by calling a function defined by `minibuffer-default-add-function'.")
 (defun minibuffer-default-add-completions ()
   "Return a list of all completions without the default value.
 This function is used to add all elements of the completion table to
-the end of the list of defaults just after the default value."
+the end of the list of defaults just after the default value.
+If you don't want to add initial completions to the default value,
+use either `minibuffer-setup-hook' or `minibuffer-with-setup-hook'
+to set the value of `minibuffer-default-add-function' to nil."
   (let ((def minibuffer-default)
-	(all (all-completions ""
-			      minibuffer-completion-table
-			      minibuffer-completion-predicate)))
+        ;; Avoid some popular completions with undefined order
+        (all (unless (memq minibuffer-completion-table
+                           `(help--symbol-completion-table ,obarray))
+               (all-completions ""
+                                minibuffer-completion-table
+                                minibuffer-completion-predicate))))
     (if (listp def)
 	(append def all)
       (cons def (delete def all)))))

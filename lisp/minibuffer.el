@@ -677,6 +677,13 @@ for use at QPOS."
                                              'completions-common-part)
                                qprefix))))
                         (qcompletion (concat qprefix qnew)))
+                   ;; Some completion tables (including this one) pass
+                   ;; along necessary information as text properties
+                   ;; on the first character of the completion.  Make
+                   ;; sure the quoted completion has these properties
+                   ;; too.
+                   (add-text-properties 0 1 (text-properties-at 0 completion)
+                                        qcompletion)
                    ;; Attach unquoted completion string, which is needed
                    ;; to score the completion in `completion--flex-score'.
                    (put-text-property 0 1 'completion--unquoted
@@ -2405,9 +2412,14 @@ These include:
              (base-prefix (buffer-substring (minibuffer--completion-prompt-end)
                                             (+ start base-size)))
              (base-suffix
-              (if (eq (alist-get 'category (cdr md)) 'file)
-                  (buffer-substring (save-excursion (or (search-forward "/" nil t) (point-max)))
-                                    (point-max))
+              (if (or (eq (alist-get 'category (cdr md)) 'file)
+                      completion-in-region-mode-predicate)
+                  (buffer-substring
+                   (save-excursion
+                     (if completion-in-region-mode-predicate
+                         (point)
+                       (or (search-forward "/" nil t) (point-max))))
+                   (point-max))
                 ""))
              (all-md (completion--metadata (buffer-substring-no-properties
                                             start (point))
@@ -3526,8 +3538,13 @@ Like `internal-complete-buffer', but removes BUFFER from the completion list."
 (defun completion-emacs22-try-completion (string table pred point)
   (let ((suffix (substring string point))
         (completion (try-completion (substring string 0 point) table pred)))
-    (if (not (stringp completion))
-        completion
+    (cond
+     ((eq completion t)
+      (if (equal "" suffix)
+          t
+        (cons string point)))
+     ((not (stringp completion)) completion)
+     (t
       ;; Merge a trailing / in completion with a / after point.
       ;; We used to only do it for word completion, but it seems to make
       ;; sense for all completions.
@@ -3541,7 +3558,7 @@ Like `internal-complete-buffer', but removes BUFFER from the completion list."
                (eq ?/ (aref suffix 0)))
           ;; This leaves point after the / .
           (setq suffix (substring suffix 1)))
-      (cons (concat completion suffix) (length completion)))))
+      (cons (concat completion suffix) (length completion))))))
 
 (defun completion-emacs22-all-completions (string table pred point)
   (let ((beforepoint (substring string 0 point)))
@@ -4722,13 +4739,15 @@ instead of the default completion table."
                       history)
             (user-error "No history available"))))
     ;; FIXME: Can we make it work for CRM?
-    (completion-in-region
-     (minibuffer--completion-prompt-end) (point-max)
-     (lambda (string pred action)
-       (if (eq action 'metadata)
-           '(metadata (display-sort-function . identity)
-                      (cycle-sort-function . identity))
-         (complete-with-action action completions string pred))))))
+    (let ((completion-in-region-mode-predicate
+           (lambda () (get-buffer-window "*Completions*" 0))))
+      (completion-in-region
+       (minibuffer--completion-prompt-end) (point-max)
+       (lambda (string pred action)
+         (if (eq action 'metadata)
+             '(metadata (display-sort-function . identity)
+                        (cycle-sort-function . identity))
+           (complete-with-action action completions string pred)))))))
 
 (defun minibuffer-complete-defaults ()
   "Complete minibuffer defaults as far as possible.
@@ -4739,7 +4758,9 @@ instead of the completion table."
              (functionp minibuffer-default-add-function))
     (setq minibuffer-default-add-done t
           minibuffer-default (funcall minibuffer-default-add-function)))
-  (let ((completions (ensure-list minibuffer-default)))
+  (let ((completions (ensure-list minibuffer-default))
+        (completion-in-region-mode-predicate
+         (lambda () (get-buffer-window "*Completions*" 0))))
     (completion-in-region
      (minibuffer--completion-prompt-end) (point-max)
      (lambda (string pred action)
