@@ -2427,9 +2427,7 @@ BUFFER."
   "Say whether MODES are in action in BUFFER.
 This is the case if either the major mode is derived from one of MODES,
 or (if one of MODES is a minor mode), if it is switched on in BUFFER."
-  (or (apply #'provided-mode-derived-p
-             (buffer-local-value 'major-mode buffer)
-             modes)
+  (or (provided-mode-derived-p (buffer-local-value 'major-mode buffer) modes)
       ;; It's a minor mode.
       (seq-intersection modes
                         (buffer-local-value 'local-minor-modes buffer)
@@ -11087,6 +11085,10 @@ If the buffer doesn't exist, create it first."
   (pop-to-buffer-same-window (get-scratch-buffer-create)))
 
 (defun kill-buffer--possibly-save (buffer)
+  "Ask the user to confirm killing of a modified BUFFER.
+
+If the user confirms, optionally save BUFFER that is about to be
+killed."
   (let ((response
          (cadr
           (read-multiple-choice
