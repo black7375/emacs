@@ -2783,7 +2783,7 @@ sfnt_decompose_compound_glyph (struct sfnt_glyph *glyph,
       else
 	{
 	  /* The offset is determined by matching a point location in
-	     a preceeding component with a point location in the
+	     a preceding component with a point location in the
 	     current component.  The index of the point in the
 	     previous component can be determined by adding
 	     component->argument1.a or component->argument1.c to
@@ -3487,12 +3487,18 @@ sfnt_build_append (int flags, sfnt_fixed x, sfnt_fixed y)
 {
   struct sfnt_glyph_outline *outline;
 
+  outline = build_outline_context.outline;
+
   if (x == build_outline_context.x
-      && y == build_outline_context.y)
+      && y == build_outline_context.y
+      /* If the outline is presently empty, the first move_to must be
+	 recorded even if its X and Y are set to origin.  Without this
+	 initial vertex, edges will be generated from the next vertex
+	 onward, and thus be misaligned.  */
+      && outline->outline_used)
     /* Ignore redundant motion.  */
     return build_outline_context.outline;
 
-  outline = build_outline_context.outline;
   outline->outline_used++;
 
   /* See if the outline has to be extended.  Checking for overflow
@@ -4756,7 +4762,7 @@ sfnt_get_scale (struct sfnt_head_table *head, int ppem)
   /* Figure out how to convert from font unit-space to pixel space.
      To turn one unit to its corresponding pixel size given a ppem of
      1, the unit must be divided by head->units_per_em.  Then, it must
-     be multipled by the ppem.  So,
+     be multiplied by the ppem.  So,
 
        PIXEL = UNIT / UPEM * PPEM
 
@@ -4896,7 +4902,7 @@ sfnt_read_name_table (int fd, struct sfnt_offset_subtable *subtable)
       return NULL;
     }
 
-  /* Read REQURIED bytes into the string data.  */
+  /* Read REQUIRED bytes into the string data.  */
   name->data = (unsigned char *) (name->name_records
 				  + name->count);
   rc = read (fd, name->data, required);
@@ -7444,6 +7450,8 @@ static void
 sfnt_interpret_utp (struct sfnt_interpreter *interpreter,
 		    uint32_t p)
 {
+  unsigned char mask;
+
   if (!interpreter->state.zp0)
     {
       if (p >= interpreter->twilight_zone_size)
@@ -7457,7 +7465,31 @@ sfnt_interpret_utp (struct sfnt_interpreter *interpreter,
       || p >= interpreter->glyph_zone->num_points)
     TRAP ("UTP[] p lies outside glyph zone");
 
-  interpreter->glyph_zone->flags[p] &= ~SFNT_POINT_TOUCHED_X;
+  /* The flags unset by UTP are subject to which axes in the freedom
+     vector are significant, as stated in the TrueType reference
+     manual by this needless mouthful:
+
+       A point may be touched in the x-direction, the y-direction, or
+       in both the x and y-directions.  The position of the freedom
+       vector determines whether the point is untouched in the
+       x-direction, the y-direction, or both.  If the vector is set to
+       the x-axis, the point will be untouched in the x-direction.  If
+       the vector is set to the y-axis, the point will be untouched in
+       the y-direction.  Otherwise the point will be untouched in both
+       directions.
+
+       A points that is marked as untouched will be moved by an IUP[]
+       instruction even if the point was previously touched.  */
+
+  mask = 0xff;
+
+  if (interpreter->state.freedom_vector.x)
+    mask &= ~SFNT_POINT_TOUCHED_X;
+
+  if (interpreter->state.freedom_vector.y)
+    mask &= ~SFNT_POINT_TOUCHED_Y;
+
+  interpreter->glyph_zone->flags[p] &= mask;
 }
 
 /* Save the specified unit VECTOR into INTERPRETER's graphics state as
@@ -10375,8 +10407,8 @@ sfnt_interpret_mdrp (struct sfnt_interpreter *interpreter,
 		     uint32_t opcode)
 {
   uint32_t p;
-  sfnt_f26dot6 distance, delta;
-  sfnt_f26dot6 current_projection, original_projection;
+  sfnt_f26dot6 distance, applied;
+  sfnt_f26dot6 current_projection;
   sfnt_f26dot6 x, y, org_x, org_y;
   sfnt_f26dot6 rx, ry, org_rx, org_ry;
 
@@ -10388,20 +10420,21 @@ sfnt_interpret_mdrp (struct sfnt_interpreter *interpreter,
   sfnt_address_zp0 (interpreter, interpreter->state.rp0,
 		    &rx, &ry, &org_rx, &org_ry);
 
+  /* Calculate the distance between P and rp0 prior to hinting.  */
   distance = DUAL_PROJECT (org_x - org_rx,
 			   org_y - org_ry);
-  original_projection = distance;
+
+  /* Calculate the distance between P and rp0 as of now in the hinting
+     process.  */
   current_projection = PROJECT (x - rx, y - ry);
 
   /* Test against the single width value.  */
 
-  delta = sfnt_sub (distance,
-		    interpreter->state.single_width_value);
-
-  if (delta < 0)
-    delta = -delta;
-
-  if (delta < interpreter->state.sw_cut_in)
+  if (interpreter->state.sw_cut_in > 0
+      && distance < (interpreter->state.single_width_value
+		     + interpreter->state.sw_cut_in)
+      && distance > (interpreter->state.single_width_value
+		     - interpreter->state.sw_cut_in))
     {
       /* Use the single width instead, as the CVT entry is too
 	 small.  */
@@ -10412,38 +10445,34 @@ sfnt_interpret_mdrp (struct sfnt_interpreter *interpreter,
 	distance = -interpreter->state.single_width_value;
     }
 
-  /* Flag B means look at the cvt cut in and round the
-     distance.  */
+  /* Flag B implies that the distance should be rounded.  The CVT cut
+     in is not taken into account by MDRP, contrary to earlier
+     presumptions.  */
 
   if (opcode & 4)
-    {
-      delta = sfnt_sub (distance, original_projection);
-
-      if (delta < 0)
-	delta = -delta;
-
-      if (delta > interpreter->state.cvt_cut_in)
-	distance = original_projection;
-
-      /* Now, round the distance.  */
-      distance = sfnt_round_symmetric (interpreter, distance);
-    }
+    applied = sfnt_round_symmetric (interpreter, distance);
+  else
+    applied = distance;
 
   /* Flag C means look at the minimum distance.  */
 
   if (opcode & 8)
     {
-      if (original_projection >= 0
-	  && distance < interpreter->state.minimum_distance)
-	distance = interpreter->state.minimum_distance;
-      else if (original_projection < 0
-	       && distance > -interpreter->state.minimum_distance)
-	distance = -interpreter->state.minimum_distance;
+      /* Test the sign of the initial distance, but compare the
+	 distance that will be applied in reality against the minimum
+	 distance.  */
+
+      if (distance >= 0
+	  && applied < interpreter->state.minimum_distance)
+	applied = interpreter->state.minimum_distance;
+      else if (distance < 0
+	       && applied > -interpreter->state.minimum_distance)
+	applied = -interpreter->state.minimum_distance;
     }
 
   /* Finally, move the point.  */
   sfnt_move_zp1 (interpreter, p, 1,
-		 sfnt_sub (distance, current_projection));
+		 sfnt_sub (applied, current_projection));
 
   /* Set RP1 to RP0 and RP2 to the point.  If flag 3 is set, also make
      it RP0.  */
@@ -11425,8 +11454,8 @@ sfnt_interpret_simple_glyph (struct sfnt_glyph *glyph,
   /* Load phantom points.  */
   zone->y_points[i] = phantom_point_1_y;
   zone->y_points[i + 1] = phantom_point_2_y;
-  zone->y_current[i] = phantom_point_1_x;
-  zone->y_current[i + 1] = phantom_point_2_x;
+  zone->y_current[i] = phantom_point_1_y;
+  zone->y_current[i + 1] = phantom_point_2_y;
 
   /* Load phantom point flags.  */
   zone->flags[i] = SFNT_POINT_PHANTOM;
@@ -11877,7 +11906,7 @@ sfnt_interpret_compound_glyph_1 (struct sfnt_glyph *glyph,
       else
 	{
 	  /* The offset is determined by matching a point location in
-	     a preceeding component with a point location in the
+	     a preceding component with a point location in the
 	     current component.  The index of the point in the
 	     previous component is established by adding
 	     component->argument1.a or component->argument1.c to
@@ -14253,7 +14282,7 @@ sfnt_infer_deltas_1 (struct sfnt_glyph *glyph, size_t start,
 	    }
 	  else
 	    {
-	      /* ... otheriwse, move point j by the delta of the
+	      /* ... otherwise, move point j by the delta of the
 		 nearest touched point.  */
 
 	      if (x[j] >= max_pos)
@@ -14317,7 +14346,7 @@ sfnt_infer_deltas_1 (struct sfnt_glyph *glyph, size_t start,
 	    }
 	  else
 	    {
-	      /* ... otheriwse, move point j by the delta of the
+	      /* ... otherwise, move point j by the delta of the
 		 nearest touched point.  */
 
 	      if (y[j] >= max_pos)
@@ -14401,7 +14430,7 @@ sfnt_infer_deltas_1 (struct sfnt_glyph *glyph, size_t start,
 	    }
 	  else
 	    {
-	      /* ... otheriwse, move point j by the delta of the
+	      /* ... otherwise, move point j by the delta of the
 		 nearest touched point.  */
 
 	      if (x[j] >= max_pos)
@@ -14465,7 +14494,7 @@ sfnt_infer_deltas_1 (struct sfnt_glyph *glyph, size_t start,
 	    }
 	  else
 	    {
-	      /* ... otheriwse, move point j by the delta of the
+	      /* ... otherwise, move point j by the delta of the
 		 nearest touched point.  */
 
 	      if (y[j] >= max_pos)
@@ -14554,7 +14583,7 @@ sfnt_infer_deltas (struct sfnt_glyph *glyph, bool *touched,
    of one or two coordinates for each axis.  Each such list is
    referred to as a ``tuple''.
 
-   The deltas, one for each point, are multipled by the normalized
+   The deltas, one for each point, are multiplied by the normalized
    value of each axis and applied to those points for each tuple that
    is found to be applicable.
 
@@ -19543,8 +19572,8 @@ main (int argc, char **argv)
       return 1;
     }
 
-#define FANCY_PPEM 18
-#define EASY_PPEM  18
+#define FANCY_PPEM 40
+#define EASY_PPEM  40
 
   interpreter = NULL;
   head = sfnt_read_head_table (fd, font);

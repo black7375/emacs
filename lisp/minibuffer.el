@@ -961,6 +961,8 @@ is at its default value `grow-only'."
                (reverse multi-message-list)
                multi-message-separator)))
 
+(defvar touch-screen-current-tool)
+
 (defun clear-minibuffer-message ()
   "Clear message temporarily shown in the minibuffer.
 Intended to be called via `clear-message-function'."
@@ -975,7 +977,7 @@ Intended to be called via `clear-message-function'."
   ;; progress, because a preview message might currently be displayed
   ;; in the echo area.  FIXME: find some way to place this in
   ;; touch-screen.el.
-  (if (and touch-screen-preview-select
+  (if (and (bound-and-true-p touch-screen-preview-select)
            (eq (nth 3 touch-screen-current-tool) 'drag))
       'dont-clear-message
     ;; Return nil telling the caller that the message
@@ -1321,7 +1323,9 @@ If it's nil, sorting is disabled.
 If it's the symbol `alphabetical', candidates are sorted by
 `minibuffer-sort-alphabetically'.
 If it's the symbol `historical', candidates are sorted by
-`minibuffer-sort-by-history'.
+`minibuffer-sort-by-history', which first sorts alphabetically,
+and then rearranges the order according to the order of the
+candidates in the minibuffer history.
 If it's a function, the function is called to sort the candidates.
 The sorting function takes a list of completion candidate
 strings, which it may modify; it should return a sorted list,
@@ -1681,7 +1685,7 @@ names, where this is the directory component of the file name.")
   "Sort COMPLETIONS by their position in `minibuffer-history-variable'.
 
 COMPLETIONS are sorted first by `minibuffer-sort-alphbetically',
-then any elements occuring in the minibuffer history list are
+then any elements occurring in the minibuffer history list are
 moved to the front based on the chronological order they occur in
 the history.  If a history variable hasn't been specified for
 this call of `completing-read', COMPLETIONS are sorted only by
@@ -2433,12 +2437,15 @@ These include:
     (fit-window-to-buffer win completions-max-height)))
 
 (defcustom completion-auto-deselect t
-  "If non-nil, deselect the selected completion candidate when you type.
+  "If non-nil, deselect current completion candidate when you type in minibuffer.
 
-A non-nil value means that after typing, point in *Completions*
-will be moved off any completion candidates.  This means
-`minibuffer-choose-completion-or-exit' will exit with the
-minibuffer's current contents, instead of a completion candidate."
+A non-nil value means that after typing at the minibuffer prompt,
+any completion candidate highlighted in *Completions* window (to
+indicate that it is the selected candidate) will be un-highlighted,
+and point in the *Completions* window will be moved off such a candidate.
+This means that `RET' (`minibuffer-choose-completion-or-exit') will exit
+the minubuffer with the minibuffer's current contents, instead of the
+selected completion candidate."
   :type '(choice (const :tag "Candidates in *Completions* stay selected as you type" nil)
                  (const :tag "Typing deselects any completion candidate in *Completions*" t))
   :version "30.1")
@@ -3101,7 +3108,6 @@ displaying the *Completions* buffer exists."
   "<down>"  (minibuffer-visible-completions-bind #'minibuffer-next-line-completion)
   "RET"     (minibuffer-visible-completions-bind #'minibuffer-choose-completion-or-exit)
   "C-g"     (minibuffer-visible-completions-bind #'minibuffer-hide-completions))
-
 
 ;;; Completion tables.
 
@@ -4936,7 +4942,7 @@ This is run upon minibuffer setup."
 (defun minibuffer-exit-on-screen-keyboard ()
   "Hide the on-screen keyboard if it was displayed.
 Hide the on-screen keyboard in a timer set to run in 0.1 seconds.
-It will be cancelled if the minibuffer is displayed again within
+It will be canceled if the minibuffer is displayed again within
 that timeframe.
 
 Do not hide the on screen keyboard inside a recursive edit.

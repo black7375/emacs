@@ -3286,7 +3286,7 @@ treesit_traverse_get_predicate (Lisp_Object thing, Lisp_Object language)
    there's an error, set SIGNAL_DATA to (ERR . DATA), where ERR is an
    error symbol, and DATA is something signal accepts, and return
    false, otherwise return true.  This function also check for
-   recusion levels: we place a arbitrary 100 level limit on recursive
+   recursion levels: we place a arbitrary 100 level limit on recursive
    predicates.  RECURSION_LEVEL is the current recursion level (that
    starts at 0), if it goes over 99, return false and set SIGNAL_DATA.
    LANGUAGE is a LANGUAGE symbol.  */
@@ -3335,7 +3335,7 @@ treesit_traverse_validate_predicate (Lisp_Object pred,
 	  if (!CONSP (cdr))
 	    {
 	      *signal_data = list3 (Qtreesit_invalid_predicate,
-				    build_string ("Invalide `not' "
+				    build_string ("Invalid `not' "
 						  "predicate"),
 				    pred);
 	      return false;
