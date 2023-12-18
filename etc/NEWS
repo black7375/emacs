@@ -66,6 +66,21 @@ URI scheme.  See the Org mode manual, Info node "(org) Protocols" for
 more details.
 
 
+* Incompatible Changes in Emacs 30.1
+
++++
+** URL now never sends user email addresses in HTTP requests.
+Emacs never sent email addresses by default, but it used to be
+possible to customize 'url-privacy-level' so that the users email
+address was sent along in HTTP requests.  This feature has now been
+removed, as it was considered more dangerous than useful.  RFC 9110
+(§ 10.1.2) also recommends against it.  The user option
+'url-personal-mail-address' is now also obsolete.
+
+To send an email address in the header of individual HTTP requests,
+see the variable `url-request-extra-headers'.
+
+
 * Changes in Emacs 30.1
 
 ** Emacs now supports Unicode Standard version 15.1.
@@ -257,6 +272,11 @@ It can be used to 'pop' arguments and process them by the function
 called in the '--eval' expression, which is useful when those
 arguments contain arbitrary characters that otherwise might require
 elaborate and error-prone escaping (to protect them from the shell).
+
++++
+** 'recover-file' can show diffs between auto save file and current file.
+When answering the prompt with "diff" or "=", it now shows the diffs
+between the auto save file and the current file.
 
 
 * Editing Changes in Emacs 30.1
@@ -456,6 +476,19 @@ With this value only the revision number is displayed on the mode-line.
 ---
 *** Obsolete command 'vc-switch-backend' re-added as 'vc-change-backend'.
 The command was previously obsoleted and unbound in Emacs 28.
+
+*** Support for viewing VC change history across renames.
+When a fileset's VC change history ('C-x v l') ends at a rename, we
+now print the old name(s) and a button which jumps to their history.
+Git and Hg are supported.  Naturally, 'vc-git-print-log-follow' should
+be nil for this to work (or '--follow' should not be in
+'vc-hg-print-log-switches', in Hg's case).  Unlike when the '--follow'
+switch is used, commands to see the diff of the old revision ('d'),
+check out an old file version ('f') or annotate it right away ('a'),
+also work on revisions which precede renames.
+
+*** New option 'vc-git-file-name-changes-switches'.
+It allows tweaking the thresholds for rename and copy detection.
 
 ** Diff mode
 
@@ -1293,6 +1326,10 @@ values.
 
 * Lisp Changes in Emacs 30.1
 
+** New 'pop-up-frames' action alist entry for 'display-buffer'.
+This has the same effect as the variable of the same name and takes
+precedence over the variable when present.
+
 ** New function 'merge-ordered-lists'.
 Mostly used internally to do a kind of topological sort of
 inheritance hierarchies.
@@ -1655,9 +1692,10 @@ dir-locals file to modify.
 ** Connection local variables
 
 +++
-*** New macro 'connection-local-value'.
-This macro returns the connection-local value of a variable if any, or
-its current value.
+*** New macros 'connection-local-p' and 'connection-local-value'.
+The former macro returns non-nil if a variable has a connection-local
+binding.  The latter macro returns the connection-local value of a
+variable if any, or its current value.
 
 
 * Changes in Emacs 30.1 on Non-Free Operating Systems
