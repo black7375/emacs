@@ -2421,6 +2421,8 @@ sfnt_read_glyph (sfnt_glyph glyph_code,
       glyph.ymin = 0;
       glyph.xmax = 0;
       glyph.ymax = 0;
+      glyph.advance_distortion = 0;
+      glyph.origin_distortion = 0;
       glyph.simple = xmalloc (sizeof *glyph.simple);
       glyph.compound = NULL;
       memset (glyph.simple, 0, sizeof *glyph.simple);
@@ -3088,7 +3090,8 @@ sfnt_decompose_glyph_1 (size_t here, size_t last,
   /* The contour is empty.  */
 
   if (here == last)
-    return 1;
+    /* An empty contour, if redundant, is not necessarily invalid.  */
+    return 0;
 
   /* Move the pen to the start of the contour.  Apparently some fonts
      have off the curve points as the start of a contour, so when that
@@ -3227,7 +3230,8 @@ sfnt_decompose_glyph_2 (size_t here, size_t last,
   /* The contour is empty.  */
 
   if (here == last)
-    return 1;
+    /* An empty contour, if redundant, is not necessarily invalid.  */
+    return 0;
 
   /* Move the pen to the start of the contour.  Apparently some fonts
      have off the curve points as the start of a contour, so when that
@@ -4942,36 +4946,6 @@ sfnt_insert_raster_step (struct sfnt_step_raster *raster,
   step->coverage += coverage;
 }
 
-/* Sort an array of SIZE edges to increase by bottom Y position, in
-   preparation for building spans.
-
-   Insertion sort is used because there are usually not very many
-   edges, and anything larger would bloat up the code.  */
-
-static void
-sfnt_fedge_sort (struct sfnt_fedge *edges, size_t size)
-{
-  ssize_t i, j;
-  struct sfnt_fedge edge;
-
-  for (i = 1; i < size; ++i)
-    {
-      edge = edges[i];
-      j = i - 1;
-
-      /* Comparing truncated values yields a faint speedup, for not as
-	 many edges must be moved as would be otherwise.  */
-      while (j >= 0 && ((int) edges[j].bottom
-			> (int) edge.bottom))
-	{
-	  edges[j + 1] = edges[j];
-	  j--;
-	}
-
-      edges[j + 1] = edge;
-    }
-}
-
 /* Draw EDGES, an unsorted array of polygon edges of size NEDGES.
 
    Transform EDGES into an array of steps representing a raster with
@@ -4983,29 +4957,25 @@ sfnt_fedge_sort (struct sfnt_fedge *edges, size_t size)
    guarantee that no steps generated extend past WIDTH, steps starting
    after width might be omitted, and as such it must be accurate.  */
 
-TEST_STATIC void
+static void
 sfnt_poly_edges_exact (struct sfnt_fedge *edges, size_t nedges,
 		       size_t height, size_t width,
 		       sfnt_step_raster_proc proc, void *dcontext)
 {
   int y;
-  size_t size, e;
-  struct sfnt_fedge *active, **prev, *a;
+  size_t size, e, edges_processed;
+  struct sfnt_fedge *active, **prev, *a, sentinel;
   struct sfnt_step_raster raster;
   struct sfnt_step_chunk *next, *last;
 
   if (!height)
     return;
 
-  /* Sort edges to ascend by Y-order.  Once again, remember: cartesian
-     coordinates.  */
-  sfnt_fedge_sort (edges, nedges);
-
   /* Step down line by line.  Find active edges.  */
 
   y = sfnt_floor_fixed (MAX (0, edges[0].bottom));
-  e = 0;
-  active = NULL;
+  e = edges_processed = 0;
+  active = &sentinel;
 
   /* Allocate the array of edges.  */
 
@@ -5019,20 +4989,28 @@ sfnt_poly_edges_exact (struct sfnt_fedge *edges, size_t nedges,
 
   for (; y != height; y += 1)
     {
-      /* Add in new edges keeping them sorted.  */
-      for (; e < nedges && edges[e].bottom < y + 1; ++e)
+      /* Run over the whole array on each iteration of this loop;
+	 experiments demonstrate this is faster for the majority of
+	 glyphs.  */
+      for (e = 0; e < nedges; ++e)
 	{
-	  if (edges[e].top > y)
+	  /* Although edges is unsorted, edges which have already been
+	     processed will see their next fields set, and can thus be
+	     disregarded.  */
+	  if (!edges[e].next
+	      && (edges[e].bottom < y + 1)
+	      && (edges[e].top > y))
 	    {
-	      /* Find where to place this edge.  */
-	      for (prev = &active; (a = *prev); prev = &(a->next))
-		{
-		  if (a->x > edges[e].x)
-		    break;
-		}
+	      /* As steps generated from each edge are sorted at the
+		 time of their insertion, sorting the list of active
+		 edges itself is redundant.  */
+	      edges[e].next = active;
+	      active = &edges[e];
 
-	      edges[e].next = *prev;
-	      *prev = &edges[e];
+	      /* Increment the counter recording the number of edges
+		 processed, which is used to terminate this loop early
+		 once all have been processed.  */
+	      edges_processed++;
 	    }
 	}
 
@@ -5040,7 +5018,7 @@ sfnt_poly_edges_exact (struct sfnt_fedge *edges, size_t nedges,
 	 removing it if it does not overlap with the next
 	 scanline.  */
 
-      for (prev = &active; (a = *prev);)
+      for (prev = &active; (a = *prev) != &sentinel;)
 	{
 	  float x_top, x_bot, x_min, x_max;
 	  float y_top, y_bot;
@@ -5367,11 +5345,15 @@ be as well.  */
 	  if (a->top < y + 1)
 	    *prev = a->next;
 	  else
+	    /* This edge doesn't intersect with the next scanline;
+	       remove it from the list.  After the edge at hand is so
+	       deleted from the list, its next field remains set,
+	       excluding it from future consideration.  */
 	    prev = &a->next;
 	}
 
       /* Break if all is done.  */
-      if (!active && e == nedges)
+      if (active == &sentinel && edges_processed == nedges)
 	break;
     }
 
@@ -5674,18 +5656,21 @@ sfnt_lookup_glyph_metrics (sfnt_glyph glyph, int pixel_size,
   return 0;
 }
 
-/* Scale the specified glyph metrics by FACTOR.
-   Set METRICS->lbearing and METRICS->advance to their current
-   values times factor.  */
+/* Scale the specified glyph metrics by FACTOR.  Set METRICS->lbearing
+   and METRICS->advance to their current values times factor; take the
+   floor of the left bearing and round the advance width.  */
 
 MAYBE_UNUSED TEST_STATIC void
 sfnt_scale_metrics (struct sfnt_glyph_metrics *metrics,
 		    sfnt_fixed factor)
 {
-  metrics->lbearing
-    = sfnt_mul_fixed (metrics->lbearing * 65536, factor);
-  metrics->advance
-    = sfnt_mul_fixed (metrics->advance * 65536, factor);
+  sfnt_fixed lbearing, advance;
+
+  lbearing = sfnt_mul_fixed (metrics->lbearing * 65536, factor);
+  advance = sfnt_mul_fixed (metrics->advance * 65536, factor);
+
+  metrics->lbearing = sfnt_floor_fixed (lbearing);
+  metrics->advance = sfnt_round_fixed (advance);
 }
 
 /* Calculate the factor used to convert em space to device space for a
@@ -6456,7 +6441,8 @@ sfnt_mul_f26dot6_fixed (sfnt_f26dot6 x, sfnt_fixed y)
   product = (uint64_t) y * (uint64_t) x;
 
   /* This can be done quickly with int64_t.  */
-  return ((int64_t) (product + 32676) / (int64_t) 65536) * sign;
+  return ((int64_t) (product + 32768)
+	  / (int64_t) 65536) * sign;
 #else
   struct sfnt_large_integer temp;
   int sign;
@@ -6685,7 +6671,7 @@ sfnt_make_interpreter (struct sfnt_maxp_table *maxp,
   /* Now compute the scale.  Then, scale up the control value table
      values.  */
   interpreter->scale
-    = sfnt_div_fixed (pixel_size, head->units_per_em);
+    = sfnt_div_fixed (pixel_size * 64, head->units_per_em);
 
   /* Set the PPEM.  */
   interpreter->ppem = pixel_size;
@@ -6701,7 +6687,7 @@ sfnt_make_interpreter (struct sfnt_maxp_table *maxp,
   /* Load the control value table.  */
   for (i = 0; i < interpreter->cvt_size; ++i)
     interpreter->cvt[i]
-      = sfnt_mul_f26dot6_fixed (cvt->values[i] * 64,
+      = sfnt_mul_f26dot6_fixed (cvt->values[i],
 				interpreter->scale);
 
   /* Fill in the default values for phase, period and threshold.  */
@@ -6829,7 +6815,7 @@ sfnt_interpret_trap (struct sfnt_interpreter *interpreter,
    ? (TRAP ("stack underflow"), 0)		\
    : *(interpreter->SP - 1))
 
-#if !defined TEST || !0
+#if !defined TEST
 
 #define PUSH(value)				\
   {						\
@@ -6847,7 +6833,7 @@ sfnt_interpret_trap (struct sfnt_interpreter *interpreter,
     interpreter->SP++;				\
   }
 
-#else /* TEST && 0 */
+#else /* TEST */
 
 #define PUSH(value)				\
   {						\
@@ -7016,8 +7002,8 @@ sfnt_interpret_trap (struct sfnt_interpreter *interpreter,
     single_width = POP ();			\
 						\
     interpreter->state.single_width_value	\
-      = (interpreter->scale * single_width	\
-	 / 1024);				\
+      = sfnt_mul_fixed (single_width,		\
+			interpreter->scale);	\
   }
 
 #define DUP()					\
@@ -7545,8 +7531,8 @@ sfnt_interpret_trap (struct sfnt_interpreter *interpreter,
       TRAP ("WCVTF out of bounds");		\
 						\
     interpreter->cvt[location]			\
-      = (interpreter->scale * value		\
-	 / 1024);				\
+      = sfnt_mul_fixed (value,			\
+			interpreter->scale);	\
   }
 
 #define JROT()					\
@@ -7602,9 +7588,12 @@ sfnt_interpret_trap (struct sfnt_interpreter *interpreter,
     interpreter->state.scan_control = value;	\
   }
 
-/* Selector bit 8 is undocumented, but present in the Macintosh
+/* Selector bit 3 is undocumented, but present in the Macintosh
    rasterizer.  02000 is returned if there is a variation axis in
-   use.  */
+   use.
+
+   Selector bit 5 is undocumented, but relied on by several fonts.
+   010000 is returned if a grayscale rasterizer is in use.  */
 
 #define GETINFO()				\
   {						\
@@ -7620,6 +7609,9 @@ sfnt_interpret_trap (struct sfnt_interpreter *interpreter,
     if (selector & 8				\
 	&& interpreter->norm_coords)		\
       k |= 02000;				\
+						\
+    if (selector & 32)				\
+      k |= 010000;				\
 						\
     PUSH_UNCHECKED (k);				\
   }
@@ -8080,8 +8072,8 @@ sfnt_interpret_trap (struct sfnt_interpreter *interpreter,
     vector					\
       = interpreter->state.projection_vector;	\
 						\
-    PUSH ((uint16_t) vector.x);			\
-    PUSH ((uint16_t) vector.y);			\
+    PUSH ((int32_t) vector.x);			\
+    PUSH ((int32_t) vector.y);			\
   }
 
 #define GFV()					\
@@ -8091,8 +8083,8 @@ sfnt_interpret_trap (struct sfnt_interpreter *interpreter,
     vector					\
       = interpreter->state.freedom_vector;	\
 						\
-    PUSH ((uint16_t) vector.x);			\
-    PUSH ((uint16_t) vector.y);			\
+    PUSH ((int32_t) vector.x);			\
+    PUSH ((int32_t) vector.y);			\
   }
 
 #define SFVTPV()				\
@@ -9756,7 +9748,7 @@ sfnt_deltac (int number, struct sfnt_interpreter *interpreter,
 
    Touch the point P (within the zone specified in zp0) in the
    directions specified in the freedom vector.  Then, if OPCODE is
-   0x7f, round the point and move it the rounded distance along the
+   0x2f, round the point and move it the rounded distance along the
    freedom vector.
 
    Finally, set the RP0 and RP1 registers to P.  */
@@ -9772,7 +9764,7 @@ sfnt_interpret_mdap (struct sfnt_interpreter *interpreter,
   /* Measure the current distance.  */
   here = sfnt_project_vector (interpreter, px, py);
 
-  if (opcode == 0x7f)
+  if (opcode == 0x2f)
     {
       /* Measure distance, round, then move to the distance.  */
       distance = sfnt_project_vector (interpreter, px, py);
@@ -9799,11 +9791,9 @@ sfnt_interpret_mdap (struct sfnt_interpreter *interpreter,
 
 static void
 sfnt_deltap (int number, struct sfnt_interpreter *interpreter,
-	     unsigned char operand, unsigned int index)
+	     unsigned char operand, unsigned int p)
 {
   int ppem, delta;
-
-  return;
 
   /* Extract the ppem from OPERAND.  The format is the same as in
      sfnt_deltac.  */
@@ -9908,8 +9898,8 @@ sfnt_deltap (int number, struct sfnt_interpreter *interpreter,
   delta *= 1l << (6 - interpreter->state.delta_shift);
 
   /* Move the point.  */
-  sfnt_check_zp0 (interpreter, index);
-  sfnt_move_zp0 (interpreter, index, 1, delta);
+  sfnt_check_zp0 (interpreter, p);
+  sfnt_move_zp0 (interpreter, p, 1, delta);
 }
 
 /* Needed by sfnt_interpret_call.  */
@@ -10501,7 +10491,7 @@ sfnt_dot_fix_14 (int32_t ax, int32_t ay, int bx, int by)
   yy = xx >> 63;
   xx += 0x2000 + yy;
 
-  return (int32_t) (xx / (2 << 14));
+  return (int32_t) (xx / (1 << 14));
 #endif
 }
 
@@ -10626,7 +10616,7 @@ sfnt_move (sfnt_f26dot6 *restrict x, sfnt_f26dot6 *restrict y,
 
   if (versor)
     {
-      /* Move along X axis, converting the distance to the freedom
+      /* Move along Y axis, converting the distance to the freedom
 	 vector.  */
       num = n;
       k = sfnt_multiply_divide_signed (distance,
@@ -12071,6 +12061,38 @@ sfnt_interpret_control_value_program (struct sfnt_interpreter *interpreter,
 
   if (interpreter->state.instruct_control & 4)
     sfnt_init_graphics_state (&interpreter->state);
+  else
+    {
+      /* And even if not, reset the following graphics state
+	 variables, to which both the Apple and MS scalers don't
+	 permit modifications from the preprogram.
+
+         Not only is such reversion undocumented, it is also
+         inefficient, for modern fonts at large only move points on
+         the Y axis.  As such, these fonts must issue a redundant
+         SVTCA[Y] instruction within each glyph program, in place of
+         initializing the projection and freedom vectors once and for
+         all in prep.  Unfortunately many fonts which do instruct on
+         the X axis now rely on this ill-conceived behavior, so Emacs
+         must, reluctantly, follow suit.  */
+
+      interpreter->state.dual_projection_vector.x = 040000; /* 1.0 */
+      interpreter->state.dual_projection_vector.y = 0;
+      interpreter->state.freedom_vector.x = 040000; /* 1.0 */
+      interpreter->state.freedom_vector.y = 0;
+      interpreter->state.projection_vector.x = 040000; /* 1.0 */
+      interpreter->state.projection_vector.y = 0;
+      interpreter->state.rp0 = 0;
+      interpreter->state.rp1 = 0;
+      interpreter->state.rp2 = 0;
+      interpreter->state.zp0 = 1;
+      interpreter->state.zp1 = 1;
+      interpreter->state.zp2 = 1;
+      interpreter->state.loop = 1;
+
+      /* Validate the graphics state.  */
+      sfnt_validate_gs (&interpreter->state);
+    }
 
   /* Save the graphics state upon success.  */
   memcpy (state, &interpreter->state, sizeof *state);
@@ -12163,15 +12185,18 @@ sfnt_decompose_instructed_outline (struct sfnt_instructed_outline *outline,
 
 /* Decompose and build an outline for the specified instructed outline
    INSTRUCTED.  Return the outline data with a refcount of 0 upon
-   success, or NULL upon failure.
+   success, and the advance width of the instructed glyph in
+   *ADVANCE_WIDTH, or NULL upon failure.
 
    This function is not reentrant.  */
 
 TEST_STATIC struct sfnt_glyph_outline *
-sfnt_build_instructed_outline (struct sfnt_instructed_outline *instructed)
+sfnt_build_instructed_outline (struct sfnt_instructed_outline *instructed,
+			       sfnt_fixed *advance_width)
 {
   struct sfnt_glyph_outline *outline;
   int rc;
+  sfnt_f26dot6 x1, x2;
 
   memset (&build_outline_context, 0, sizeof build_outline_context);
 
@@ -12208,10 +12233,23 @@ sfnt_build_instructed_outline (struct sfnt_instructed_outline *instructed)
      instructed.  */
 
   if (instructed->num_points > 1)
-    outline->origin
-      = instructed->x_points[instructed->num_points - 2];
+    {
+      x1 = instructed->x_points[instructed->num_points - 2];
+      x2 = instructed->x_points[instructed->num_points - 1];
+
+      /* Convert the origin point to a 16.16 fixed point number.  */
+      outline->origin = x1 * 1024;
+
+      /* Do the same for the advance width.  */
+      *advance_width = (x2 - x1) * 1024;
+    }
   else
-    outline->origin = 0;
+    {
+      /* Phantom points are absent from this outline, which is
+	 impossible.  */
+      *advance_width = 0;
+      outline->origin = 0;
+    }
 
   if (rc)
     {
@@ -12229,14 +12267,18 @@ sfnt_build_instructed_outline (struct sfnt_instructed_outline *instructed)
    scale SCALE.
 
    Place the X and Y coordinates of the first phantom point in *X1 and
-   *Y1, and those of the second phantom point in *X2 and *Y2.  */
+   *Y1, and those of the second phantom point in *X2 and *Y2.
+
+   Place the unrounded X coordinates of both phantom points in *S1 and
+   *S2 respectively.  */
 
 static void
 sfnt_compute_phantom_points (struct sfnt_glyph *glyph,
 			     struct sfnt_glyph_metrics *metrics,
 			     sfnt_fixed scale,
 			     sfnt_f26dot6 *x1, sfnt_f26dot6 *y1,
-			     sfnt_f26dot6 *x2, sfnt_f26dot6 *y2)
+			     sfnt_f26dot6 *x2, sfnt_f26dot6 *y2,
+			     sfnt_f26dot6 *s1, sfnt_f26dot6 *s2)
 {
   sfnt_fword f1, f2;
 
@@ -12256,8 +12298,14 @@ sfnt_compute_phantom_points (struct sfnt_glyph *glyph,
   f2 += glyph->advance_distortion;
 
   /* Next, scale both up.  */
-  *x1 = sfnt_mul_f26dot6_fixed (f1 * 64, scale);
-  *x2 = sfnt_mul_f26dot6_fixed (f2 * 64, scale);
+  *s1 = sfnt_mul_f26dot6_fixed (f1, scale);
+  *s2 = sfnt_mul_f26dot6_fixed (f2, scale);
+
+  /* While not expressly provided in the manual, the phantom points
+     (at times termed the advance and origin points) represent pixel
+     coordinates within the raster, and are therefore rounded.  */
+  *x1 = sfnt_round_f26dot6 (*s1);
+  *x2 = sfnt_round_f26dot6 (*s2);
 
   /* Clear y1 and y2.  */
   *y1 = 0;
@@ -12280,9 +12328,7 @@ sfnt_interpret_simple_glyph (struct sfnt_glyph *glyph,
   size_t zone_size, temp, outline_size, i;
   struct sfnt_interpreter_zone *zone;
   struct sfnt_interpreter_zone *volatile preserved_zone;
-  sfnt_f26dot6 phantom_point_1_x;
   sfnt_f26dot6 phantom_point_1_y;
-  sfnt_f26dot6 phantom_point_2_x;
   sfnt_f26dot6 phantom_point_2_y;
   sfnt_f26dot6 tem;
   volatile bool zone_was_allocated;
@@ -12337,23 +12383,25 @@ sfnt_interpret_simple_glyph (struct sfnt_glyph *glyph,
       tem = glyph->simple->x_coordinates[i];
 
       /* Scale that fword.  */
-      tem = sfnt_mul_f26dot6_fixed (tem * 64, interpreter->scale);
+      tem = sfnt_mul_f26dot6_fixed (tem, interpreter->scale);
 
       /* Set x_points and x_current.  */
       zone->x_points[i] = tem;
       zone->x_current[i] = tem;
     }
 
-  /* Compute phantom points.  */
+  /* Compute and load phantom points.  */
   sfnt_compute_phantom_points (glyph, metrics, interpreter->scale,
-			       &phantom_point_1_x, &phantom_point_1_y,
-			       &phantom_point_2_x, &phantom_point_2_y);
-
-  /* Load phantom points.  */
-  zone->x_points[i] = phantom_point_1_x;
-  zone->x_points[i + 1] = phantom_point_2_x;
-  zone->x_current[i] = phantom_point_1_x;
-  zone->x_current[i + 1] = phantom_point_2_x;
+			       &zone->x_current[i], &phantom_point_1_y,
+			       &zone->x_current[i + 1], &phantom_point_2_y,
+			       /* Phantom points are rounded to the
+				  pixel grid once they are inserted
+				  into the glyph zone, but the
+				  original coordinates must remain
+				  untouched, as fonts rely on this to
+				  interpolate points by this
+				  scale.  */
+			       &zone->x_points[i], &zone->x_points[i + 1]);
 
   /* Load y_points and y_current, along with flags.  */
   for (i = 0; i < glyph->simple->number_of_points; ++i)
@@ -12363,7 +12411,7 @@ sfnt_interpret_simple_glyph (struct sfnt_glyph *glyph,
 
       /* Scale that fword.  Make sure not to round Y, as this could
 	 lead to Y spilling over to the next line.  */
-      tem = sfnt_mul_fixed (tem * 64, interpreter->scale);
+      tem = sfnt_mul_f26dot6_fixed (tem, interpreter->scale);
 
       /* Set y_points and y_current.  */
       zone->y_points[i] = tem;
@@ -12548,6 +12596,11 @@ sfnt_transform_f26dot6 (struct sfnt_compound_glyph_component *component,
    In addition, CONTEXT also contains two additional ``phantom
    points'' supplying the left and right side bearings of GLYPH.
 
+   S1 and S2 are the unrounded values of the last two phantom points,
+   which supply the original values saved into the glyph zone.  In
+   practical terms, they are set as the last two values of the glyph
+   zone's original position array.
+
    Value is NULL upon success, or a description of the error upon
    failure.  */
 
@@ -12556,22 +12609,22 @@ sfnt_interpret_compound_glyph_2 (struct sfnt_glyph *glyph,
 				 struct sfnt_interpreter *interpreter,
 				 struct sfnt_compound_glyph_context *context,
 				 size_t base_index, size_t base_contour,
-				 struct sfnt_glyph_metrics *metrics)
+				 struct sfnt_glyph_metrics *metrics,
+				 sfnt_f26dot6 s1, sfnt_f26dot6 s2)
 {
   size_t num_points, num_contours, i;
   size_t zone_size, temp;
   struct sfnt_interpreter_zone *zone;
   struct sfnt_interpreter_zone *volatile preserved_zone;
   volatile bool zone_was_allocated;
-  int rc;
   sfnt_f26dot6 *x_base, *y_base;
-  size_t *contour_base;
-  unsigned char *flags_base;
 
-  /* Figure out how many points and contours there are to
-     instruct.  */
+  /* Figure out how many points and contours there are to instruct.  A
+     minimum of two points must be present, namely: the origin and
+     advance phantom points.  */
   num_points = context->num_points - base_index;
   num_contours = context->num_end_points - base_contour;
+  assert (num_points >= 2);
 
   /* Nothing to instruct! */
   if (!num_points && !num_contours)
@@ -12646,6 +12699,11 @@ sfnt_interpret_compound_glyph_2 (struct sfnt_glyph *glyph,
 			& ~SFNT_POINT_TOUCHED_BOTH);
     }
 
+  /* Copy S1 and S2 into the glyph zone.  */
+  assert (num_points >= 2);
+  zone->x_points[num_points - 1] = s2;
+  zone->x_points[num_points - 2] = s1;
+
   /* Load the compound glyph program.  */
   interpreter->IP = 0;
   interpreter->SP = interpreter->stack;
@@ -12680,27 +12738,14 @@ sfnt_interpret_compound_glyph_2 (struct sfnt_glyph *glyph,
       context->y_coordinates[base_index + i] = zone->y_current[i];
     }
 
-  /* Grow various arrays to fit the phantom points.  */
-  rc = sfnt_expand_compound_glyph_context (context, 0, 2,
-					   &x_base, &y_base,
-					   &flags_base,
-					   &contour_base);
-
-  if (rc)
-    {
-      if (zone_was_allocated)
-	xfree (zone);
-
-      return "Failed to expand arrays for phantom points";
-    }
-
-  /* Copy over the phantom points.  */
+  /* Return the phantom points after instructing completes to the
+     context's coordinate arrays.  */
+  x_base    = &context->x_coordinates[i - 2];
+  y_base    = &context->y_coordinates[i - 2];
   x_base[0] = zone->x_current[num_points - 2];
   x_base[1] = zone->x_current[num_points - 1];
   y_base[0] = zone->y_current[num_points - 2];
   y_base[1] = zone->y_current[num_points - 1];
-  flags_base[0] = zone->flags[num_points - 2];
-  flags_base[1] = zone->flags[num_points - 1];
 
   /* Free the zone if needed.  */
   if (zone_was_allocated)
@@ -12751,6 +12796,8 @@ sfnt_interpret_compound_glyph_1 (struct sfnt_glyph *glyph,
   sfnt_f26dot6 phantom_point_1_y;
   sfnt_f26dot6 phantom_point_2_x;
   sfnt_f26dot6 phantom_point_2_y;
+  sfnt_f26dot6 phantom_point_1_s;
+  sfnt_f26dot6 phantom_point_2_s;
 
   error = NULL;
 
@@ -12803,14 +12850,14 @@ sfnt_interpret_compound_glyph_1 (struct sfnt_glyph *glyph,
 	  if (!(component->flags & 01)) /* ARG_1_AND_2_ARE_WORDS */
 	    {
 	      /* X and Y are signed bytes.  */
-	      x = component->argument1.b * 64;
-	      y = component->argument2.b * 64;
+	      x = component->argument1.b;
+	      y = component->argument2.b;
 	    }
 	  else
 	    {
 	      /* X and Y are signed words.  */
-	      x = component->argument1.d * 64;
-	      y = component->argument2.d * 64;
+	      x = component->argument1.d;
+	      y = component->argument2.d;
 	    }
 
 	  /* Now convert X and Y into device coordinates.  */
@@ -13085,13 +13132,14 @@ sfnt_interpret_compound_glyph_1 (struct sfnt_glyph *glyph,
     }
 
   /* Run the program for the entire compound glyph, if any.  CONTEXT
-     should not contain phantom points by this point, so append its
-     own.  */
+     should not contain phantom points by this point, so append the
+     points for this glyph as a whole.  */
 
   /* Compute phantom points.  */
   sfnt_compute_phantom_points (glyph, metrics, interpreter->scale,
 			       &phantom_point_1_x, &phantom_point_1_y,
-			       &phantom_point_2_x, &phantom_point_2_y);
+			       &phantom_point_2_x, &phantom_point_2_y,
+			       &phantom_point_1_s, &phantom_point_2_s);
 
   /* Grow various arrays to include those points.  */
   rc = sfnt_expand_compound_glyph_context (context,
@@ -13118,7 +13166,9 @@ sfnt_interpret_compound_glyph_1 (struct sfnt_glyph *glyph,
       error = sfnt_interpret_compound_glyph_2 (glyph, interpreter,
 					       context, base_index,
 					       base_contour,
-					       metrics);
+					       metrics,
+					       phantom_point_1_s,
+					       phantom_point_2_s);
     }
 
   return error;
@@ -16311,7 +16361,7 @@ sfnt_vary_interpreter (struct sfnt_interpreter *interpreter,
 
 	  /* Multiply the delta by the interpreter scale factor and
 	     then the tuple scale factor.  */
-	  delta = sfnt_mul_f26dot6_fixed (variation->deltas[j] * 64,
+	  delta = sfnt_mul_f26dot6_fixed (variation->deltas[j],
 					  interpreter->scale);
 	  delta = sfnt_mul_fixed_round (delta, scale);
 
@@ -17328,13 +17378,13 @@ sfnt_check_ssw (struct sfnt_interpreter *interpreter,
     }
 
   if (interpreter->state.single_width_value
-      != sfnt_mul_f26dot6_fixed (-64, interpreter->scale))
+      != sfnt_mul_f26dot6_fixed (-1, interpreter->scale))
     {
       fprintf (stderr, "failed, got %d at scale %d,"
 	       " expected %d\n",
 	       interpreter->state.single_width_value,
 	       interpreter->scale,
-	       sfnt_mul_f26dot6_fixed (-64, interpreter->scale));
+	       sfnt_mul_f26dot6_fixed (-1, interpreter->scale));
       return;
     }
 
@@ -20165,6 +20215,7 @@ sfnt_verbose (struct sfnt_interpreter *interpreter)
   unsigned char opcode;
   const char *name;
   static unsigned int instructions;
+  sfnt_fixed advance;
 
   /* Build a temporary outline containing the values of the
      interpreter's glyph zone.  */
@@ -20178,7 +20229,7 @@ sfnt_verbose (struct sfnt_interpreter *interpreter)
       temp.y_points = interpreter->glyph_zone->y_current;
       temp.flags = interpreter->glyph_zone->flags;
 
-      outline = sfnt_build_instructed_outline (&temp);
+      outline = sfnt_build_instructed_outline (&temp, &advance);
 
       if (!outline)
 	return;
@@ -20393,6 +20444,7 @@ main (int argc, char **argv)
   struct sfnt_instance *instance;
   struct sfnt_blend blend;
   struct sfnt_metrics_distortion distortion;
+  sfnt_fixed advance;
 
   if (argc < 2)
     return 1;
@@ -20736,6 +20788,8 @@ main (int argc, char **argv)
 	  if (instance && gvar)
 	    sfnt_vary_simple_glyph (&blend, code, glyph,
 				    &distortion);
+	  else
+	    memset (&distortion, 0, sizeof distortion);
 
 	  if (sfnt_lookup_glyph_metrics (code, -1,
 					 &metrics,
@@ -20753,7 +20807,10 @@ main (int argc, char **argv)
 	      exit (5);
 	    }
 
-	  outline = sfnt_build_instructed_outline (value);
+	  outline = sfnt_build_instructed_outline (value, &advance);
+	  advances[i] = (advance / 65536);
+
+	  fprintf (stderr, "advance: %d\n", advances[i]);
 
 	  if (!outline)
 	    exit (6);
@@ -20768,8 +20825,6 @@ main (int argc, char **argv)
 	  xfree (outline);
 
 	  rasters[i] = raster;
-	  advances[i] = (sfnt_mul_fixed (metrics.advance, scale)
-			 + sfnt_mul_fixed (distortion.advance, scale));
 	}
 
       sfnt_x_raster (rasters, advances, length, hhea, scale);
@@ -21034,7 +21089,7 @@ main (int argc, char **argv)
 		  fprintf (stderr, "outline origin, rbearing: %"
 			   PRIi32" %"PRIi32"\n",
 			   outline->origin,
-			   outline->ymax - outline->origin);
+			   outline->xmax - outline->origin);
 		  sfnt_test_max = outline->ymax - outline->ymin;
 
 		  for (i = 0; i < outline->outline_used; i++)
@@ -21065,7 +21120,7 @@ main (int argc, char **argv)
 
 		  clock_gettime (CLOCK_THREAD_CPUTIME_ID, &start);
 
-		  for (i = 0; i < 800; ++i)
+		  for (i = 0; i < 12800; ++i)
 		    {
 		      xfree (raster);
 		      raster = (*test_raster_glyph_outline) (outline);
@@ -21148,8 +21203,19 @@ main (int argc, char **argv)
 			      printf ("rasterizing instructed outline\n");
 			      if (outline)
 				xfree (outline);
-			      outline = sfnt_build_instructed_outline (value);
+			      outline
+				= sfnt_build_instructed_outline (value,
+								 &advance);
 			      xfree (value);
+
+#define LB outline->xmin - outline->origin
+#define RB outline->xmax - outline->origin
+			      printf ("instructed advance, lb, rb: %g %g %g\n",
+				      sfnt_coerce_fixed (advance),
+				      sfnt_coerce_fixed (LB),
+				      sfnt_coerce_fixed (RB));
+#undef LB
+#undef RB
 
 			      if (outline)
 				{
@@ -21180,7 +21246,8 @@ main (int argc, char **argv)
 	      printf ("time spent building edges: %lld sec %ld nsec\n",
 		      (long long) sub1.tv_sec, sub1.tv_nsec);
 	      printf ("time spent rasterizing: %lld sec %ld nsec\n",
-		      (long long) sub2.tv_sec / 800, sub2.tv_nsec / 800);
+		      (long long) sub2.tv_sec / 12800,
+		      sub2.tv_nsec / 12800);
 
 	      xfree (outline);
 	    }
