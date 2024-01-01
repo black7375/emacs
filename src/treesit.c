@@ -600,8 +600,6 @@ treesit_load_language (Lisp_Object language_symbol,
   /* First push just the filenames to the candidate list, which will
      make dynlib_open look under standard system load paths.  */
   treesit_load_language_push_for_each_suffix (lib_base_name, &path_candidates);
-  /* This is used for reporting errors (i.e., just filenames).  */
-  Lisp_Object base_candidates = path_candidates;
   /* Then push ~/.emacs.d/tree-sitter paths.  */
   Lisp_Object lib_name
     = Fexpand_file_name (concat2 (build_string ("tree-sitter/"), lib_base_name),
@@ -624,6 +622,7 @@ treesit_load_language (Lisp_Object language_symbol,
      fail.  */
   dynlib_handle_ptr handle;
   const char *error;
+  Lisp_Object error_list = Qnil;
 
   tail = path_candidates;
   error = NULL;
@@ -637,13 +636,17 @@ treesit_load_language (Lisp_Object language_symbol,
       error = dynlib_error ();
       if (error == NULL)
 	break;
+      else
+	error_list = Fcons (build_string (error), error_list);
     }
 
   if (error != NULL)
     {
+      /* Yes, the error message list gets a bit verbose, but those
+         messages will be helpful for certain errors like libc version
+         mismatch.  */
       *signal_symbol = Qtreesit_load_language_error;
-      *signal_data = list3 (Qnot_found, base_candidates,
-			    build_string ("No such file or directory"));
+      *signal_data = Fcons (Qnot_found, Fnreverse (error_list));
       return NULL;
     }
 
@@ -945,7 +948,10 @@ treesit_sync_visible_region (Lisp_Object parser)
      this function is called), we need to reparse.  */
   if (visible_beg != BUF_BEGV_BYTE (buffer)
       || visible_end != BUF_ZV_BYTE (buffer))
-    XTS_PARSER (parser)->need_reparse = true;
+    {
+      XTS_PARSER (parser)->need_reparse = true;
+      XTS_PARSER (parser)->timestamp++;
+    }
 
   /* Before we parse or set ranges, catch up with the narrowing
      situation.  We change visible_beg and visible_end to match
@@ -1719,6 +1725,7 @@ buffer.  */)
 	      ranges);
 
   XTS_PARSER (parser)->need_reparse = true;
+  XTS_PARSER (parser)->timestamp++;
   return Qnil;
 }
 
@@ -2063,8 +2070,9 @@ DEFUN ("treesit-node-field-name-for-child",
 Return nil if there's no Nth child, or if it has no field.
 If NODE is nil, return nil.
 
-Note that N counts named nodes only.  Also, N could be negative, e.g.,
--1 represents the last child.  */)
+N counts all children, i.e., named ones and anonymous ones.
+
+N could be negative, e.g., -1 represents the last child.  */)
   (Lisp_Object node, Lisp_Object n)
 {
   if (NILP (node))
@@ -2078,7 +2086,7 @@ Note that N counts named nodes only.  Also, N could be negative, e.g.,
 
   /* Process negative index.  */
   if (idx < 0)
-    idx = ts_node_named_child_count (treesit_node) + idx;
+    idx = ts_node_child_count (treesit_node) + idx;
   if (idx < 0)
     return Qnil;
   if (idx > UINT32_MAX)
