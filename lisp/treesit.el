@@ -1,6 +1,6 @@
 ;;; treesit.el --- tree-sitter utilities -*- lexical-binding: t -*-
 
-;; Copyright (C) 2021-2023 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2024 Free Software Foundation, Inc.
 
 ;; Maintainer: 付禹安 (Yuan Fu) <casouri@gmail.com>
 ;; Keywords: treesit, tree-sitter, languages
@@ -1393,7 +1393,7 @@ START and END mark the current to-be-propertized region."
     (if (and new-start (< new-start start))
         (progn
           (setq treesit--syntax-propertize-start nil)
-          (cons new-start end))
+          (cons (max new-start (point-min)) end))
       nil)))
 
 ;;; Indent

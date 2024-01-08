@@ -12,7 +12,7 @@
 @copying
 This file documents @acronym{SES}: the Simple Emacs Spreadsheet.
 
-Copyright @copyright{} 2002--2023 Free Software Foundation, Inc.
+Copyright @copyright{} 2002--2024 Free Software Foundation, Inc.
 
 @quotation
 Permission is granted to copy, distribute and/or modify this document
@@ -138,9 +138,10 @@ To add up the values, enter a Lisp expression:
 (+ A2 A3 A4 A5)
 @end example
 
-Perhaps you want to add a cell to the right of cell A4 to explain
-why you have a negative entry.  Pressing @kbd{TAB} in that cell
-adds an entire new column @samp{B}, where you can add such a note.
+Perhaps you want to add a cell to the right of cell @samp{A4} to
+explain why you have a negative entry.  Pressing @kbd{TAB} in that
+cell adds an entire new column @samp{B}, where you can add such a
+note.
 
 The column is fairly narrow by default, but pressing @kbd{w} allows
 you to resize it as needed.  Make it 20 characters wide.  You can
@@ -165,49 +166,7 @@ using e.g., @kbd{M-p ("%s")}. Enclosing @code{"%s"} into a list tells
 @acronym{SES} to align left.  You can override a column's printer
 function in any individual cell using @kbd{p}.
 
-@c TODO : translate the sequel from French.
-@ignore
-Vous pouvez nommer une fonction d'impression, et utiliser le nom de la
-fonction à la place de sa définition, de sorte à faciliter la
-modification de l'impression de toutes les cellules utilisant cette
-fonction. Par exemple tapez @kbd{M-x
-ses-define-local-printer@key{ret}}, puis @kbd{note@key{ret}}, puis
-@kbd{("%s")} pour définir une fonction d'impression nommée @code{note}
-dont la définition est @code{("%s")}, puis sur la colonne B tapez
-@kbd{M-p note@kbd{ret}}
-
-@example
-@group
-A       B
- Revenu
-   2.23 Frais de consultation
-   0.02 Opinion informée
-  15.76 Stand limonade
-     -4 Prêt à Joseph
-  14.01 Total
-@end group
-@end example
-
-Si maintenant vous redéfinissez @code{note} avec pour nouvelle
-définition @kbd{("*%s")} qui ajoute une astérisque @code{*} devant le
-texte, la zone d'impression est modifiée ainsi:
-@example
-@group
-A       B
- Revenu
-   2.23 *Frais de consultation
-   0.02 *Opinion informée
-  15.76 *Stand limonade
-     -4 *Prêt à Joseph
-  14.01 *Total
-@end group
-@end example
-
-Notez, que la cellule B1 reste vide est n'est pas affichée comme
-@code{*}. C'est parce que la valeur de la cellule est @code{nil}, et
-que la fonction d'impression @code{("%s")} échoue sur cette valeur, et
-donc une fonction de repli est utilisée à la place.
-@end ignore
+@c TODO : propagate extra explanation from the French version.
 
 If Joe pays back his loan, you might blank that entry; e.g., by
 positioning the cursor in cell A5 and pressing @kbd{C-d}.  If you do
@@ -276,18 +235,18 @@ Moves point to cell, specified by identifier (@code{ses-jump}). Unless
 the cell is a renamed cell, the identifier is case-insensitive. A
 prefix argument @math{n} move to cell with coordinates @math{(n\div R,
 n \% C)} for a spreadsheet of @math{R} rows and @math{C} columns, and
-A1 being of coordinates @math{(0,0)}. The way the identifier or the
-command prefix argument are interpreted can be customized through
+@samp{A1} being of coordinates @math{(0,0)}. The way the identifier or
+the command prefix argument are interpreted can be customized through
 variables @code{ses-jump-cell-name-function} and
 @code{ses-jump-prefix-function}.
 @end table
 
 Point is always at the left edge of a cell, or at the empty endline.
 When mark is inactive, the current cell is underlined.  When mark is
-active, the range is the highlighted rectangle of cells (@acronym{SES} always
-uses transient mark mode).  Drag the mouse from A1 to A3 to create the
-range A1-A2.  Many @acronym{SES} commands operate only on single cells, not
-ranges.
+active, the range is the highlighted rectangle of cells (@acronym{SES}
+always uses transient mark mode).  Drag the mouse from @samp{A1} to
+@samp{A3} to create the range @samp{A1-A2}.  Many @acronym{SES}
+commands operate only on single cells, not ranges.
 
 @table @kbd
 @item C-@key{SPC}
@@ -801,11 +760,9 @@ column width is 7 and the default printer is @samp{"%.7g"}.  Each of these
 can be customized.  Look in group ``ses''.
 
 After entering a cell value, normally, @code{forward-char} is called,
-which moves point right to the next cell@c TODO translate from French
-@ignore
-, ou à la première cellule à gauche de la ligne suivante si la
-cellule courante est la plus à droite de la feuille
-@end ignore
+which moves point right to the next cell@c TODO propagate extra
+                                        @c explanation from the French
+                                        @c version.
 .  You can customize @code{ses-after-entry-functions} to move left or
 up or down.  For diagonal movement, select two functions from the
 list.
@@ -814,10 +771,7 @@ list.
 @code{ses-jump-cell-name-function} is a customizable variable by
 default set to the @code{upcase} function. This function is called
 when you pass a cell name to the @command{ses-jump} command (@kbd{j}),
-@c TODO translate from French
-@ignore
-, et que ce nom n'est pas le nom d'une cellule renommée.
-@end ignore
+@c TODO : propagate extra explanation from the French version.
 it changes the entered cell name to that where to jump. The default
 setting @code{upcase} allows you to enter the cell name in low
 case. Another use of @code{ses-jump-cell-name-function} could be some
@@ -834,8 +788,9 @@ when you give a prefix argument to the @command{ses-jump} command
 the prefix argument. Cell coordinates are in the form of a cons, for
 instance @code{(1 . 0)} for cell @code{A2}. The default setting
 @code{ses-jump-prefix} will number cells left to right and then top
-down, so assuming a 4x3 spreadsheet prefix argument 0 jumps to cell
-A1, prefix argument 2 jumps to C1, prefix argument 3 jumps to A2, etc.
+down, so assuming a 4x3 spreadsheet prefix argument @samp{0} jumps to
+cell @samp{A1}, prefix argument @samp{2} jumps to @samp{C1}, prefix
+argument @samp{3} jumps to @samp{A2}, etc.
 
 @vindex ses-mode-hook
 @code{ses-mode-hook} is a normal mode hook (list of functions to
@@ -1112,30 +1067,7 @@ nothing is printed for it.
 producing a value: the print cell is filled with hash marks (#).
 @end itemize
 
-@c TODO translate from French
-@ignore
-Lorsque la fonction d'impression est définie par une chaîne de
-formatage, par ex. @samp{"%.3f"}, @acronym{SES} imprime
-automatiquement @code{nil} comme une chaîne vide, mais si la fonction
-d'impression est définie par une expression lambda, vous devez définir
-explicitement comment @code{nil} est traité, par ex. :
-@example
-(lambda (x)
-  (cond
-   ((null x) "")
-   ((stringp x) (list x))
-   ((numberp x) (format "%.3f" x))
-   (t (ses-prin1 x)))
-@end example
-imprime @code{nil} comme une chaîne vide, aligne à gauche la valeur si
-c'est une chaîne, et si c'est un nombre l'aligne à droite en
-l'imprimant avec trois décimales.
-
-Il n'est pas nécessaire par contre que vous vous souciez de
-@code{'*skip*} dans la définition d'une fonction d'impression, en
-effet aucune fonction d'impression n'est appelée sur @code{'*skip*}.
-@end ignore
-
+@c TODO propagate extra explanation from the French version.
 
 If the result from the printer function is too wide for the cell and
 the following cell is @code{nil}, the result will spill over into the
@@ -1249,15 +1181,7 @@ Arguably one could specify only @var{fromrange} plus
 @var{to-row-offset} and @var{to-column-offset}.  The @var{torange} is
 stated explicitly to ensure that the formula will be recalculated if
 any cell in either range is changed.
-@c TODO reword this paragraph more clearly as follows:
-@ignore
-Vous vous demandez peut-être pourquoi les arguments de
-@code{ses-select} ne consistent pas au lieu de @var{à-plage} de
-décalages @var{décalage-à-la-ligne} et @var{décalage-à-la-colonne}
-relativement à @var{de-plage} : spécifier @var{à-plage} explicitement
-assure que la formule est recalculée si l'une quelconque des cellules
-de cette plage est modifiée.
-@end ignore
+@c TODO reword this paragraph more clearly as in the French version
 
 
 File @file{etc/ses-example.el} in the Emacs distribution is an example of a
@@ -1330,7 +1254,7 @@ whatever formula they appear in. Please note however that when a
 formula contains some range @code{(ses-range @var{cell1} @var{cell2})}
 then in the yanked formula each range bound @var{cell1} and
 @var{cell2} are relocated, or not, independently, depending on whether
-they are A1-like or renamed.
+they are @samp{A1}-like or renamed.
 
 An alternative method is to use
 @lisp
@@ -1338,9 +1262,9 @@ An alternative method is to use
 @end lisp
 to make an @dfn{absolute reference}.  The formula relocator skips over
 quoted things, so this will not be relocated when pasted or when
-rows/columns are inserted/deleted.  However, B3 will not be recorded
-as a dependency of this cell, so this cell will not be updated
-automatically when B3 is changed, this is why using
+rows/columns are inserted/deleted.  However, @samp{B3} will not be
+recorded as a dependency of this cell, so this cell will not be
+updated automatically when @samp{B3} is changed, this is why using
 @code{ses-rename-cell} is most of the time preferable.
 
 The variables @code{row} and @code{col} are dynamically bound while a

@@ -1,6 +1,6 @@
 ERC NEWS
 
-Copyright (C) 2006-2023 Free Software Foundation, Inc.
+Copyright (C) 2006-2024 Free Software Foundation, Inc.
 See the end of the file for license conditions.
 
 Please send ERC bug reports to 'bug-gnu-emacs@gnu.org',
@@ -559,6 +559,11 @@ limited to special errors involving usage and internal state.  For
 third-party code, the key takeaway is that more 'font-lock-face'
 properties encountered in the wild may be combinations of faces rather
 than lone ones.
+
+*** 'erc-flood-protect' no longer influences input splitting.
+This variable's role has been narrowed to rate limiting only.  ERC
+used to suppress protocol line-splitting when its value was nil, but
+that's now handled by setting 'erc-split-line-length' to zero.
 
 *** 'erc-pre-send-functions' visits prompt input post-split.
 ERC now adjusts input lines to fall within allowed length limits
