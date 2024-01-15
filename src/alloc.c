@@ -359,7 +359,15 @@ static struct gcstat
   object_ct total_floats, total_free_floats;
   object_ct total_intervals, total_free_intervals;
   object_ct total_buffers;
+
+  /* Size of the ancillary arrays of live hash-table objects.
+     The objects themselves are not included (counted as vectors above).  */
+  byte_ct total_hash_table_bytes;
 } gcstat;
+
+/* Total size of ancillary arrays of all allocated hash-table objects,
+   both dead and alive.  This number is always kept up-to-date.  */
+static ptrdiff_t hash_table_allocated_bytes = 0;
 
 /* Points to memory space allocated as "spare", to be freed if we run
    out of memory.  We keep one large block, four cons-blocks, and
@@ -3430,6 +3438,23 @@ cleanup_vector (struct Lisp_Vector *vector)
       }
 #endif
       break;
+    case PVEC_HASH_TABLE:
+      {
+	struct Lisp_Hash_Table *h = PSEUDOVEC_STRUCT (vector, Lisp_Hash_Table);
+	if (h->table_size > 0)
+	  {
+	    eassert (h->index_size > 1);
+	    xfree (h->index);
+	    xfree (h->key_and_value);
+	    xfree (h->next);
+	    xfree (h->hash);
+	    ptrdiff_t bytes = (h->table_size * (2 * sizeof *h->key_and_value
+						+ sizeof *h->hash
+						+ sizeof *h->next)
+			       + h->index_size * sizeof *h->index);
+	    hash_table_allocated_bytes -= bytes;
+	  }
+      }
     /* Keep the switch exhaustive.  */
     case PVEC_NORMAL_VECTOR:
     case PVEC_FREE:
@@ -3440,7 +3465,6 @@ cleanup_vector (struct Lisp_Vector *vector)
     case PVEC_WINDOW:
     case PVEC_BOOL_VECTOR:
     case PVEC_BUFFER:
-    case PVEC_HASH_TABLE:
     case PVEC_TERMINAL:
     case PVEC_WINDOW_CONFIGURATION:
     case PVEC_OTHER:
@@ -3554,6 +3578,8 @@ sweep_vectors (void)
 	  lisp_free (lv);
 	}
     }
+
+  gcstat.total_hash_table_bytes = hash_table_allocated_bytes;
 }
 
 /* Maximum number of elements in a vector.  This is a macro so that it
@@ -5606,6 +5632,28 @@ valid_lisp_object_p (Lisp_Object obj)
   return 0;
 }
 
+/* Like xmalloc, but makes allocation count toward the total consing.
+   Return NULL for a zero-sized allocation.  */
+void *
+hash_table_alloc_bytes (ptrdiff_t nbytes)
+{
+  if (nbytes == 0)
+    return NULL;
+  tally_consing (nbytes);
+  hash_table_allocated_bytes += nbytes;
+  return xmalloc (nbytes);
+}
+
+/* Like xfree, but makes allocation count toward the total consing.  */
+void
+hash_table_free_bytes (void *p, ptrdiff_t nbytes)
+{
+  tally_consing (-nbytes);
+  hash_table_allocated_bytes -= nbytes;
+  xfree (p);
+}
+
+
 /***********************************************************************
 		       Pure Storage Management
  ***********************************************************************/
@@ -5887,30 +5935,34 @@ make_pure_vector (ptrdiff_t len)
 static struct Lisp_Hash_Table *
 purecopy_hash_table (struct Lisp_Hash_Table *table)
 {
-  eassert (NILP (table->weak));
+  eassert (table->weakness == Weak_None);
   eassert (table->purecopy);
 
   struct Lisp_Hash_Table *pure = pure_alloc (sizeof *pure, Lisp_Vectorlike);
-  struct hash_table_test pure_test = table->test;
+  *pure = *table;
+  pure->mutable = false;
 
-  /* Purecopy the hash table test.  */
-  pure_test.name = purecopy (table->test.name);
-  pure_test.user_hash_function = purecopy (table->test.user_hash_function);
-  pure_test.user_cmp_function = purecopy (table->test.user_cmp_function);
+  if (table->table_size > 0)
+    {
+      ptrdiff_t hash_bytes = table->table_size * sizeof *table->hash;
+      pure->hash = pure_alloc (hash_bytes, -(int)sizeof *table->hash);
+      memcpy (pure->hash, table->hash, hash_bytes);
 
-  pure->header = table->header;
-  pure->weak = purecopy (Qnil);
-  pure->hash = purecopy (table->hash);
-  pure->next = purecopy (table->next);
-  pure->index = purecopy (table->index);
-  pure->count = table->count;
-  pure->next_free = table->next_free;
-  pure->purecopy = table->purecopy;
-  eassert (!pure->mutable);
-  pure->rehash_threshold = table->rehash_threshold;
-  pure->rehash_size = table->rehash_size;
-  pure->key_and_value = purecopy (table->key_and_value);
-  pure->test = pure_test;
+      ptrdiff_t next_bytes = table->table_size * sizeof *table->next;
+      pure->next = pure_alloc (next_bytes, -(int)sizeof *table->next);
+      memcpy (pure->next, table->next, next_bytes);
+
+      ptrdiff_t nvalues = table->table_size * 2;
+      ptrdiff_t kv_bytes = nvalues * sizeof *table->key_and_value;
+      pure->key_and_value = pure_alloc (kv_bytes,
+					-(int)sizeof *table->key_and_value);
+      for (ptrdiff_t i = 0; i < nvalues; i++)
+	pure->key_and_value[i] = purecopy (table->key_and_value[i]);
+
+      ptrdiff_t index_bytes = table->index_size * sizeof *table->index;
+      pure->index = pure_alloc (index_bytes, -(int)sizeof *table->index);
+      memcpy (pure->index, table->index, index_bytes);
+    }
 
   return pure;
 }
@@ -5970,7 +6022,7 @@ purecopy (Lisp_Object obj)
       /* Do not purify hash tables which haven't been defined with
          :purecopy as non-nil or are weak - they aren't guaranteed to
          not change.  */
-      if (!NILP (table->weak) || !table->purecopy)
+      if (table->weakness != Weak_None || !table->purecopy)
         {
           /* Instead, add the hash table to the list of pinned objects,
              so that it will be marked during GC.  */
@@ -6094,6 +6146,7 @@ total_bytes_of_live_objects (void)
   tot += object_bytes (gcstat.total_floats, sizeof (struct Lisp_Float));
   tot += object_bytes (gcstat.total_intervals, sizeof (struct interval));
   tot += object_bytes (gcstat.total_strings, sizeof (struct Lisp_String));
+  tot += gcstat.total_hash_table_bytes;
   return tot;
 }
 
@@ -6541,6 +6594,7 @@ garbage_collect (void)
   mark_terminals ();
   mark_kboards ();
   mark_threads ();
+  mark_profiler ();
 #ifdef HAVE_PGTK
   mark_pgtkterm ();
 #endif
@@ -6572,6 +6626,7 @@ garbage_collect (void)
 #ifdef HAVE_NS
   mark_nsterm ();
 #endif
+  mark_fns ();
 
   /* Everything is now marked, except for the data in font caches,
      undo lists, and finalizers.  The first two are compacted by
@@ -7236,22 +7291,17 @@ process_mark_stack (ptrdiff_t base_sp)
 	      case PVEC_HASH_TABLE:
 		{
 		  struct Lisp_Hash_Table *h = (struct Lisp_Hash_Table *)ptr;
-		  ptrdiff_t size = ptr->header.size & PSEUDOVECTOR_SIZE_MASK;
 		  set_vector_marked (ptr);
-		  mark_stack_push_values (ptr->contents, size);
-		  mark_stack_push_value (h->test.name);
-		  mark_stack_push_value (h->test.user_hash_function);
-		  mark_stack_push_value (h->test.user_cmp_function);
-		  if (NILP (h->weak))
-		    mark_stack_push_value (h->key_and_value);
+		  if (h->weakness == Weak_None)
+		    mark_stack_push_values (h->key_and_value,
+					    2 * h->table_size);
 		  else
 		    {
-		      /* For weak tables, mark only the vector and not its
+		      /* For weak tables, don't mark the
 			 contents --- that's what makes it weak.  */
 		      eassert (h->next_weak == NULL);
 		      h->next_weak = weak_hash_tables;
 		      weak_hash_tables = h;
-		      set_vector_marked (XVECTOR (h->key_and_value));
 		    }
 		  break;
 		}

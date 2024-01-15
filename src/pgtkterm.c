@@ -3471,9 +3471,7 @@ pgtk_define_fringe_bitmap (int which, unsigned short *bits, int h, int wd)
       i = max_fringe_bmp;
       max_fringe_bmp = which + 20;
       fringe_bmp
-	= (cairo_pattern_t **) xrealloc (fringe_bmp,
-					 max_fringe_bmp *
-					 sizeof (cairo_pattern_t *));
+	= xrealloc (fringe_bmp, max_fringe_bmp * sizeof (cairo_pattern_t *));
       while (i < max_fringe_bmp)
 	fringe_bmp[i++] = 0;
     }
@@ -7180,8 +7178,7 @@ If set to a non-float value, there will be no wait at all.  */);
 
   DEFVAR_LISP ("pgtk-keysym-table", Vpgtk_keysym_table,
     doc: /* Hash table of character codes indexed by X keysym codes.  */);
-  Vpgtk_keysym_table = make_hash_table (hashtest_eql, 900, DEFAULT_REHASH_SIZE,
-					DEFAULT_REHASH_THRESHOLD, Qnil, false);
+  Vpgtk_keysym_table = make_hash_table (&hashtest_eql, 900, Weak_None, false);
 
   window_being_scrolled = Qnil;
   staticpro (&window_being_scrolled);

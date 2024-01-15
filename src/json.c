@@ -364,7 +364,7 @@ lisp_to_json_nonscalar_1 (Lisp_Object lisp,
       for (ptrdiff_t i = 0; i < HASH_TABLE_SIZE (h); ++i)
         {
           Lisp_Object key = HASH_KEY (h, i);
-          if (!BASE_EQ (key, Qunbound))
+          if (!hash_unused_entry_key_p (key))
             {
               CHECK_STRING (key);
               Lisp_Object ekey = json_encode (key);
@@ -879,8 +879,9 @@ json_to_lisp (json_t *json, const struct json_configuration *conf)
               json_t *value;
               json_object_foreach (json, key_str, value)
                 {
-		  Lisp_Object key = build_string_from_utf8 (key_str), hash;
-                  ptrdiff_t i = hash_lookup (h, key, &hash);
+		  Lisp_Object key = build_string_from_utf8 (key_str);
+		  hash_hash_t hash;
+                  ptrdiff_t i = hash_lookup_get_hash (h, key, &hash);
                   /* Keys in JSON objects are unique, so the key can't
                      be present yet.  */
                   eassert (i < 0);

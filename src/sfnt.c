@@ -5474,8 +5474,6 @@ be as well.  */
       next = next->next;
       xfree (last);
     }
-
-#undef ONE_PIXEL
 }
 
 /* Apply winding rule to the coverage value VALUE.  Convert VALUE to a
@@ -8968,7 +8966,7 @@ sfnt_dual_project_vector (struct sfnt_interpreter *interpreter,
 
 static void
 sfnt_interpret_fliprgoff (struct sfnt_interpreter *interpreter,
-			  uint32_t l, uint32_t h)
+			  uint32_t h, uint32_t l)
 {
   uint32_t i;
 
@@ -8978,7 +8976,7 @@ sfnt_interpret_fliprgoff (struct sfnt_interpreter *interpreter,
   if (!interpreter->state.zp0)
     return;
 
-  for (i = l; i < h; ++i)
+  for (i = l; i <= h; ++i)
     interpreter->glyph_zone->flags[i] &= ~01;
 }
 
@@ -8987,7 +8985,7 @@ sfnt_interpret_fliprgoff (struct sfnt_interpreter *interpreter,
 
 static void
 sfnt_interpret_fliprgon (struct sfnt_interpreter *interpreter,
-			 uint32_t l, uint32_t h)
+			 uint32_t h, uint32_t l)
 {
   uint32_t i;
 
@@ -8997,8 +8995,8 @@ sfnt_interpret_fliprgon (struct sfnt_interpreter *interpreter,
   if (!interpreter->state.zp0)
     return;
 
-  for (i = l; i < h; ++i)
-    interpreter->glyph_zone->flags[i] |= ~01;
+  for (i = l; i <= h; ++i)
+    interpreter->glyph_zone->flags[i] |= 01;
 }
 
 /* Interpret a FLIPPT instruction in INTERPRETER.  For loop times, pop

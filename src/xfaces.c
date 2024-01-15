@@ -6646,7 +6646,7 @@ face_at_buffer_position (struct window *w, ptrdiff_t pos,
   /* Get the `face' or `mouse_face' text property at POS, and
      determine the next position at which the property changes.  */
   prop = Fget_text_property (position, propname, w->contents);
-  XSETFASTINT (limit1, (limit < endpos ? limit : endpos));
+  XSETFASTINT (limit1, min (limit, endpos));
   end = Fnext_single_property_change (position, propname, w->contents, limit1);
   if (FIXNUMP (end))
     endpos = XFIXNUM (end);
@@ -6782,7 +6782,7 @@ face_for_overlay_string (struct window *w, ptrdiff_t pos,
   /* Get the `face' or `mouse_face' text property at POS, and
      determine the next position at which the property changes.  */
   prop = Fget_text_property (position, propname, w->contents);
-  XSETFASTINT (limit1, (limit < endpos ? limit : endpos));
+  XSETFASTINT (limit1, min (limit, endpos));
   end = Fnext_single_property_change (position, propname, w->contents, limit1);
   if (FIXNUMP (end))
     endpos = XFIXNUM (end);
@@ -7333,8 +7333,7 @@ only for this purpose.  */);
     doc: /* Hash table of global face definitions (for internal use only.)  */);
   Vface_new_frame_defaults =
     /* 33 entries is enough to fit all basic faces */
-    make_hash_table (hashtest_eq, 33, DEFAULT_REHASH_SIZE,
-                     DEFAULT_REHASH_THRESHOLD, Qnil, false);
+    make_hash_table (&hashtest_eq, 33, Weak_None, false);
 
   DEFVAR_LISP ("face-default-stipple", Vface_default_stipple,
     doc: /* Default stipple pattern used on monochrome displays.

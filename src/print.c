@@ -87,7 +87,7 @@ static struct print_buffer print_buffer;
    print_number_index holds the largest N already used.
    N has to be strictly larger than 0 since we need to distinguish -N.  */
 static ptrdiff_t print_number_index;
-static void print_interval (INTERVAL interval, Lisp_Object printcharfun);
+static void print_interval (INTERVAL interval, void *pprintcharfun);
 
 /* GDB resets this to zero on W32 to disable OutputDebugString calls.  */
 bool print_output_debug_flag EXTERNALLY_VISIBLE = 1;
@@ -1290,7 +1290,7 @@ print (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	  for (i = 0; i < HASH_TABLE_SIZE (h); ++i)
             {
               Lisp_Object key =  HASH_KEY (h, i);
-	      if (!BASE_EQ (key, Qunbound)
+	      if (!hash_unused_entry_key_p (key)
 		  && EQ (HASH_VALUE (h, i), Qt))
 	        Fremhash (key, Vprint_number_table);
             }
@@ -1455,8 +1455,8 @@ print_preprocess (Lisp_Object obj)
 		    if (HASH_TABLE_P (obj))
 		      {
 			struct Lisp_Hash_Table *h = XHASH_TABLE (obj);
-			obj = h->key_and_value;
-			continue;
+			pp_stack_push_values (h->key_and_value,
+					      2 * h->table_size);
 		      }
 		    break;
 		  }
@@ -1493,8 +1493,6 @@ print_preprocess_string (INTERVAL interval, void *arg)
   print_preprocess (interval->plist);
 }
 
-static void print_check_string_charset_prop (INTERVAL interval, Lisp_Object string);
-
 #define PRINT_STRING_NON_CHARSET_FOUND 1
 #define PRINT_STRING_UNSAFE_CHARSET_FOUND 2
 
@@ -1502,7 +1500,7 @@ static void print_check_string_charset_prop (INTERVAL interval, Lisp_Object stri
 static int print_check_string_result;
 
 static void
-print_check_string_charset_prop (INTERVAL interval, Lisp_Object string)
+print_check_string_charset_prop (INTERVAL interval, void *pstring)
 {
   Lisp_Object val;
 
@@ -1526,6 +1524,7 @@ print_check_string_charset_prop (INTERVAL interval, Lisp_Object string)
   if (! (print_check_string_result & PRINT_STRING_UNSAFE_CHARSET_FOUND))
     {
       ptrdiff_t charpos = interval->position;
+      Lisp_Object string = *(Lisp_Object *)pstring;
       ptrdiff_t bytepos = string_char_to_byte (string, charpos);
       Lisp_Object charset = XCAR (XCDR (val));
 
@@ -1550,7 +1549,7 @@ print_prune_string_charset (Lisp_Object string)
 {
   print_check_string_result = 0;
   traverse_intervals (string_intervals (string), 0,
-		      print_check_string_charset_prop, string);
+		      print_check_string_charset_prop, &string);
   if (NILP (Vprint_charset_text_property)
       || ! (print_check_string_result & PRINT_STRING_UNSAFE_CHARSET_FOUND))
     {
@@ -2401,8 +2400,9 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 
 	  if (string_intervals (obj))
 	    {
+	      Lisp_Object pcf = printcharfun;
 	      traverse_intervals (string_intervals (obj),
-				  0, print_interval, printcharfun);
+				  0, print_interval, &pcf);
 	      printchar (')', printcharfun);
 	    }
 	}
@@ -2574,50 +2574,49 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	  {
 	    struct Lisp_Hash_Table *h = XHASH_TABLE (obj);
 	    /* Implement a readable output, e.g.:
-	       #s(hash-table size 2 test equal data (k1 v1 k2 v2)) */
-	    /* Always print the size.  */
-	    int len = sprintf (buf, "#s(hash-table size %"pD"d",
-			       HASH_TABLE_SIZE (h));
-	    strout (buf, len, len, printcharfun);
+	       #s(hash-table test equal data (k1 v1 k2 v2)) */
+	    print_c_string ("#s(hash-table", printcharfun);
 
-	    if (!NILP (h->test.name))
+	    if (!BASE_EQ (h->test->name, Qeql))
 	      {
 		print_c_string (" test ", printcharfun);
-		print_object (h->test.name, printcharfun, escapeflag);
+		print_object (h->test->name, printcharfun, escapeflag);
 	      }
 
-	    if (!NILP (h->weak))
+	    if (h->weakness != Weak_None)
 	      {
 		print_c_string (" weakness ", printcharfun);
-		print_object (h->weak, printcharfun, escapeflag);
+		print_object (hash_table_weakness_symbol (h->weakness),
+			      printcharfun, escapeflag);
 	      }
-
-	    print_c_string (" rehash-size ", printcharfun);
-	    print_object (Fhash_table_rehash_size (obj),
-			  printcharfun, escapeflag);
-
-	    print_c_string (" rehash-threshold ", printcharfun);
-	    print_object (Fhash_table_rehash_threshold (obj),
-			  printcharfun, escapeflag);
 
 	    if (h->purecopy)
 	      print_c_string (" purecopy t", printcharfun);
 
-	    print_c_string (" data (", printcharfun);
-
 	    ptrdiff_t size = h->count;
-	    /* Don't print more elements than the specified maximum.  */
-	    if (FIXNATP (Vprint_length) && XFIXNAT (Vprint_length) < size)
-	      size = XFIXNAT (Vprint_length);
+	    if (size > 0)
+	      {
+		print_c_string (" data (", printcharfun);
 
-	    print_stack_push ((struct print_stack_entry){
-		.type = PE_hash,
-		.u.hash.obj = obj,
-		.u.hash.nobjs = size * 2,
-		.u.hash.idx = 0,
-		.u.hash.printed = 0,
-		.u.hash.truncated = (size < h->count),
-	      });
+		/* Don't print more elements than the specified maximum.  */
+		if (FIXNATP (Vprint_length) && XFIXNAT (Vprint_length) < size)
+		  size = XFIXNAT (Vprint_length);
+
+		print_stack_push ((struct print_stack_entry){
+		    .type = PE_hash,
+		    .u.hash.obj = obj,
+		    .u.hash.nobjs = size * 2,
+		    .u.hash.idx = 0,
+		    .u.hash.printed = 0,
+		    .u.hash.truncated = (size < h->count),
+		  });
+	      }
+	    else
+	      {
+		/* Empty table: we can omit the data entirely.  */
+		printchar (')', printcharfun);
+		--print_depth;   /* Done with this.  */
+	      }
 	    goto next_obj;
 	  }
 
@@ -2770,7 +2769,7 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
 	    {
 	      Lisp_Object key;
 	      ptrdiff_t idx = e->u.hash.idx;
-	      while (BASE_EQ ((key = HASH_KEY (h, idx)), Qunbound))
+	      while (hash_unused_entry_key_p ((key = HASH_KEY (h, idx))))
 		idx++;
 	      e->u.hash.idx = idx;
 	      obj = key;
@@ -2793,10 +2792,11 @@ print_object (Lisp_Object obj, Lisp_Object printcharfun, bool escapeflag)
    This is part of printing a string that has text properties.  */
 
 static void
-print_interval (INTERVAL interval, Lisp_Object printcharfun)
+print_interval (INTERVAL interval, void *pprintcharfun)
 {
   if (NILP (interval->plist))
     return;
+  Lisp_Object printcharfun = *(Lisp_Object *)pprintcharfun;
   printchar (' ', printcharfun);
   print_object (make_fixnum (interval->position), printcharfun, 1);
   printchar (' ', printcharfun);
