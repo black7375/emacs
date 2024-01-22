@@ -369,11 +369,11 @@ typedef EMACS_INT Lisp_Word;
 # define lisp_h_Qnil {0}
 #endif
 
-#define lisp_h_PSEUDOVECTORP(a,code)                            \
-  (lisp_h_VECTORLIKEP((a)) &&                                   \
-   ((XUNTAG ((a), Lisp_Vectorlike, union vectorlike_header)->size     \
-     & (PSEUDOVECTOR_FLAG | PVEC_TYPE_MASK))                    \
-    == (PSEUDOVECTOR_FLAG | ((code) << PSEUDOVECTOR_AREA_BITS))))
+#define lisp_h_PSEUDOVECTORP(a,code)                            	\
+  (lisp_h_VECTORLIKEP (a)						\
+   && ((XUNTAG (a, Lisp_Vectorlike, union vectorlike_header)->size	\
+	& (PSEUDOVECTOR_FLAG | PVEC_TYPE_MASK))				\
+       == (PSEUDOVECTOR_FLAG | ((code) << PSEUDOVECTOR_AREA_BITS))))
 
 #define lisp_h_CHECK_FIXNUM(x) CHECK_TYPE (FIXNUMP (x), Qfixnump, x)
 #define lisp_h_CHECK_SYMBOL(x) CHECK_TYPE (SYMBOLP (x), Qsymbolp, x)
@@ -391,17 +391,17 @@ typedef EMACS_INT Lisp_Word;
  * What about keeping the part after `symbols_with_pos_enabled` in
  * a separate function?  */
 #define lisp_h_EQ(x, y)                                     \
-  ((XLI ((x)) == XLI ((y)))                                 \
+  (XLI (x) == XLI (y)					    \
    || (symbols_with_pos_enabled                             \
-       && (SYMBOL_WITH_POS_P ((x))                          \
-           ? (BARE_SYMBOL_P ((y))                           \
-              ? XLI (XSYMBOL_WITH_POS((x))->sym) == XLI (y) \
-              : SYMBOL_WITH_POS_P((y))                      \
-                && (XLI (XSYMBOL_WITH_POS((x))->sym)        \
-                    == XLI (XSYMBOL_WITH_POS((y))->sym)))   \
-           : (SYMBOL_WITH_POS_P ((y))                       \
-              && BARE_SYMBOL_P ((x))                        \
-              && (XLI (x) == XLI ((XSYMBOL_WITH_POS ((y)))->sym))))))
+       && (SYMBOL_WITH_POS_P (x)			    \
+           ? (BARE_SYMBOL_P (y)				    \
+              ? XLI (XSYMBOL_WITH_POS (x)->sym) == XLI (y)  \
+              : (SYMBOL_WITH_POS_P (y)			    \
+		 && (XLI (XSYMBOL_WITH_POS (x)->sym)	    \
+		     == XLI (XSYMBOL_WITH_POS (y)->sym))))  \
+           : (SYMBOL_WITH_POS_P (y)			    \
+              && BARE_SYMBOL_P (x)			    \
+              && (XLI (x) == XLI (XSYMBOL_WITH_POS (y)->sym))))))
 
 #define lisp_h_FIXNUMP(x) \
    (! (((unsigned) (XLI (x) >> (USE_LSB_TAG ? 0 : FIXNUM_BITS)) \
@@ -409,6 +409,10 @@ typedef EMACS_INT Lisp_Word;
        & ((1 << INTTYPEBITS) - 1)))
 #define lisp_h_FLOATP(x) TAGGEDP (x, Lisp_Float)
 #define lisp_h_NILP(x)  BASE_EQ (x, Qnil)
+/* Equivalent to "make_lisp_symbol (&lispsym[INDEX])",
+   and typically faster when compiling without optimization.  */
+#define lisp_h_builtin_lisp_symbol(index) \
+  TAG_PTR (Lisp_Symbol, (index) * sizeof *lispsym)
 #define lisp_h_SET_SYMBOL_VAL(sym, v) \
    (eassert ((sym)->u.s.redirect == SYMBOL_PLAINVAL), \
     (sym)->u.s.val.value = (v))
@@ -417,10 +421,10 @@ typedef EMACS_INT Lisp_Word;
 #define lisp_h_SYMBOL_TRAPPED_WRITE_P(sym) (XSYMBOL (sym)->u.s.trapped_write)
 #define lisp_h_SYMBOL_VAL(sym) \
    (eassert ((sym)->u.s.redirect == SYMBOL_PLAINVAL), (sym)->u.s.val.value)
-#define lisp_h_SYMBOL_WITH_POS_P(x) PSEUDOVECTORP ((x), PVEC_SYMBOL_WITH_POS)
-#define lisp_h_BARE_SYMBOL_P(x) TAGGEDP ((x), Lisp_Symbol)
-#define lisp_h_SYMBOLP(x) ((BARE_SYMBOL_P ((x)) ||               \
-                            (symbols_with_pos_enabled && (SYMBOL_WITH_POS_P ((x))))))
+#define lisp_h_SYMBOL_WITH_POS_P(x) PSEUDOVECTORP (x, PVEC_SYMBOL_WITH_POS)
+#define lisp_h_BARE_SYMBOL_P(x) TAGGEDP (x, Lisp_Symbol)
+#define lisp_h_SYMBOLP(x) \
+   (BARE_SYMBOL_P (x) || (symbols_with_pos_enabled && SYMBOL_WITH_POS_P (x)))
 #define lisp_h_TAGGEDP(a, tag) \
    (! (((unsigned) (XLI (a) >> (USE_LSB_TAG ? 0 : VALBITS)) \
 	- (unsigned) (tag)) \
@@ -475,6 +479,7 @@ typedef EMACS_INT Lisp_Word;
 # define FLOATP(x) lisp_h_FLOATP (x)
 # define FIXNUMP(x) lisp_h_FIXNUMP (x)
 # define NILP(x) lisp_h_NILP (x)
+# define builtin_lisp_symbol(index) lisp_h_builtin_lisp_symbol (index)
 # define SET_SYMBOL_VAL(sym, v) lisp_h_SET_SYMBOL_VAL (sym, v)
 # define SYMBOL_CONSTANT_P(sym) lisp_h_SYMBOL_CONSTANT_P (sym)
 # define SYMBOL_TRAPPED_WRITE_P(sym) lisp_h_SYMBOL_TRAPPED_WRITE_P (sym)
@@ -1145,7 +1150,7 @@ XSYMBOL_WITH_POS (Lisp_Object a)
 }
 
 INLINE struct Lisp_Symbol * ATTRIBUTE_NO_SANITIZE_UNDEFINED
-(XBARE_SYMBOL) (Lisp_Object a)
+XBARE_SYMBOL (Lisp_Object a)
 {
   eassert (BARE_SYMBOL_P (a));
   intptr_t i = (intptr_t) XUNTAG (a, Lisp_Symbol, struct Lisp_Symbol);
@@ -1154,12 +1159,14 @@ INLINE struct Lisp_Symbol * ATTRIBUTE_NO_SANITIZE_UNDEFINED
 }
 
 INLINE struct Lisp_Symbol * ATTRIBUTE_NO_SANITIZE_UNDEFINED
-(XSYMBOL) (Lisp_Object a)
+XSYMBOL (Lisp_Object a)
 {
-  eassert (SYMBOLP ((a)));
-  if (!symbols_with_pos_enabled || BARE_SYMBOL_P (a))
-    return XBARE_SYMBOL (a);
-  return XBARE_SYMBOL (XSYMBOL_WITH_POS (a)->sym);
+  if (!BARE_SYMBOL_P (a))
+    {
+      eassert (symbols_with_pos_enabled);
+      a = XSYMBOL_WITH_POS (a)->sym;
+    }
+  return XBARE_SYMBOL (a);
 }
 
 INLINE Lisp_Object
@@ -1169,14 +1176,14 @@ make_lisp_symbol (struct Lisp_Symbol *sym)
      cast to char * rather than to intptr_t.  */
   char *symoffset = (char *) ((char *) sym - (char *) lispsym);
   Lisp_Object a = TAG_PTR (Lisp_Symbol, symoffset);
-  eassert (XSYMBOL (a) == sym);
+  eassert (XBARE_SYMBOL (a) == sym);
   return a;
 }
 
 INLINE Lisp_Object
-builtin_lisp_symbol (int index)
+(builtin_lisp_symbol) (int index)
 {
-  return make_lisp_symbol (&lispsym[index]);
+  return lisp_h_builtin_lisp_symbol (index);
 }
 
 INLINE bool
@@ -1407,19 +1414,19 @@ dead_object (void)
 	    == (PSEUDOVECTOR_FLAG | (code << PSEUDOVECTOR_AREA_BITS))))
 
 #define XSETWINDOW_CONFIGURATION(a, b) \
-  (XSETPSEUDOVECTOR (a, b, PVEC_WINDOW_CONFIGURATION))
-#define XSETPROCESS(a, b) (XSETPSEUDOVECTOR (a, b, PVEC_PROCESS))
-#define XSETWINDOW(a, b) (XSETPSEUDOVECTOR (a, b, PVEC_WINDOW))
-#define XSETTERMINAL(a, b) (XSETPSEUDOVECTOR (a, b, PVEC_TERMINAL))
-#define XSETSUBR(a, b) (XSETPSEUDOVECTOR (a, b, PVEC_SUBR))
-#define XSETBUFFER(a, b) (XSETPSEUDOVECTOR (a, b, PVEC_BUFFER))
-#define XSETCHAR_TABLE(a, b) (XSETPSEUDOVECTOR (a, b, PVEC_CHAR_TABLE))
-#define XSETBOOL_VECTOR(a, b) (XSETPSEUDOVECTOR (a, b, PVEC_BOOL_VECTOR))
-#define XSETSUB_CHAR_TABLE(a, b) (XSETPSEUDOVECTOR (a, b, PVEC_SUB_CHAR_TABLE))
-#define XSETTHREAD(a, b) (XSETPSEUDOVECTOR (a, b, PVEC_THREAD))
-#define XSETMUTEX(a, b) (XSETPSEUDOVECTOR (a, b, PVEC_MUTEX))
-#define XSETCONDVAR(a, b) (XSETPSEUDOVECTOR (a, b, PVEC_CONDVAR))
-#define XSETNATIVE_COMP_UNIT(a, b) (XSETPSEUDOVECTOR (a, b, PVEC_NATIVE_COMP_UNIT))
+  XSETPSEUDOVECTOR (a, b, PVEC_WINDOW_CONFIGURATION)
+#define XSETPROCESS(a, b) XSETPSEUDOVECTOR (a, b, PVEC_PROCESS)
+#define XSETWINDOW(a, b) XSETPSEUDOVECTOR (a, b, PVEC_WINDOW)
+#define XSETTERMINAL(a, b) XSETPSEUDOVECTOR (a, b, PVEC_TERMINAL)
+#define XSETSUBR(a, b) XSETPSEUDOVECTOR (a, b, PVEC_SUBR)
+#define XSETBUFFER(a, b) XSETPSEUDOVECTOR (a, b, PVEC_BUFFER)
+#define XSETCHAR_TABLE(a, b) XSETPSEUDOVECTOR (a, b, PVEC_CHAR_TABLE)
+#define XSETBOOL_VECTOR(a, b) XSETPSEUDOVECTOR (a, b, PVEC_BOOL_VECTOR)
+#define XSETSUB_CHAR_TABLE(a, b) XSETPSEUDOVECTOR (a, b, PVEC_SUB_CHAR_TABLE)
+#define XSETTHREAD(a, b) XSETPSEUDOVECTOR (a, b, PVEC_THREAD)
+#define XSETMUTEX(a, b) XSETPSEUDOVECTOR (a, b, PVEC_MUTEX)
+#define XSETCONDVAR(a, b) XSETPSEUDOVECTOR (a, b, PVEC_CONDVAR)
+#define XSETNATIVE_COMP_UNIT(a, b) XSETPSEUDOVECTOR (a, b, PVEC_NATIVE_COMP_UNIT)
 
 /* Efficiently convert a pointer to a Lisp object and back.  The
    pointer is represented as a fixnum, so the garbage collector
@@ -2518,8 +2525,13 @@ struct Lisp_Hash_Table
   struct Lisp_Hash_Table *next_weak;
 } GCALIGNED_STRUCT;
 
+/* A specific Lisp_Object that is not a valid Lisp value.
+   We need to be careful not to leak this value into machinery
+   where it may be treated as one; we'd get a segfault if lucky.  */
+#define INVALID_LISP_VALUE make_lisp_ptr (NULL, Lisp_Float)
+
 /* Key value that marks an unused hash table entry.  */
-#define HASH_UNUSED_ENTRY_KEY Qunbound
+#define HASH_UNUSED_ENTRY_KEY INVALID_LISP_VALUE
 
 /* KEY is a key of an unused hash table entry.  */
 INLINE bool
@@ -2542,7 +2554,7 @@ XHASH_TABLE (Lisp_Object a)
 }
 
 #define XSET_HASH_TABLE(VAR, PTR) \
-     (XSETPSEUDOVECTOR (VAR, PTR, PVEC_HASH_TABLE))
+  XSETPSEUDOVECTOR (VAR, PTR, PVEC_HASH_TABLE)
 
 /* Value is the key part of entry IDX in hash table H.  */
 INLINE Lisp_Object
@@ -2581,6 +2593,14 @@ hash_from_key (struct Lisp_Hash_Table *h, Lisp_Object key)
 {
   return h->test->hashfn (key, h);
 }
+
+/* Hash table iteration construct (roughly an inlined maphash):
+   Iterate IDXVAR as index over valid entries of TABLE.
+   The body may remove the current entry or alter its value slot, but not
+   mutate TABLE in any other way.  */
+#define DOHASH(TABLE, IDXVAR)						\
+  for (ptrdiff_t IDXVAR = 0; IDXVAR < (TABLE)->table_size; IDXVAR++)	\
+    if (!hash_unused_entry_key_p (HASH_KEY (TABLE, IDXVAR)))
 
 void hash_table_thaw (Lisp_Object hash_table);
 
@@ -4475,7 +4495,7 @@ extern void syms_of_alloc (void);
 extern struct buffer *allocate_buffer (void) ATTRIBUTE_RETURNS_NONNULL;
 extern int valid_lisp_object_p (Lisp_Object);
 
-void *hash_table_alloc_bytes (ptrdiff_t nbytes);
+void *hash_table_alloc_bytes (ptrdiff_t nbytes) ATTRIBUTE_MALLOC_SIZE ((1));
 void hash_table_free_bytes (void *p, ptrdiff_t nbytes);
 
 /* Defined in gmalloc.c.  */

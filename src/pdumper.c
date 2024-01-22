@@ -1337,9 +1337,7 @@ dump_object_needs_dumping_p (Lisp_Object object)
      included in the dump despite all references to them being
      bitwise-invariant.  */
   return (!dump_object_self_representing_p (object)
-	  || (dump_object_emacs_ptr (object)
-	      /* Don't dump Qunbound -- it's not a legal hash table key.  */
-	      && !BASE_EQ (object, Qunbound)));
+	  || dump_object_emacs_ptr (object));
 }
 
 static void
@@ -2553,19 +2551,6 @@ dump_symbol (struct dump_context *ctx,
   return offset;
 }
 
-/* Give Qunbound its name.
-   All other symbols are dumped and loaded but not Qunbound because it
-   cannot be used as a key in a hash table.
-   FIXME: A better solution would be to use a value other than Qunbound
-   as a marker for unused entries in hash tables.  */
-static void
-pdumper_init_symbol_unbound (void)
-{
-  eassert (NILP (SYMBOL_NAME (Qunbound)));
-  const char *name = "unbound";
-  init_symbol (Qunbound, make_pure_c_string (name, strlen (name)));
-}
-
 static dump_off
 dump_vectorlike_generic (struct dump_context *ctx,
 			 const union vectorlike_header *header)
@@ -2752,7 +2737,7 @@ dump_hash_table_contents (struct dump_context *ctx, struct Lisp_Hash_Table *h)
 static dump_off
 dump_hash_table (struct dump_context *ctx, Lisp_Object object)
 {
-#if CHECK_STRUCTS && !defined HASH_Lisp_Hash_Table_6D63EDB618
+#if CHECK_STRUCTS && !defined HASH_Lisp_Hash_Table_313A489F0A
 # error "Lisp_Hash_Table changed. See CHECK_STRUCTS comment in config.h."
 #endif
   const struct Lisp_Hash_Table *hash_in = XHASH_TABLE (object);
@@ -2784,7 +2769,7 @@ dump_hash_table (struct dump_context *ctx, Lisp_Object object)
 static dump_off
 dump_buffer (struct dump_context *ctx, const struct buffer *in_buffer)
 {
-#if CHECK_STRUCTS && !defined HASH_buffer_EB0A5191C5
+#if CHECK_STRUCTS && !defined HASH_buffer_EBBA38AEFA
 # error "buffer changed. See CHECK_STRUCTS comment in config.h."
 #endif
   struct buffer munged_buffer = *in_buffer;
@@ -5766,8 +5751,6 @@ pdumper_load (const char *dump_filename, char *argv0)
      initialization.  */
   for (int i = 0; i < nr_dump_hooks; ++i)
     dump_hooks[i] ();
-
-  pdumper_init_symbol_unbound ();
 
 #ifdef HAVE_NATIVE_COMP
   pdumper_set_emacs_execdir (argv0);
