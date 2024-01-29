@@ -6291,11 +6291,10 @@ android_make_lisp_symbol (struct Lisp_Symbol *sym)
   intptr_t symoffset;
 
   symoffset = (intptr_t) sym;
-  INT_SUBTRACT_WRAPV (symoffset, (intptr_t) &lispsym,
-		      &symoffset);
+  ckd_sub (&symoffset, symoffset, (intptr_t) &lispsym);
 
   {
-    Lisp_Object a = TAG_PTR (Lisp_Symbol, symoffset);
+    Lisp_Object a = TAG_PTR_INITIALLY (Lisp_Symbol, symoffset);
     return a;
   }
 }
@@ -6594,6 +6593,8 @@ garbage_collect (void)
   mark_terminals ();
   mark_kboards ();
   mark_threads ();
+  mark_charset ();
+  mark_composite ();
   mark_profiler ();
 #ifdef HAVE_PGTK
   mark_pgtkterm ();
