@@ -1,7 +1,6 @@
 ;;; subr.el --- basic lisp subroutines for Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1985-1986, 1992, 1994-1995, 1999-2024 Free Software
-;; Foundation, Inc.
+;; Copyright (C) 1985-2024 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: internal
@@ -2022,6 +2021,8 @@ instead; it will indirectly limit the specpdl stack size as well.")
                         "29.1")
 
 (defvaralias 'native-comp-deferred-compilation 'native-comp-jit-compilation)
+
+(define-obsolete-function-alias 'fetch-bytecode #'ignore "30.1")
 
 
 ;;;; Alternate names for functions - these are not being phased out.
@@ -6733,6 +6734,8 @@ effectively rounded up."
     ;; Force a call to `message' now.
     (progress-reporter-update reporter (or current-value min-value))
     reporter))
+
+(defalias 'progress-reporter-make #'make-progress-reporter)
 
 (defun progress-reporter-force-update (reporter &optional value new-message suffix)
   "Report progress of an operation in the echo area unconditionally.
