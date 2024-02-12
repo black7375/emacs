@@ -2476,6 +2476,25 @@ there is no mouse.  */)
 #endif
 }
 
+DEFUN ("android-detect-keyboard", Fandroid_detect_keyboard,
+       Sandroid_detect_keyboard, 0, 0, 0,
+       doc: /* Return whether a keyboard is connected.
+Return non-nil if a key is connected to this computer, or nil
+if there is no keyboard.  */)
+  (void)
+{
+#ifndef ANDROID_STUBIFY
+  /* If no display connection is present, just return nil.  */
+
+  if (!android_init_gui)
+    return Qnil;
+
+  return android_detect_keyboard () ? Qt : Qnil;
+#else /* ANDROID_STUBIFY */
+  return Qt;
+#endif /* ANDROID_STUBIFY */
+}
+
 DEFUN ("android-toggle-on-screen-keyboard",
        Fandroid_toggle_on_screen_keyboard,
        Sandroid_toggle_on_screen_keyboard, 2, 2, 0,
@@ -3197,6 +3216,10 @@ syms_of_androidfns_for_pdumper (void)
   jstring string;
   Lisp_Object language, country, script, variant;
   const char *data;
+  FILE *fd;
+  char *line;
+  size_t size;
+  long pid;
 
   /* Find the Locale class.  */
 
@@ -3367,6 +3390,35 @@ syms_of_androidfns_for_pdumper (void)
 
   /* Set Vandroid_os_language.  */
   Vandroid_os_language = list4 (language, country, script, variant);
+
+  /* Detect whether Emacs is running under libloader.so or another
+     process tracing mechanism, and disable `android_use_exec_loader' if
+     so, leaving subprocesses started by Emacs to the care of that
+     loader instance.  */
+
+  if (android_get_current_api_level () >= 29) /* Q */
+    {
+      fd = fopen ("/proc/self/status", "r");
+      if (!fd)
+	return;
+
+      line = NULL;
+      while (getline (&line, &size, fd) != -1)
+	{
+	  if (strncmp (line, "TracerPid:", sizeof "TracerPid:" - 1))
+	    continue;
+
+	  pid = atol (line + sizeof "TracerPid:" - 1);
+
+	  if (pid)
+	    android_use_exec_loader = false;
+
+	  break;
+	}
+
+      free (line);
+      fclose (fd);
+    }
 }
 
 #endif /* ANDROID_STUBIFY */
@@ -3560,6 +3612,7 @@ language to be US English if LANGUAGE is empty.  */);
   defsubr (&Sx_show_tip);
   defsubr (&Sx_hide_tip);
   defsubr (&Sandroid_detect_mouse);
+  defsubr (&Sandroid_detect_keyboard);
   defsubr (&Sandroid_toggle_on_screen_keyboard);
   defsubr (&Sx_server_vendor);
   defsubr (&Sx_server_version);
