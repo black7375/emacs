@@ -130,6 +130,13 @@ the signature) the automatically inferred function type as well.
 This user option controls outline visibility in the output buffer of
 'describe-bindings' when 'describe-bindings-outline' is non-nil.
 
+** Outline Mode
+
++++
+*** 'outline-minor-mode' is supported in tree-sitter major modes.
+It can be used in all tree-sitter major modes that set either the
+variable 'treesit-simple-imenu-settings' or 'treesit-outline-predicate'.
+
 ** X selection requests are now handled much faster and asynchronously.
 This means it should be less necessary to disable the likes of
 'select-active-regions' when Emacs is running over a slow network
@@ -422,6 +429,11 @@ respectively, in addition to the existing translations 'C-x 8 / e' and
 
 
 * Changes in Specialized Modes and Packages in Emacs 30.1
+
+---
+** Titdic-cnv
+Most of the variables and functions in the file have been renamed to
+make sure they all use a 'tit-' namespace prefix.
 
 ---
 ** Trace
@@ -1329,6 +1341,10 @@ in Buffer menu mode.
 *** New command 'customize-dirlocals'.
 This command pops up a buffer to edit the settings in ".dir-locals.el".
 
+---
+** New command 'customize-toggle-option'.
+This command can toggle boolean options for the duration of a session.
+
 ** Calc
 
 +++
@@ -1340,6 +1356,22 @@ fraction.  You may also be interested to know that precomposed fraction
 characters, such as ½ (U+00BD VULGAR FRACTION ONE HALF), are also
 recognized as rational fractions.  They have been since 2004, but it
 looks like it was never mentioned in the NEWS, or even the manual.
+
+** IELM
+
+---
+*** IELM now remembers input history between sessions.
+The new user option 'ielm-history-file-name' is the name of the file
+where IELM input history will be saved.  Customize it to nil to revert
+to the old behavior of not remembering input history between sessions.
+
+** EasyPG
+
++++
+*** New user option 'epa-keys-select-method'.
+This allows the user to customize the key selection method, which can be
+either by using a pop-up buffer or from the minibuffer.  The pop-up
+buffer method is the default, which preserves previous behavior.
 
 
 * New Modes and Packages in Emacs 30.1
