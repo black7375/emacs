@@ -432,6 +432,10 @@ functions in CJK locales.
 *** New input methods for the Urdu, Pashto, and Sindhi languages.
 These languages are spoken in Pakistan and Afghanistan.
 
+---
+*** New input method "english-colemak".
+This input method supports the Colemak keyboard layout.
+
 *** Additional 'C-x 8' key translations for "æ" and "Æ".
 These characters can now be input with 'C-x 8 a e' and 'C-x 8 A E',
 respectively, in addition to the existing translations 'C-x 8 / e' and
@@ -1357,6 +1361,11 @@ This allows for rcirc logs to use a custom timestamp format, than the
 chat buffers use by default.
 
 ---
+*** New user option 'Buffer-menu-group-by'.
+It controls how buffers are divided into groups that are displayed with
+headings using Outline minor mode.
+
+---
 *** New command 'Buffer-menu-toggle-internal'.
 This command toggles the display of internal buffers in Buffer Menu mode;
 that is, buffers not visiting a file and whose names start with a space.
@@ -1585,6 +1594,10 @@ values.
 
 
 * Lisp Changes in Emacs 30.1
+
+** New var 'major-mode-remap-defaults' and function 'major-mode-remap'.
+The first is like Emacs-29's 'major-mode-remap-alist' but to be set by
+packages (instead of users).  The second looks up those two variables.
 
 +++
 ** Pcase's functions (in 'pred' and 'app') can specify the argument position.
@@ -1960,6 +1973,15 @@ The warning name is 'docstrings-control-chars'.
 *** The warning about wide docstrings can now be disabled separately.
 Its warning name is 'docstrings-wide'.
 
+---
+** New user option 'native-comp-async-warnings-errors-kind'.
+It allows control of what kinds of warnings and errors from asynchronous
+native compilation are reported to the parent Emacs process.  The
+default is to report all errors and only important warnings.  If you
+were used to customizing 'native-comp-async-report-warnings-errors' to
+nil or 'silent', we suggest that you now leave it at its default value,
+and see if you get only warnings that matter.
+
 +++
 ** New function declaration and property 'important-return-value'.
 The declaration '(important-return-value t)' sets the
@@ -2060,6 +2082,10 @@ inside 'treesit-language-source-alist', so that calling
 'treesit-install-language-grammar' would avoid cloning the repository.
 It may be useful, for example, for the purposes of bisecting a
 treesitter grammar.
+
++++
+** New buffer-local variable 'tabulated-list-groups'.
+It controls display and separate sorting of groups of entries.
 
 
 * Changes in Emacs 30.1 on Non-Free Operating Systems

@@ -641,23 +641,10 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
 		  ;; because `file-attributes' reads the values from
 		  ;; there.
 		  (tramp-flush-file-properties v localname)
-		  (unless (if (tramp-adb-file-name-p v)
-			      (tramp-adb-execute-adb-command
-			       v "push"
-			       (file-name-unquote filename)
-			       (file-name-unquote localname))
-			    ;; Otherwise, this operation was initiated
-			    ;; by the androidsu backend, so both files
-			    ;; must be present on the local machine and
-			    ;; transferable with a simple local copy.
-			    (tramp-adb-send-command-and-check
-			     v
-			     (format
-			      "cp -f %s %s"
-			      (tramp-shell-quote-argument
-			       (file-name-unquote filename))
-			      (tramp-shell-quote-argument
-			       (file-name-unquote localname)))))
+		  (unless (tramp-adb-execute-adb-command
+			   v "push"
+			   (file-name-unquote filename)
+			   (file-name-unquote localname))
 		    (tramp-error
 		     v 'file-error
 		     "Cannot copy `%s' `%s'" filename newname)))))))))
@@ -1127,9 +1114,7 @@ error and non-nil on success."
 
 (defun tramp-adb-send-command (vec command &optional neveropen nooutput)
   "Send the COMMAND to connection VEC."
-  (if (and (equal (tramp-file-name-method vec)
-                  tramp-androidsu-method)
-           (string-match-p (rx multibyte) command))
+  (if (string-match-p (rx multibyte) command)
       ;; Multibyte codepoints with four bytes are not supported at
       ;; least by toybox.
 
@@ -1161,8 +1146,8 @@ error and non-nil on success."
 	  (while (search-forward-regexp (rx (+ "\r") eol) nil t)
 	    (replace-match "" nil nil)))))))
 
-(defun tramp-adb-send-command-and-check (vec command &optional exit-status
-                                             command-augmented-p)
+(defun tramp-adb-send-command-and-check
+    (vec command &optional exit-status command-augmented-p)
   "Run COMMAND and check its exit status.
 Sends `echo $?' along with the COMMAND for checking the exit
 status.  If COMMAND is nil, just sends `echo $?'.  Returns nil if
@@ -1175,7 +1160,8 @@ Optional argument EXIT-STATUS, if non-nil, triggers the return of
 the exit status."
   (tramp-adb-send-command
    vec (if command
-	   (if command-augmented-p command
+	   (if command-augmented-p
+               command
              (format "%s; echo tramp_exit_status $?" command))
 	 "echo tramp_exit_status $?"))
   (with-current-buffer (tramp-get-connection-buffer vec)
