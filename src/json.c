@@ -143,7 +143,7 @@ make_symset_table (int bits, struct symset_tbl *up)
   int maxbits = min (SIZE_WIDTH - 2 - (word_size < 8 ? 2 : 3), 32);
   if (bits > maxbits)
     memory_full (PTRDIFF_MAX);	/* Will never happen in practice.  */
-  struct symset_tbl *st = xnmalloc (sizeof *st->entries << bits, sizeof *st);
+  struct symset_tbl *st = xmalloc (sizeof *st + (sizeof *st->entries << bits));
   st->up = up;
   ptrdiff_t size = symset_size (bits);
   for (ptrdiff_t i = 0; i < size; i++)
@@ -598,23 +598,27 @@ DEFUN ("json-serialize", Fjson_serialize, Sjson_serialize, 1, MANY,
        NULL,
        doc: /* Return the JSON representation of OBJECT as a string.
 
-OBJECT must be t, a number, string, vector, hashtable, alist, plist,
-or the Lisp equivalents to the JSON null and false values, and its
-elements must recursively consist of the same kinds of values.  t will
-be converted to the JSON true value.  Vectors will be converted to
-JSON arrays, whereas hashtables, alists and plists are converted to
-JSON objects.  Hashtable keys must be strings, unique within each object.
-Alist and plist keys must be symbols; if a key is duplicate, the first
-instance is used.  A leading colon in plist keys is elided.
+OBJECT is translated as follows:
+
+`t'        -- the JSON `true' value.
+number     -- a JSON number.
+string     -- a JSON string.
+vector     -- a JSON array.
+hash-table -- a JSON object.  Keys must be strings.
+alist      -- a JSON object.  Keys must be symbols.
+plist      -- a JSON object.  Keys must be symbols.
+              A leading colon in plist key names is elided.
+
+For duplicate object keys, the first value is used.
 
 The Lisp equivalents to the JSON null and false values are
 configurable in the arguments ARGS, a list of keyword/argument pairs:
 
-The keyword argument `:null-object' specifies which object to use
-to represent a JSON null value.  It defaults to `:null'.
+:null-object OBJ -- use OBJ to represent a JSON null value.
+  It defaults to `:null'.
 
-The keyword argument `:false-object' specifies which object to use to
-represent a JSON false value.  It defaults to `:false'.
+:false-object OBJ -- use OBJ to represent a JSON false value.
+  It defaults to `:false'.
 
 In you specify the same value for `:null-object' and `:false-object',
 a potentially ambiguous situation, the JSON output will not contain
@@ -631,17 +635,17 @@ usage: (json-serialize OBJECT &rest ARGS)  */)
 DEFUN ("json-insert", Fjson_insert, Sjson_insert, 1, MANY,
        NULL,
        doc: /* Insert the JSON representation of OBJECT before point.
-This is the same as (insert (json-serialize OBJECT)), but potentially
-faster.  See the function `json-serialize' for allowed values of
-OBJECT.
+This is the same as (insert (json-serialize OBJECT ...)), but potentially
+faster, and with the difference that Unicode characters are inserted as
+themselves into multibyte buffers, and as UTF-8 byte sequences into
+unibyte buffers.
+See the function `json-serialize' for allowed values of OBJECT and ARGS.
 usage: (json-insert OBJECT &rest ARGS)  */)
   (ptrdiff_t nargs, Lisp_Object *args)
 {
   specpdl_ref count = SPECPDL_INDEX ();
   json_out_t jo;
   json_serialize (&jo, args[0], nargs - 1, args + 1);
-
-  /* FIXME: All the work below just to insert a string into a buffer?  */
 
   prepare_to_modify_buffer (PT, PT, NULL);
   move_gap_both (PT, PT_BYTE);
@@ -652,48 +656,22 @@ usage: (json-insert OBJECT &rest ARGS)  */)
   /* No need to keep allocation beyond this point.  */
   unbind_to (count, Qnil);
 
-  ptrdiff_t inserted = 0;
+  bool ub_buffer = NILP (BVAR (current_buffer, enable_multibyte_characters));
   ptrdiff_t inserted_bytes = jo.size;
+  ptrdiff_t inserted = ub_buffer ? jo.size : jo.size - jo.chars_delta;
+  eassert (inserted > 0);
 
-  /* If required, decode the stuff we've read into the gap.  */
-  struct coding_system coding;
-  /* JSON strings are UTF-8 encoded strings.  */
-  setup_coding_system (Qutf_8_unix, &coding);
-  coding.dst_multibyte = !NILP (BVAR (current_buffer,
-				      enable_multibyte_characters));
-  if (CODING_MAY_REQUIRE_DECODING (&coding))
-    {
-      /* Now we have all the new bytes at the beginning of the gap,
-	 but `decode_coding_gap` needs them at the end of the gap, so
-	 we need to move them.  */
-      memmove (GAP_END_ADDR - inserted_bytes, GPT_ADDR, inserted_bytes);
-      decode_coding_gap (&coding, inserted_bytes);
-      inserted = coding.produced_char;
-    }
-  else
-    {
-      /* Make the inserted text part of the buffer, as unibyte text.  */
-      eassert (NILP (BVAR (current_buffer, enable_multibyte_characters)));
-      insert_from_gap_1 (inserted_bytes, inserted_bytes, false);
-
-      /* The target buffer is unibyte, so we don't need to decode.  */
-      invalidate_buffer_caches (current_buffer,
-				PT, PT + inserted_bytes);
-      adjust_after_insert (PT, PT_BYTE,
-			   PT + inserted_bytes,
-			   PT_BYTE + inserted_bytes,
-			   inserted_bytes);
-      inserted = inserted_bytes;
-    }
+  insert_from_gap_1 (inserted, inserted_bytes, false);
+  invalidate_buffer_caches (current_buffer, PT, PT + inserted);
+  adjust_after_insert (PT, PT_BYTE, PT + inserted, PT_BYTE + inserted_bytes,
+		       inserted);
 
   /* Call after-change hooks.  */
   signal_after_change (PT, 0, inserted);
-  if (inserted > 0)
-    {
-      update_compositions (PT, PT, CHECK_BORDER);
-      /* Move point to after the inserted text.  */
-      SET_PT_BOTH (PT + inserted, PT_BYTE + inserted_bytes);
-    }
+
+  update_compositions (PT, PT, CHECK_BORDER);
+  /* Move point to after the inserted text.  */
+  SET_PT_BOTH (PT + inserted, PT_BYTE + inserted_bytes);
 
   return Qnil;
 }
@@ -1077,7 +1055,7 @@ json_parse_string (struct json_parser *parser, bool intern, bool leading_colon)
   json_byte_workspace_reset (parser);
   if (leading_colon)
     json_byte_workspace_put (parser, ':');
-  ptrdiff_t chars_delta = 0;	/* nchars - nbytes */
+  ptrdiff_t chars_delta = 0;	/* nbytes - nchars */
   for (;;)
     {
       /* This if is only here for a possible speedup.  If there are 4
@@ -1118,15 +1096,16 @@ json_parse_string (struct json_parser *parser, bool intern, bool leading_colon)
 	  ptrdiff_t nbytes
 	    = parser->byte_workspace_current - parser->byte_workspace;
 	  ptrdiff_t nchars = nbytes - chars_delta;
-	  const char *str = (const char *)parser->byte_workspace;
-	  return intern ? intern_c_multibyte (str, nchars, nbytes)
-	                : make_multibyte_string (str, nchars, nbytes);
+	  const char *str = (const char *) parser->byte_workspace;
+	  return (intern
+		  ? intern_c_multibyte (str, nchars, nbytes)
+		  : make_multibyte_string (str, nchars, nbytes));
 	}
 
       if (c & 0x80)
 	{
 	  /* Parse UTF-8, strictly.  This is the correct thing to do
-	     whether or not the input is a unibyte or multibyte string.  */
+	     whether the input is a unibyte or multibyte string.  */
 	  json_byte_workspace_put (parser, c);
 	  unsigned char c1 = json_input_get (parser);
 	  if ((c1 & 0xc0) != 0x80)
@@ -1436,7 +1415,6 @@ json_parse_array (struct json_parser *parser)
       if (parser->available_depth < 0)
 	json_signal_error (parser, Qjson_object_too_deep);
 
-      size_t number_of_elements = 0;
       Lisp_Object *cdr = &result;
       /* This loop collects the array elements in the object workspace
        */
@@ -1463,8 +1441,6 @@ json_parse_array (struct json_parser *parser)
 	    }
 
 	  c = json_skip_whitespace (parser);
-
-	  number_of_elements++;
 	  if (c == ']')
 	    {
 	      parser->available_depth++;
@@ -1598,8 +1574,7 @@ json_parse_object (struct json_parser *parser)
     case json_object_hashtable:
       {
 	EMACS_INT value = (parser->object_workspace_current - first) / 2;
-	result = CALLN (Fmake_hash_table, QCtest, Qequal, QCsize,
-			make_fixed_natnum (value));
+	result = make_hash_table (&hashtest_equal, value, Weak_None, false);
 	struct Lisp_Hash_Table *h = XHASH_TABLE (result);
 	for (size_t i = first; i < parser->object_workspace_current; i += 2)
 	  {
@@ -1734,31 +1709,30 @@ json_parse (struct json_parser *parser,
 
 DEFUN ("json-parse-string", Fjson_parse_string, Sjson_parse_string, 1, MANY,
        NULL,
-       doc: /* Parse the JSON STRING into a Lisp object.
+       doc: /* Parse the JSON STRING into a Lisp value.
 This is essentially the reverse operation of `json-serialize', which
-see.  The returned object will be the JSON null value, the JSON false
-value, t, a number, a string, a vector, a list, a hashtable, an alist,
-or a plist.  Its elements will be further objects of these types.  If
-there are duplicate keys in an object, all but the last one are
-ignored.  If STRING doesn't contain a valid JSON object, this function
+see.  The returned value will be the JSON null value, the JSON false
+value, t, a number, a string, a vector, a list, a hash-table, an alist,
+or a plist.  Its elements will be further values of these types.
+If STRING doesn't contain a valid JSON value, this function
 signals an error of type `json-parse-error'.
 
 The arguments ARGS are a list of keyword/argument pairs:
 
-The keyword argument `:object-type' specifies which Lisp type is used
-to represent objects; it can be `hash-table', `alist' or `plist'.  It
-defaults to `hash-table'.  If an object has members with the same
-key, `hash-table' keeps only the last value of such keys, while
-`alist' and `plist' keep all the members.
+:object-type TYPE -- use TYPE to represent JSON objects.
+  TYPE can be `hash-table' (the default), `alist' or `plist'.
+  If an object has members with the same key, `hash-table' keeps only
+  the last value of such keys, while `alist' and `plist' keep all the
+  members.
 
-The keyword argument `:array-type' specifies which Lisp type is used
-to represent arrays; it can be `array' (the default) or `list'.
+:array-type TYPE -- use TYPE to represent JSON arrays.
+  TYPE can be `array' (the default) or `list'.
 
-The keyword argument `:null-object' specifies which object to use
-to represent a JSON null value.  It defaults to `:null'.
+:null-object OBJ -- use OBJ to represent a JSON null value.
+  It defaults to `:null'.
 
-The keyword argument `:false-object' specifies which object to use to
-represent a JSON false value.  It defaults to `:false'.
+:false-object OBJ -- use OBJ to represent a JSON false value.
+  It defaults to `:false'.
 usage: (json-parse-string STRING &rest ARGS) */)
 (ptrdiff_t nargs, Lisp_Object *args)
 {
@@ -1782,35 +1756,34 @@ usage: (json-parse-string STRING &rest ARGS) */)
 
 DEFUN ("json-parse-buffer", Fjson_parse_buffer, Sjson_parse_buffer,
        0, MANY, NULL,
-       doc: /* Read JSON object from current buffer starting at point.
-Move point after the end of the object if parsing was successful.
+       doc: /* Read a JSON value from current buffer starting at point.
+Move point after the end of the value if parsing was successful.
 On error, don't move point.
 
-The returned object will be a vector, list, hashtable, alist, or
+The returned value will be a vector, list, hashtable, alist, or
 plist.  Its elements will be the JSON null value, the JSON false
 value, t, numbers, strings, or further vectors, lists, hashtables,
-alists, or plists.  If there are duplicate keys in an object, all
-but the last one are ignored.
+alists, or plists.
 
-If the current buffer doesn't contain a valid JSON object, the
+If the current buffer doesn't contain a valid JSON value, the
 function signals an error of type `json-parse-error'.
 
 The arguments ARGS are a list of keyword/argument pairs:
 
-The keyword argument `:object-type' specifies which Lisp type is used
-to represent objects; it can be `hash-table', `alist' or `plist'.  It
-defaults to `hash-table'.  If an object has members with the same
-key, `hash-table' keeps only the last value of such keys, while
-`alist' and `plist' keep all the members.
+:object-type TYPE -- use TYPE to represent JSON objects.
+  TYPE can be `hash-table' (the default), `alist' or `plist'.
+  If an object has members with the same key, `hash-table' keeps only
+  the last value of such keys, while `alist' and `plist' keep all the
+  members.
 
-The keyword argument `:array-type' specifies which Lisp type is used
-to represent arrays; it can be `array' (the default) or `list'.
+:array-type TYPE -- use TYPE to represent JSON arrays.
+  TYPE can be `array' (the default) or `list'.
 
-The keyword argument `:null-object' specifies which object to use
-to represent a JSON null value.  It defaults to `:null'.
+:null-object OBJ -- use OBJ to represent a JSON null value.
+  It defaults to `:null'.
 
-The keyword argument `:false-object' specifies which object to use to
-represent a JSON false value.  It defaults to `:false'.
+:false-object OBJ -- use OBJ to represent a JSON false value.
+  It defaults to `:false'.
 usage: (json-parse-buffer &rest args) */)
 (ptrdiff_t nargs, Lisp_Object *args)
 {

@@ -291,9 +291,24 @@ right-aligned to is controlled by the new user option
 
 ** Windows
 
++++
+*** New action alist entry 'category' for 'display-buffer'.
+If the caller of 'display-buffer' passes '(category . symbol)'
+in its 'action' argument, you can match the displayed buffer
+by adding '(category . symbol)' to the condition part of
+'display-buffer-alist' entries.
+
++++
 *** New action alist entry 'post-command-select-window' for 'display-buffer'.
 It specifies whether the window of the displayed buffer should be
 selected or deselected at the end of executing the current command.
+
+---
+*** User option 'display-comint-buffer-action' is now obsolete.
+You can use a '(category . comint)' condition in 'display-buffer-alist'
+to match buffers displayed by comint-related commands.  Another
+user option 'display-tex-shell-buffer-action' is obsolete too
+for which you can use '(category . tex-shell)'.
 
 +++
 *** New variable 'window-restore-killed-buffer-windows'.
@@ -301,7 +316,23 @@ It specifies how 'set-window-configuration' and 'window-state-put'
 should proceed with windows whose buffer was killed after the
 corresponding configuration or state was recorded.
 
+*** New variable 'window-point-context-set-function'.
+It can be used to set a context for window point in all windows by
+'window-point-context-set' before calling 'current-window-configuration'
+and 'window-state-get'.  Then later another new variable
+'window-point-context-use-function' can be used by
+'window-point-context-use' after 'set-window-configuration' and
+'window-state-put' to restore positions of window points
+according to the context stored in a window parameter.
+
 ** Tab Bars and Tab Lines
+
+---
+*** New user option 'tab-bar-select-restore-context'.
+It uses 'window-point-context-set' to save contexts where
+window points were located before switching away from the tab,
+and 'window-point-context-use' to restore positions of window
+points after switching back to that tab.
 
 ---
 *** New user option 'tab-bar-select-restore-windows'.
@@ -317,6 +348,12 @@ the appearance of every tab on the tab bar.
 
 ---
 *** New hook 'tab-bar-tab-post-select-functions'.
+
+---
+*** New keymap 'tab-bar-mode-map'.
+By default it contains a keybinding 'C-TAB' to switch tabs,
+but only when 'C-TAB' is not bound globally.  You can unbind it
+if it conflicts with 'C-TAB' in other modes.
 
 +++
 ** New optional argument for modifying directory-local variables.
@@ -1721,8 +1758,16 @@ Use a float value for the first argument instead.
 Instead, use 'eshell-process-wait-time', which supports floating-point
 values.
 
+** JSON
+
 ---
-** The JSON parser sometimes signals different types of errors.
+*** The parser keeps duplicated object keys in alist and plist output.
+A JSON object such as '{"a":1,"a":2}' will now be translated into the
+Lisp values '((a . 1) (a . 2))' or '(:a 1 :a 2)' if alist or plist
+object types are requested.
+
+---
+*** The parser sometimes signals different types of errors.
 It will now signal 'json-utf8-decode-error' for inputs that are not
 correctly UTF-8 encoded.
 
@@ -1883,6 +1928,11 @@ conditions.
 The new function 'haiku-notifications-notify' provides a subset of the
 capabilities of the 'notifications-notify' function in a manner
 analogous to 'w32-notification-notify'.
+
+** New variable 'haiku-pass-control-tab-to-system'.
+This sets whether Emacs should pass C-TAB on to the system instead of
+handling it, fixing a problem where window switching would not activate
+if an Emacs frame had focus on the Haiku operation system.
 
 +++
 ** New value 'if-regular' for the REPLACE argument to 'insert-file-contents'.
@@ -2325,6 +2375,39 @@ arguments.  (Previously the 'old-object' argument was required which, in
 this case, would mean repeating the object in the argument list.)  When
 replacing an object with a different one, passing both the new and old
 objects is still necessary.
+
+---
+** The JSON encoder and decoder now accept arbitarily large integers.
+Previously, they were limited to the range of signed 64-bit integers.
+
+** New tree-sitter functions and variables for defining and using "things"
+
++++
+*** New variable 'treesit-thing-settings'.
+
+New variable that allows users to define "things" like 'defun', 'text',
+'sexp', for navigation commands and tree-traversal functions.
+
++++
+*** New navigation functions 'treesit-thing-prev', 'treesit-thing-next', 'treesit-navigate-thing', 'treesit-beginning-of-thing', 'treesit-end-of-thing'.
+
++++
+*** New functions 'treesit-thing-at', 'treesit-thing-at-point'.
+
++++
+*** Tree-tarversing functions 'treesit-search-subtree', 'treesit-search-forward', 'treesit-search-forward-goto', 'treesit-induce-sparse-tree' now accepts more kinds of predicates.
+
+Now users can use thing symbols (defined in 'treesit-thing-settings'),
+and any thing definitions for the predicate argument.
+
+** Other tree-sitter function and variable changes
+
++++
+*** 'treesit-parser-list' now takes additional optional arguments, LANGUAGE and TAG.
+
+If LANGUAGE is given, only return parsers for that language.  If TAG is
+given, only return parsers with that tag.  Note that passing nil as tag
+doesn't mean return all parsers, but rather "all parsers with no tags".
 
 
 * Changes in Emacs 30.1 on Non-Free Operating Systems
