@@ -182,11 +182,11 @@ public final class EmacsService extends Service
 	manager = (NotificationManager) tem;
 	infoBlurb = ("This notification is displayed to keep Emacs"
 		     + " running while it is in the background.  You"
-		     + " may disable it if you want;"
+		     + " may disable it if you wish;"
 		     + " see (emacs)Android Environment.");
 	channel
 	  = new NotificationChannel ("emacs", "Emacs Background Service",
-				     NotificationManager.IMPORTANCE_DEFAULT);
+				     NotificationManager.IMPORTANCE_LOW);
 	manager.createNotificationChannel (channel);
 	notification = (new Notification.Builder (this, "emacs")
 			.setContentTitle ("Emacs")
@@ -234,6 +234,8 @@ public final class EmacsService extends Service
     final double scaledDensity;
     double tempScaledDensity;
 
+    super.onCreate ();
+
     SERVICE = this;
     handler = new Handler (Looper.getMainLooper ());
     manager = getAssets ();
@@ -247,9 +249,9 @@ public final class EmacsService extends Service
     resolver = getContentResolver ();
     mainThread = Thread.currentThread ();
 
-    /* If the density used to compute the text size is lesser than
-       160, there's likely a bug with display density computation.
-       Reset it to 160 in that case.
+    /* If the density used to compute the text size is smaller than 160,
+       there's likely a bug with display density computation.  Reset it
+       to 160 in that case.
 
        Note that Android uses 160 ``dpi'' as the density where 1 point
        corresponds to 1 pixel, not 72 or 96 as used elsewhere.  This
@@ -261,6 +263,10 @@ public final class EmacsService extends Service
     /* scaledDensity is const as required to refer to it from within
        the nested function below.  */
     scaledDensity = tempScaledDensity;
+
+    /* Remove all tasks from previous Emacs sessions but the task
+       created by the system at startup.  */
+    EmacsWindowManager.MANAGER.removeOldTasks (this);
 
     try
       {
