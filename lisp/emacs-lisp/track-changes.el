@@ -3,6 +3,8 @@
 ;; Copyright (C) 2024  Free Software Foundation, Inc.
 
 ;; Author: Stefan Monnier <monnier@iro.umontreal.ca>
+;; Version: 1.1
+;; Package-Requires: ((emacs "24"))
 
 ;; This file is part of GNU Emacs.
 
@@ -92,7 +94,7 @@
 ;;;; Internal types and variables.
 
 (cl-defstruct (track-changes--tracker
-               (:noinline t)
+               ;; (:noinline t) ;Requires Emacs≥27
                (:constructor nil)
                (:constructor track-changes--tracker ( signal state
                                                       &optional
@@ -100,7 +102,7 @@
   signal state nobefore immediate)
 
 (cl-defstruct (track-changes--state
-               (:noinline t)
+               ;; (:noinline t) ;Requires Emacs≥27
                (:constructor nil)
                (:constructor track-changes--state ()))
   "Object holding a description of a buffer state.
@@ -163,6 +165,14 @@ More specifically it indicates which \"before\" they hold.
 This is used to try and detect cases where buffer modifications are \"lost\".")
 
 ;;;; Exposed API.
+
+(defvar track-changes-record-errors
+  ;; By default, record errors only for non-release versions, because we
+  ;; presume that these might be too old to receive fixes, so better not
+  ;; annoy the user too much about errors.
+  (string-match "\\..*\\." emacs-version)
+  "If non-nil, keep track of errors in `before/after-chage-functions' calls.
+The errors are kept in `track-changes--error-log'.")
 
 (cl-defun track-changes-register ( signal &key nobefore disjoint immediate)
   "Register a new tracker whose change-tracking function is SIGNAL.
@@ -335,23 +345,27 @@ and re-enable the TRACKER corresponding to ID."
                             (substring before (- (length before)
                                                  (- endb prevend)))))
               (setq lenbefore (length before)))))))
-    (if (null beg)
-        (progn
-          (cl-assert (null states))
-          (cl-assert (memq id track-changes--clean-trackers))
-          (cl-assert (eq (track-changes--tracker-state id)
-                         track-changes--state))
-          ;; Nothing to do.
-          nil)
-      (cl-assert (not (memq id track-changes--clean-trackers)))
-      (cl-assert (<= (point-min) beg end (point-max)))
-      ;; Update the tracker's state *before* running `func' so we don't risk
-      ;; mistakenly replaying the changes in case `func' exits non-locally.
-      (setf (track-changes--tracker-state id) track-changes--state)
-      (unwind-protect (funcall func beg end (or before lenbefore))
-        ;; Re-enable the tracker's signal only after running `func', so
-        ;; as to avoid recursive invocations.
-        (cl-pushnew id track-changes--clean-trackers)))))
+    (unwind-protect
+        (if (null beg)
+            (progn
+              (cl-assert (null states))
+              ;; We may have been called in the middle of another
+              ;; `track-changes-fetch', in which case we may be in a clean
+              ;; state but not yet on `track-changes--clean-trackers'
+              ;;(cl-assert (memq id track-changes--clean-trackers))
+              (cl-assert (eq (track-changes--tracker-state id)
+                             track-changes--state))
+              ;; Nothing to do.
+              nil)
+          (cl-assert (not (memq id track-changes--clean-trackers)))
+          (cl-assert (<= (point-min) beg end (point-max)))
+          ;; Update the tracker's state *before* running `func' so we don't risk
+          ;; mistakenly replaying the changes in case `func' exits non-locally.
+          (setf (track-changes--tracker-state id) track-changes--state)
+          (funcall func beg end (or before lenbefore)))
+      ;; Re-enable the tracker's signal only after running `func', so
+      ;; as to avoid nested invocations.
+      (cl-pushnew id track-changes--clean-trackers))))
 
 ;;;; Auxiliary functions.
 
@@ -408,9 +422,6 @@ and re-enable the TRACKER corresponding to ID."
       (setf (track-changes--state-next track-changes--state) new)
       (setq track-changes--state new)))))
 
-(defvar track-changes--disjoint-threshold 100
-  "Number of chars below which changes are not considered disjoint.")
-
 (defvar track-changes--error-log ()
   "List of errors encountered.
 Each element is a triplet (BUFFER-NAME BACKTRACE RECENT-KEYS).")
@@ -420,12 +431,19 @@ Each element is a triplet (BUFFER-NAME BACKTRACE RECENT-KEYS).")
   ;; elsewhere that causes the before-c-f and after-c-f to be improperly
   ;; paired, or to be skipped altogether.
   ;; Not much we can do, other than force a full re-synchronization.
-  (warn "Missing/incorrect calls to `before/after-change-functions'!!
+  (if (not track-changes-record-errors)
+      (message "Recovering from confusing calls to `before/after-change-functions'!")
+    (warn "Missing/incorrect calls to `before/after-change-functions'!!
 Details logged to `track-changes--error-log'")
-  (push (list (buffer-name)
-              (backtrace-frames 'track-changes--recover-from-error)
-              (recent-keys 'include-cmds))
-        track-changes--error-log)
+    (push (list (buffer-name)
+                (let* ((bf (backtrace-frames
+                            #'track-changes--recover-from-error))
+                       (tail (nthcdr 50 bf)))
+                  (when tail (setcdr tail '...))
+                  bf)
+                (let ((rk (recent-keys 'include-cmds)))
+                  (if (< (length rk) 20) rk (substring rk -20))))
+          track-changes--error-log))
   (setq track-changes--before-clean 'unset)
   (setq track-changes--buffer-size (buffer-size))
   ;; Create a new state disconnected from the previous ones!
@@ -449,11 +467,10 @@ Details logged to `track-changes--error-log'")
           (lambda (pos1 pos2)
             (let ((distance (- pos2 pos1)))
               (when (> distance
-                       (max track-changes--disjoint-threshold
-                            ;; If the distance is smaller than the size of the
-                            ;; current change, then we may as well consider it
-                            ;; as "near".
-                            (length track-changes--before-string)
+                       ;; If the distance is smaller than the size of the
+                       ;; current change, then we may as well consider it
+                       ;; as "near".
+                       (max (length track-changes--before-string)
                             size
                             (- track-changes--before-end
                                track-changes--before-beg)))
@@ -481,42 +498,42 @@ Details logged to `track-changes--error-log'")
                 (funcall signal-if-disjoint end track-changes--before-beg)
               (funcall signal-if-disjoint track-changes--before-end beg)))
           (funcall reset))
-      (cl-assert (save-restriction
-                   (widen)
-                   (<= (point-min)
+      (save-restriction
+        (widen)
+        (cl-assert (<= (point-min)
                        track-changes--before-beg
                        track-changes--before-end
-                       (point-max))))
-      (when (< beg track-changes--before-beg)
-        (if (and track-changes--disjoint-trackers
-                 (funcall signal-if-disjoint end track-changes--before-beg))
-            (funcall reset)
-          (let* ((old-bbeg track-changes--before-beg)
-                 ;; To avoid O(N²) behavior when faced with many small changes,
-                 ;; we copy more than needed.
-                 (new-bbeg (min (max (point-min)
-                                     (- old-bbeg
-                                        (length track-changes--before-string)))
-                                beg)))
-            (setf track-changes--before-beg new-bbeg)
-            (cl-callf (lambda (old new) (concat new old))
-                track-changes--before-string
-              (buffer-substring-no-properties new-bbeg old-bbeg)))))
+                       (point-max)))
+        (when (< beg track-changes--before-beg)
+          (if (and track-changes--disjoint-trackers
+                   (funcall signal-if-disjoint end track-changes--before-beg))
+              (funcall reset)
+            (let* ((old-bbeg track-changes--before-beg)
+                   ;; To avoid O(N²) behavior when faced with many small
+                   ;; changes, we copy more than needed.
+                   (new-bbeg
+                    (min beg (max (point-min)
+                                  (- old-bbeg
+                                     (length track-changes--before-string))))))
+              (setf track-changes--before-beg new-bbeg)
+              (cl-callf (lambda (old new) (concat new old))
+                  track-changes--before-string
+                (buffer-substring-no-properties new-bbeg old-bbeg)))))
 
-      (when (< track-changes--before-end end)
-        (if (and track-changes--disjoint-trackers
-                 (funcall signal-if-disjoint track-changes--before-end beg))
-            (funcall reset)
-          (let* ((old-bend track-changes--before-end)
-                 ;; To avoid O(N²) behavior when faced with many small changes,
-                 ;; we copy more than needed.
-                 (new-bend (max (min (point-max)
-                                     (+ old-bend
-                                        (length track-changes--before-string)))
-                                end)))
-            (setf track-changes--before-end new-bend)
-            (cl-callf concat track-changes--before-string
-              (buffer-substring-no-properties old-bend new-bend))))))))
+        (when (< track-changes--before-end end)
+          (if (and track-changes--disjoint-trackers
+                   (funcall signal-if-disjoint track-changes--before-end beg))
+              (funcall reset)
+            (let* ((old-bend track-changes--before-end)
+                   ;; To avoid O(N²) behavior when faced with many small
+                   ;; changes, we copy more than needed.
+                   (new-bend
+                    (max end (min (point-max)
+                                  (+ old-bend
+                                     (length track-changes--before-string))))))
+              (setf track-changes--before-end new-bend)
+              (cl-callf concat track-changes--before-string
+                (buffer-substring-no-properties old-bend new-bend)))))))))
 
 (defun track-changes--after (beg end len)
   (cl-assert track-changes--state)
@@ -561,8 +578,10 @@ Details logged to `track-changes--error-log'")
 (defun track-changes--call-signal (buf tracker)
   (when (buffer-live-p buf)
     (with-current-buffer buf
-      ;; Silence ourselves if `track-changes-fetch' was called in the mean time.
-      (unless (memq tracker track-changes--clean-trackers)
+      ;; Silence ourselves if `track-changes-fetch' was called
+      ;; or the tracker was unregistered in the mean time.
+      (when (and (not (memq tracker track-changes--clean-trackers))
+                 (memq tracker track-changes--trackers))
         (funcall (track-changes--tracker-signal tracker) tracker)))))
 
 ;;;; Extra candidates for the API.
@@ -621,4 +640,4 @@ Re-arms ID's signal."
   `(track-changes-fetch ,id (lambda ,vars ,@body)))
 
 (provide 'track-changes)
-;;; track-changes.el end here.
+;;; track-changes.el ends here

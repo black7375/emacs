@@ -16863,6 +16863,13 @@ redisplay_internal (void)
 
   redisplay_trace ("redisplay_internal %d\n", redisplaying_p);
 
+  /* I don't think this happens but let's be paranoid.  In particular,
+     this was observed happening when Emacs shuts down due to losing X
+     connection, in which case accessing SELECTED_FRAME and the frame
+     structure is likely to barf.  */
+  if (redisplaying_p)
+    return;
+
   /* No redisplay if running in batch mode or frame is not yet fully
      initialized, or redisplay is explicitly turned off by setting
      Vinhibit_redisplay.  */
@@ -16889,10 +16896,6 @@ redisplay_internal (void)
   if (popup_activated_p)
     return;
 #endif
-
-  /* I don't think this happens but let's be paranoid.  */
-  if (redisplaying_p)
-    return;
 
   /* Record a function that clears redisplaying_p
      when we leave this function.  */
@@ -28857,7 +28860,7 @@ decode_mode_spec (struct window *w, register int c, int field_width,
 	Lisp_Object val = Qnil;
 
 	if (STRINGP (curdir))
-	  val = dsafe_call1 (intern ("file-remote-p"), curdir);
+	  val = dsafe_call1 (Qfile_remote_p, curdir);
 
 	val = unbind_to (count, val);
 
@@ -35767,11 +35770,15 @@ note_fringe_highlight (struct frame *f, Lisp_Object window, int x, int y,
   /* Translate windows coordinates into a vertical window position.  */
   int hpos, vpos, area;
   struct window *w = XWINDOW (window);
-  x_y_to_hpos_vpos (w, x, y, &hpos, &vpos, 0, 0, &area);
+  if (x_y_to_hpos_vpos (w, x, y, &hpos, &vpos, 0, 0, &area) == NULL)
+    return;	/* not all glyph rows between 0 and Y are enabled */
 
-  /* Don't access the TEXT_AREA of a row that does not display text, or
-     when the window is outdated.  (bug#70385) */
-  if (window_outdated (w)
+  /* Don't access the TEXT_AREA of a row that does not display text,
+     when the window is outdated, or when vpos overflows the current
+     matrix.  (bug#70385) */
+  if (!w->window_end_valid
+      || window_outdated (w)
+      || (vpos >= w->current_matrix->nrows)
       || !MATRIX_ROW_DISPLAYS_TEXT_P (MATRIX_ROW (w->current_matrix,
 						  vpos)))
     return;
@@ -38250,6 +38257,9 @@ The default value is zero, which disables this feature.
 The recommended non-zero value is between 100000 and 1000000,
 depending on your patience and the speed of your system.  */);
   max_redisplay_ticks = 0;
+
+  /* Called by decode_mode_spec.  */
+  DEFSYM (Qfile_remote_p, "file-remote-p");
 }
 
 
