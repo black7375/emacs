@@ -177,7 +177,9 @@ static jfieldID emacs_gc_function, emacs_gc_clip_rects;
 static jfieldID emacs_gc_clip_x_origin, emacs_gc_clip_y_origin;
 static jfieldID emacs_gc_stipple, emacs_gc_clip_mask;
 static jfieldID emacs_gc_fill_style, emacs_gc_ts_origin_x;
-static jfieldID emacs_gc_ts_origin_y;
+static jfieldID emacs_gc_ts_origin_y, emacs_gc_line_style;
+static jfieldID emacs_gc_line_width, emacs_gc_dash_offset;
+static jfieldID emacs_gc_dashes;
 
 /* The constructor and one function.  */
 static jmethodID emacs_gc_constructor, emacs_gc_mark_dirty;
@@ -2645,6 +2647,13 @@ NATIVE_NAME (shouldForwardMultimediaButtons) (JNIEnv *env,
   return !android_pass_multimedia_buttons_to_system;
 }
 
+JNIEXPORT jint JNICALL
+NATIVE_NAME (getQuitKeycode) (JNIEnv *env, jobject object)
+{
+  /* Likewise.  */
+  return (jint) android_quit_keycode;
+}
+
 JNIEXPORT jboolean JNICALL
 NATIVE_NAME (shouldForwardCtrlSpace) (JNIEnv *env, jobject object)
 {
@@ -3247,6 +3256,22 @@ android_init_emacs_gc_class (void)
     = (*android_java_env)->GetFieldID (android_java_env,
 				       emacs_gc_class,
 				       "ts_origin_y", "I");
+  emacs_gc_line_style
+    = (*android_java_env)->GetFieldID (android_java_env,
+				       emacs_gc_class,
+				       "line_style", "I");
+  emacs_gc_line_width
+    = (*android_java_env)->GetFieldID (android_java_env,
+				       emacs_gc_class,
+				       "line_width", "I");
+  emacs_gc_dash_offset
+    = (*android_java_env)->GetFieldID (android_java_env,
+				       emacs_gc_class,
+				       "dash_offset", "I");
+  emacs_gc_dashes
+    = (*android_java_env)->GetFieldID (android_java_env,
+				       emacs_gc_class,
+				       "dashes", "[I");
 }
 
 struct android_gc *
@@ -3278,6 +3303,11 @@ android_create_gc (enum android_gc_value_mask mask,
   gc->stipple = ANDROID_NONE;
   gc->ts_x_origin = 0;
   gc->ts_y_origin = 0;
+  gc->line_style = ANDROID_LINE_SOLID;
+  gc->line_width = 0;
+  gc->dash_offset = 0;
+  gc->dashes = NULL;
+  gc->n_segments = 0;
 
   if (!gc->gcontext)
     {
@@ -3316,6 +3346,7 @@ android_free_gc (struct android_gc *gc)
 {
   android_destroy_handle (gc->gcontext);
 
+  xfree (gc->dashes);
   xfree (gc->clip_rects);
   xfree (gc);
 }
@@ -3325,7 +3356,7 @@ android_change_gc (struct android_gc *gc,
 		   enum android_gc_value_mask mask,
 		   struct android_gc_values *values)
 {
-  jobject what, gcontext;
+  jobject what, gcontext, array;
   jboolean clip_changed;
 
   clip_changed = false;
@@ -3441,6 +3472,59 @@ android_change_gc (struct android_gc *gc,
       gc->ts_y_origin = values->ts_y_origin;
     }
 
+  if (mask & ANDROID_GC_LINE_STYLE)
+    {
+      (*android_java_env)->SetIntField (android_java_env,
+					gcontext,
+					emacs_gc_line_style,
+					values->line_style);
+      gc->line_style = values->line_style;
+    }
+
+  if (mask & ANDROID_GC_LINE_WIDTH)
+    {
+      (*android_java_env)->SetIntField (android_java_env,
+					gcontext,
+					emacs_gc_line_width,
+					values->line_width);
+      gc->line_width = values->line_width;
+    }
+
+  if (mask & ANDROID_GC_DASH_OFFSET)
+    {
+      (*android_java_env)->SetIntField (android_java_env,
+					gcontext,
+					emacs_gc_dash_offset,
+					values->dash_offset);
+      gc->dash_offset = values->dash_offset;
+    }
+
+  if (mask & ANDROID_GC_DASH_LIST)
+    {
+      /* Compare the new dash pattern with the old.  */
+      if (gc->dashes && gc->n_segments == 1
+	  && gc->dashes[0] == values->dash)
+	/* If they be identical, nothing needs to change.  */
+	mask &= ~ANDROID_GC_DASH_LIST;
+      else
+	{
+	  if (gc->n_segments != 1)
+	    gc->dashes = xrealloc (gc->dashes, sizeof *gc->dashes);
+	  gc->n_segments = 1;
+	  gc->dashes[0] = values->dash;
+	  array = (*android_java_env)->NewIntArray (android_java_env, 1);
+	  android_exception_check ();
+	  (*android_java_env)->SetIntArrayRegion (android_java_env,
+						  array, 0, 1,
+						  (jint *) &values->dash);
+	  (*android_java_env)->SetObjectField (android_java_env,
+					       gcontext,
+					       emacs_gc_dashes,
+					       array);
+	  ANDROID_DELETE_LOCAL_REF (array);
+	}
+    }
+
   if (mask)
     {
       (*android_java_env)->CallNonvirtualVoidMethod (android_java_env,
@@ -3530,6 +3614,75 @@ android_set_clip_rectangles (struct android_gc *gc, int clip_x_origin,
   gc->num_clip_rects = n_clip_rects;
   memcpy (gc->clip_rects, clip_rects,
 	  n_clip_rects * sizeof *gc->clip_rects);
+}
+
+void
+android_set_dashes (struct android_gc *gc, int dash_offset,
+		    int *dash_list, int n)
+{
+  int i;
+  jobject array, gcontext;
+
+  gcontext = android_resolve_handle (gc->gcontext,
+				     ANDROID_HANDLE_GCONTEXT);
+
+  if (n == gc->n_segments
+      && (!gc->dashes || !memcmp (gc->dashes, dash_list,
+				  sizeof *dash_list * n)))
+    /* No change in the dash list.  */
+    goto set_offset;
+
+  if (!n)
+    {
+      /* Reset the dash list to its initial empty state.  */
+      xfree (gc->dashes);
+      gc->dashes = NULL;
+      array = NULL;
+    }
+  else
+    {
+      /* If the size of the array has not changed, it can be reused.  */
+
+      if (n != gc->n_segments)
+	{
+	  gc->dashes = xrealloc (gc->dashes, sizeof *gc->dashes * n);
+	  array = (*android_java_env)->NewIntArray (android_java_env, n);
+	  android_exception_check ();
+	}
+      else
+	array = (*android_java_env)->GetObjectField (android_java_env,
+						     gcontext,
+						     emacs_gc_dashes);
+
+      /* Copy the list of segments into both arrays.  */
+      for (i = 0; i < n; ++i)
+	gc->dashes[i] = dash_list[i];
+      verify (sizeof (int) == sizeof (jint));
+      (*android_java_env)->SetIntArrayRegion (android_java_env,
+					      array, 0, n,
+					      (jint *) dash_list);
+    }
+
+  /* Replace the dash array in the GContext object if required.  */
+  if (n != gc->n_segments)
+    {
+      (*android_java_env)->SetObjectField (android_java_env,
+					   gcontext,
+					   emacs_gc_dashes,
+					   array);
+      ANDROID_DELETE_LOCAL_REF (array);
+    }
+
+  gc->n_segments = n;
+
+ set_offset:
+  /* And the offset.  */
+  if (dash_offset != gc->dash_offset)
+    (*android_java_env)->SetIntField (android_java_env,
+				      gcontext,
+				      emacs_gc_dash_offset,
+				      dash_offset);
+  gc->dash_offset = dash_offset;
 }
 
 void
@@ -3683,7 +3836,8 @@ android_get_gc_values (struct android_gc *gc,
     values->ts_y_origin = gc->ts_y_origin;
 
   /* Fields involving handles are not used by Emacs, and thus not
-     implemented */
+     implemented.  In addition, the size of GCClipMask and GCDashList is
+     not static, precluding their retrieval.  */
 }
 
 void
@@ -4882,8 +5036,8 @@ android_pixmap
 android_create_bitmap_from_data (char *bits, unsigned int width,
 				 unsigned int height)
 {
-  return android_create_pixmap_from_bitmap_data (bits, 1, 0,
-						 width, height, 1);
+  return android_create_pixmap_from_bitmap_data (bits, width, height,
+						 1, 0, 1);
 }
 
 struct android_image *
@@ -5994,40 +6148,22 @@ android_toggle_on_screen_keyboard (android_window window, bool show)
 
 
 
-#if defined __clang_major__ && __clang_major__ < 5
-# define HAS_BUILTIN_TRAP 0
-#elif 3 < __GNUC__ + (3 < __GNUC_MINOR__ + (4 <= __GNUC_PATCHLEVEL__))
-# define HAS_BUILTIN_TRAP 1
-#elif defined __has_builtin
-# define HAS_BUILTIN_TRAP __has_builtin (__builtin_trap)
-#else /* !__has_builtin */
-# define HAS_BUILTIN_TRAP 0
-#endif /* defined __clang_major__ && __clang_major__ < 5 */
-
 /* emacs_abort implementation for Android.  This logs a stack
    trace.  */
 
 void
 emacs_abort (void)
 {
-#ifndef HAS_BUILTIN_TRAP
   volatile char *foo;
-#endif /* !HAS_BUILTIN_TRAP */
 
   __android_log_print (ANDROID_LOG_FATAL, __func__,
 		       "emacs_abort called, please review the following"
 		       " stack trace");
 
-#ifndef HAS_BUILTIN_TRAP
   /* Induce a NULL pointer dereference to make debuggerd generate a
      tombstone.  */
   foo = NULL;
   *foo = '\0';
-#else /* HAS_BUILTIN_TRAP */
-  /* Crash through __builtin_trap instead.  This appears to more
-     uniformly elicit crash reports from debuggerd.  */
-  __builtin_trap ();
-#endif /* !HAS_BUILTIN_TRAP */
 
   abort ();
 }
