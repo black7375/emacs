@@ -55,6 +55,9 @@
 (with-eval-after-load 'kubernetes-tramp
   (warn (concat "Package `kubernetes-tramp' has been obsoleted, "
 		"please use integrated package `tramp-container'")))
+(with-eval-after-load 'tramp-nspawn
+  (warn (concat "Package `tramp-nspawn' has been obsoleted, "
+		"please use integrated package `tramp-container'")))
 
 ;; For not existing functions, obsolete functions, or functions with a
 ;; changed argument list, there are compiler warnings.  We want to
@@ -293,6 +296,13 @@ Also see `ignore'."
       (declare-function netrc-parse "netrc")
       (autoload 'netrc-parse "netrc")
       (netrc-parse file))))
+
+;; Function `seq-keep' is new in Emacs 29.1.
+(defalias 'tramp-compat-seq-keep
+  (if (fboundp 'seq-keep)
+      #'seq-keep
+    (lambda (function sequence)
+      (delq nil (seq-map function sequence)))))
 
 ;; User option `password-colon-equivalents' is new in Emacs 30.1.
 (if (boundp 'password-colon-equivalents)
