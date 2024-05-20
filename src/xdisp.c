@@ -33616,7 +33616,9 @@ get_window_cursor_type (struct window *w, struct glyph *glyph, int *width,
     {
       if (w == XWINDOW (echo_area_window))
 	{
-	  if (EQ (BVAR (b, cursor_type), Qt) || NILP (BVAR (b, cursor_type)))
+	  if (!EQ (Qt, w->cursor_type))
+	      return get_specified_cursor_type (w->cursor_type, width);
+	  else if (EQ (BVAR (b, cursor_type), Qt) || NILP (BVAR (b, cursor_type)))
 	    {
 	      *width = FRAME_CURSOR_WIDTH (f);
 	      return FRAME_DESIRED_CURSOR (f);
@@ -33643,18 +33645,23 @@ get_window_cursor_type (struct window *w, struct glyph *glyph, int *width,
       non_selected = true;
     }
 
-  /* Never display a cursor in a window in which cursor-type is nil.  */
-  if (NILP (BVAR (b, cursor_type)))
-    return NO_CURSOR;
-
-  /* Get the normal cursor type for this window.  */
-  if (EQ (BVAR (b, cursor_type), Qt))
-    {
-      cursor_type = FRAME_DESIRED_CURSOR (f);
-      *width = FRAME_CURSOR_WIDTH (f);
-    }
+  if (!EQ (Qt, w->cursor_type))
+      cursor_type = get_specified_cursor_type (w->cursor_type, width);
   else
-    cursor_type = get_specified_cursor_type (BVAR (b, cursor_type), width);
+    {
+      /* Never display a cursor in a window in which cursor-type is nil.  */
+      if (NILP (BVAR (b, cursor_type)))
+	return NO_CURSOR;
+
+      /* Get the normal cursor type for this window.  */
+      if (EQ (BVAR (b, cursor_type), Qt))
+	{
+	  cursor_type = FRAME_DESIRED_CURSOR (f);
+	  *width = FRAME_CURSOR_WIDTH (f);
+	}
+      else
+	cursor_type = get_specified_cursor_type (BVAR (b, cursor_type), width);
+    }
 
   /* Use cursor-in-non-selected-windows instead
      for non-selected window or frame.  */
@@ -35733,6 +35740,7 @@ note_mode_line_or_margin_highlight (Lisp_Object window, int x, int y,
   define_frame_cursor1 (f, cursor, pointer);
 }
 
+#ifdef HAVE_WINDOW_SYSTEM
 
 /* Take proper action when mouse has moved to the window WINDOW, with
    window-local x-position X and y-position Y.  This is only used for
@@ -35810,6 +35818,8 @@ note_fringe_highlight (struct frame *f, Lisp_Object window, int x, int y,
 	}
     }
 }
+
+#endif	/* HAVE_WINDOW_SYSTEM */
 
 /* EXPORT:
    Take proper action when the mouse has moved to position X, Y on
