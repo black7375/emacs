@@ -196,7 +196,10 @@ subexpression 10."
                              (funcall bug-reference-url-format)))))))
       ;; Delete remaining but unused overlays.
       (dolist (ov overlays)
-        (delete-overlay ov)))))
+        (delete-overlay ov))
+      ;; Signal the bounds we actually fontified to jit-lock to allow for
+      ;; optimizations (bug#70796).
+      `(jit-lock-bounds ,beg-line . ,end-line))))
 
 ;; Taken from button.el.
 (defun bug-reference-push-button (&optional pos _use-mouse-action)
@@ -658,15 +661,15 @@ have been run, the auto-setup is inhibited.")
 
 (defun bug-reference--url-at-point ()
   "`thing-at-point' provider function."
-  (thing-at-point-for-text-property 'bug-reference-url))
+  (thing-at-point-for-char-property 'bug-reference-url))
 
-(defun bug-reference--forward-url (n)
+(defun bug-reference--forward-url (backward)
   "`forward-thing' provider function."
-  (forward-thing-for-text-property 'bug-reference-url n))
+  (forward-thing-for-char-property 'bug-reference-url backward))
 
 (defun bug-reference--bounds-of-url-at-point ()
   "`bounds-of-thing-at-point' provider function."
-  (bounds-of-thing-at-point-for-text-property 'bug-reference-url))
+  (bounds-of-thing-at-point-for-char-property 'bug-reference-url))
 
 (defun bug-reference--init (enable)
   (if enable

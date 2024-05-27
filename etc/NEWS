@@ -228,7 +228,7 @@ This is used for displaying the time and date components of
 ---
 ** New icon images for general use.
 Several symbolic icons are added to "etc/images/symbols", including
-plus, minus, check-mark, start, etc.
+plus, minus, check-mark, star, etc.
 
 +++
 ** Tool bars can now be placed on the bottom on more systems.
@@ -812,10 +812,14 @@ and a universal command such as "open" or "start"
 that delegates to the OS.
 
 *** New command 'dired-do-open'.
-This command is bound to "Open" in the context menu; it "opens" the
-marked or clicked on files according to the OS conventions.  For
-example, on systems supporting XDG, this runs 'xdg-open' on the
-files.
+This command is bound to 'E' (mnemonics "External").  Also it can be
+used by clicking "Open" in the context menu; it "opens" the marked or
+clicked on files according to the OS conventions.  For example, on
+systems supporting XDG, this runs 'xdg-open' on the files.
+
+*** New variable 'dired-guess-shell-alist-optional'.
+It contains commands for external viewers and players for various media
+formats, moved to this list from 'dired-guess-shell-alist-default'.
 
 *** The default value of 'dired-omit-size-limit' was increased.
 After performance improvements to omitting in large directories, the new
@@ -1066,6 +1070,13 @@ The new user option 'which-func-display' allows choosing where the
 function name is displayed.  The default is 'mode' to display in the
 mode line.  'header' will display in the header line;
 'mode-and-header' displays in both the header line and mode line.
+
++++
+*** New user option 'which-func-update-delay'.
+This replaces the user option 'idle-update-delay', which was previously
+used to control the delay before `which-function-mode` updated its
+display.  The user option 'idle-update-delay', which was only used by
+Which Function mode, is now obsolete.
 
 ** Tramp
 
@@ -1745,9 +1756,9 @@ of 'bounds-of-thing-at-point' and 'forward-thing', respectively.
 
 ---
 *** New helper functions for text property-based thingatpt providers.
-The new helper functions 'thing-at-point-for-text-property',
-'bounds-of-thing-at-point-for-text-property', and
-'forward-thing-for-text-property' can help to help implement custom
+The new helper functions 'thing-at-point-for-char-property',
+'bounds-of-thing-at-point-for-char-property', and
+'forward-thing-for-char-property' can help to help implement custom
 thingatpt providers for "things" that are defined by a text property.
 
 ---
@@ -2232,6 +2243,11 @@ rather than signaling an error.
 ** New variable 'current-key-remap-sequence'.
 It is bound to the key sequence that caused a call to a function bound
 within 'function-key-map' or 'input-decode-map' around those calls.
+
++++
+** The function 'key-translate' can now remove translations.
+If the second argument TO is nil, the existing key translation is
+removed.
 
 +++
 ** New variables describing the names of built in programs.

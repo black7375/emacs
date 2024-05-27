@@ -37,6 +37,7 @@
 (defvar compilation-current-error)
 (defvar compilation-context-lines)
 
+(make-obsolete-variable 'idle-update-delay 'which-func-update-delay "30.1")
 (defcustom idle-update-delay 0.5
   "Idle time delay before updating various things on the screen.
 Various Emacs features that update auxiliary information when point moves
@@ -4863,11 +4864,14 @@ and are used only if a pop-up buffer is displayed."
 ;; We have a sentinel to prevent insertion of a termination message
 ;; in the buffer itself, and to set the point in the buffer when
 ;; `shell-command-dont-erase-buffer' is non-nil.
+;; For remote shells, `process-command' does not serve the proper shell
+;; command.  We use process property `remote-command' instead.  (Bug#71049)
 (defun shell-command-sentinel (process signal)
   (when (memq (process-status process) '(exit signal))
     (shell-command-set-point-after-cmd (process-buffer process))
     (message "%s: %s."
-             (car (cdr (cdr (process-command process))))
+             (car (cdr (cdr (or (process-get process 'remote-command)
+                                (process-command process)))))
              (substring signal 0 -1))))
 
 (defun shell-command-on-region (start end command
@@ -4928,7 +4932,14 @@ interactively, this is t.
 Non-nil REGION-NONCONTIGUOUS-P means that the region is composed of
 noncontiguous pieces.  The most common example of this is a
 rectangular region, where the pieces are separated by newline
-characters."
+characters.
+
+If COMMAND names a shell (e.g., via `shell-file-name'), keep in mind
+that behavior of various shells when commands are piped to their
+standard input is shell- and system-dependent, and thus non-portable.
+The differences are especially prominent when the region includes
+more than one line, i.e. when piping to a shell commands with embedded
+newlines."
   (interactive (let (string)
 		 (unless (mark)
 		   (user-error "The mark is not set now, so there is no region"))
@@ -5110,7 +5121,13 @@ other cases, consider alternatives such as `call-process' or
 `process-lines', which do not invoke the shell.  Consider using
 built-in functions like `rename-file' instead of the external
 command \"mv\".  For more information, see Info node
-`(elisp)Security Considerations'."
+`(elisp)Security Considerations'.
+
+If COMMAND includes several separate commands to run one after
+the other, the separator between the individual commands needs
+to be shell- and system-dependent.  In particular, the MS-Windows
+shell cmd.exe doesn't support commands with embedded newlines;
+use the \"&&\" separator instead."
   (with-output-to-string
     (with-current-buffer standard-output
       (shell-command command t))))

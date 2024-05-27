@@ -1,8 +1,8 @@
 ;;; project.el --- Operations on the current project  -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2015-2024 Free Software Foundation, Inc.
-;; Version: 0.10.0
-;; Package-Requires: ((emacs "26.1") (xref "1.4.0"))
+;; Version: 0.11.0
+;; Package-Requires: ((emacs "26.1") (xref "1.7.0"))
 
 ;; This is a GNU ELPA :core package.  Avoid functionality that is not
 ;; compatible with the version of Emacs recorded above.
@@ -295,7 +295,7 @@ headers search path, load path, class path, and so on."
 Nominally unique, but not enforced."
   (file-name-nondirectory (directory-file-name (project-root project))))
 
-(cl-defgeneric project-ignores (_project _dir)
+(cl-defgeneric project-ignores (_project dir)
   "Return the list of glob patterns to ignore inside DIR.
 Patterns can match both regular files and directories.
 To root an entry, start it with `./'.  To match directories only,
@@ -305,12 +305,15 @@ end it with `/'.  DIR must be either `project-root' or one of
   ;; TODO: Support whitelist entries.
   (require 'grep)
   (defvar grep-find-ignored-files)
+  (declare-function grep-find-ignored-files "grep" (dir))
   (nconc
    (mapcar
     (lambda (dir)
       (concat dir "/"))
     vc-directory-exclusion-list)
-   grep-find-ignored-files))
+   (if (fboundp 'grep-find-ignored-files)
+       (grep-find-ignored-files dir)
+     grep-find-ignored-files)))
 
 (defun project--file-completion-table (all-files)
   (lambda (string pred action)
