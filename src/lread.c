@@ -984,16 +984,6 @@ If `inhibit-interaction' is non-nil, this function will signal an
 	  : make_fixnum (char_resolve_modifier_mask (XFIXNUM (val))));
 }
 
-DEFUN ("get-file-char", Fget_file_char, Sget_file_char, 0, 0, 0,
-       doc: /* Don't use this yourself.  */)
-  (void)
-{
-  if (!infile)
-    error ("get-file-char misused");
-  return make_fixnum (readbyte_from_stdio ());
-}
-
-
 
 
 typedef enum {
@@ -5832,7 +5822,6 @@ syms_of_lread (void)
   defsubr (&Sread_char);
   defsubr (&Sread_char_exclusive);
   defsubr (&Sread_event);
-  defsubr (&Sget_file_char);
   defsubr (&Smapatoms);
   defsubr (&Slocate_file_internal);
   defsubr (&Sinternal__obarray_buckets);
@@ -6096,13 +6085,12 @@ that are loaded before your customizations are read!  */);
   load_prefer_newer = 0;
 
   DEFVAR_BOOL ("load-no-native", load_no_native,
-               doc: /* Non-nil means not to load a native code automatically unless
-explicitly requested.
+               doc: /* Non-nil means not to load native code unless explicitly requested.
 
-To load explicitly a `.eln' file use (load FILE) where FILE is the
-filename of the eln file.
-`load-no-native' non-nil will make Emacs not load native code through
-`require'.  */);
+To load a `.eln' file when this variable is non-nil, use `(load FILE)'
+where FILE is the filename of the eln file, including the .eln extension.
+`load-no-native' non-nil will also make Emacs not load native code
+through `require'.  */);
   load_no_native = false;
 
   /* Vsource_directory was initialized in init_lread.  */

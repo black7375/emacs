@@ -3762,7 +3762,9 @@ If env string EMACS_PYTHON_INTERPRETER exists, use it as preferred one."
                 (or (executable-find interpreter)
                     (error "Couldn't find EMACS_PYTHON_INTERPRETER(%s) in path"
                            interpreter)))
-              (cl-some #'executable-find '("python" "python3" "python2"))))))
+              ;; Use the same order as for the default value of
+              ;; `python-shell-interpreter'.
+              (cl-some #'executable-find '("python3" "python" "python2"))))))
 
 (ert-deftest python-shell-get-process-name-1 ()
   "Check process name calculation sans `buffer-file-name'."
@@ -7568,12 +7570,12 @@ always located at the beginning of buffer."
      (forward-to-word 1)
      (should (eq (face-at-point) font-lock-keyword-face)))))
 
-(ert-deftest python-ts-mode-named-assignement-face-1 ()
+(ert-deftest python-ts-mode-named-assignment-face-1 ()
   (python-ts-tests-with-temp-buffer
    "var := 3"
    (should (eq (face-at-point) font-lock-variable-name-face))))
 
-(ert-deftest python-ts-mode-assignement-face-2 ()
+(ert-deftest python-ts-mode-assignment-face-2 ()
   (python-ts-tests-with-temp-buffer
    "var, *rest = call()"
    (dolist (test '("var" "rest"))
