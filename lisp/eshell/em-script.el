@@ -85,7 +85,7 @@ This includes when running `eshell-command'."
           t))))
 
 (defun eshell--source-file (file &optional args subcommand-p)
-  "Return a Lisp form for executig the Eshell commands in FILE, passing ARGS.
+  "Return a Lisp form for executing the Eshell commands in FILE, passing ARGS.
 If SUBCOMMAND-P is non-nil, execute this as a subcommand."
   (let ((cmd (eshell-parse-command `(:file . ,file))))
     (when subcommand-p
@@ -136,6 +136,10 @@ Comments begin with `#'."
 (cl-defmethod eshell-target-line-oriented-p ((_target eshell-princ-target))
   "Return non-nil to indicate that the display is line-oriented."
   t)
+
+(cl-defmethod eshell-close-target ((_target eshell-princ-target) _status)
+  "Close the `princ' function TARGET."
+  nil)
 
 ;;;###autoload
 (defun eshell-batch-file ()

@@ -126,10 +126,13 @@ of max unsigned 32-bit value for byte offsets into buffer text."
 (defun treesit-parse-string (string language)
   "Parse STRING using a parser for LANGUAGE.
 Return the root node of the syntax tree."
-  (with-temp-buffer
-    (insert string)
-    (treesit-parser-root-node
-     (treesit-parser-create language))))
+  ;; We can't use `with-temp-buffer' because it kills the buffer when
+  ;; returning from the form.
+  (let ((buf (generate-new-buffer " *treesit-parse-string*")))
+    (with-current-buffer buf
+      (insert string)
+      (treesit-parser-root-node
+       (treesit-parser-create language)))))
 
 (defvar-local treesit-language-at-point-function nil
   "A function that returns the language at point.
@@ -830,7 +833,7 @@ t, nil, append, prepend, keep.  See more in
 `treesit-font-lock-rules'.")
 
 (defsubst treesit--font-lock-setting-feature (setting)
-  "Reutrn the feature of SETTING.
+  "Return the feature of SETTING.
 SETTING should be a setting in `treesit-font-lock-settings'."
   (nth 2 setting))
 

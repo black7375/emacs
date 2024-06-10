@@ -126,6 +126,13 @@ to your init:
 
     (advice-add 'completion-at-point :after #'minibuffer-hide-completions)
 
+** The default process filter was rewritten in native code.
+The round-trip through the Lisp function
+'internal-default-process-filter' is skipped when the process filter is
+the default one.  It's reimplemented in native code, reducing GC churn.
+
+To undo the change, set 'read-process-output-fast' to nil.
+
 
 * Changes in Emacs 30.1
 
@@ -140,6 +147,12 @@ When called interactively, 'advice-remove' now prompts for an advised
 function to the advice to remove.
 
 ** Emacs now supports Unicode Standard version 15.1.
+
+** New pre-defined values for 'electric-quote-chars'.
+The available customization options for 'electric-quote-chars' have been
+updated with common pairs of quotation characters, including "‘", "’",
+"“", "”", "«", "»", "‹", "›", "‚", "„", "「", "」", "『", and "』".
+The default is unchanged.
 
 ** Network Security Manager
 
@@ -176,7 +189,16 @@ This user option controls outline visibility in the output buffer of
 *** 'C-h m' ('describe-mode') uses outlining by default.
 Set 'describe-mode-outline' to nil to get back the old behavior.
 
+** Emacs now comes with Org v9.7.
+See the file "etc/ORG-NEWS" for user-visible changes in Org.
+
 ** Outline mode
+
+*** New commands to show/hide outlines by regexp.
+'/ h' ('outline-hide-by-heading-regexp') asks for a regexp and then
+hides the body lines of all outlines whose heading lines match the
+regexp.  '/ s' ('outline-show-by-heading-regexp') does the same but
+shows the matched outlines.
 
 +++
 *** 'outline-minor-mode' is supported in tree-sitter major modes.
@@ -246,6 +268,11 @@ When this minor mode is enabled, buttons representing modifier keys
 are displayed along the tool bar.
 
 +++
+** New user option 'tool-bar-always-show-default'.
+When non-nil, the tool bar at the top of a frame does not show buffer
+local customization of the tool bar.  The default value is nil.
+
++++
 ** "d" in the mode line now indicates that the window is dedicated.
 Windows have always been able to be dedicated to a specific buffer;
 see 'window-dedicated-p'.  Now the mode line indicates the dedicated
@@ -310,6 +337,14 @@ right-aligned to is controlled by the new user option
 'mode-line-right-align-edge'.
 
 ** Windows
+
++++
+*** New action alist entry 'some-window' for 'display-buffer'.
+It specifies which window 'display-buffer-use-some-window' should prefer.
+For example, when 'display-buffer-base-action' is customized to
+'(nil . ((some-window . mru)))', then a buffer will be displayed
+in the same most recently used window from consecutive calls of
+'display-buffer' (in a configuration with more than two windows).
 
 +++
 *** New action alist entry 'category' for 'display-buffer'.
@@ -472,6 +507,13 @@ When visiting a script that invokes 'env -S INTERPRETER ARGS...' in
 its shebang line, Emacs will now skip over 'env -S' and deduce the
 major mode based on the interpreter after 'env -S'.
 
++++
+** New function 'sqlite-execute-batch'.
+This function lets the user execute multiple SQL statements in one go.
+It is useful, for example, when a Lisp program needs to evaluate an
+entire SQL file.
+
+** The default value of 'read-process-output-max' was increased to 65536.
 
 * Editing Changes in Emacs 30.1
 
@@ -520,11 +562,12 @@ function call.
 
 +++
 ** Emacs now has better support for touchscreen devices.
-On systems that understand them (at present X, Android, and PGTK), many
-touch screen gestures are now implemented and translated into mouse or
-gesture events, and support for tapping tool bar buttons and opening
-menus has been written.  Countless packages, such as Dired and Custom
-have been adjusted to better understand touch screen input.
+On systems that understand them (at present X, Android, PGTK, and
+MS-Windows), many touch screen gestures are now implemented and
+translated into mouse or gesture events, and support for tapping tool
+bar buttons and opening menus has been written.  Countless packages,
+such as Dired and Custom have been adjusted to better understand touch
+screen input.
 
 ---
 ** On X, Emacs now supports input methods which perform "string conversion".
@@ -585,6 +628,40 @@ This input method supports the Colemak keyboard layout.
 These characters can now be input with 'C-x 8 a e' and 'C-x 8 A E',
 respectively, in addition to the existing translations 'C-x 8 / e' and
 'C-x 8 / E'.
+
+*** New 'C-x 8' key translations for "low" quotes "„", and "‚".
+These can now be entered with 'C-x , "' and 'C-x , ''.
+
+*** New German language 'C-x 8' key translations for quotation marks.
+The characters "„", "“", and "”" can now be entered with 'C-x 8 v',
+'C-x 8 b' and 'C-x 8 n'.  The single versions "‚", "‘", and "’" can now
+be entered with 'C-x 8 V', 'C-x 8 B' and 'C-x 8 N'.  These characters
+are used for the official German quoting style.  Using them requires
+activating German language support via 'iso-transl-set-language'.
+
+*** "latin-prefix" and "latin-postfix" quotation marks additions.
+These input methods can now produce single, double and "low" left and
+right quotation marks:
+
+    "‘", "’", "“", "”", "„", and "‚"
+
+by using "[", "]", and "," for "left", "right", and "low" respectively
+to modify "'" and """.
+
+*** "latin-prefix" and "latin-postfix" guillemets support.
+These input methods can now produce single guillemets "‹" and "›".  For
+"latin-prefix" use "~~<" and "~~>", for "latin-postfix" use "<~" and
+">~".  Double guillemets ("«" and "»") were already supported.
+
+*** New French language 'C-x 8' key translations for "‹" and "›".
+These characters can now be entered using 'C-x 8 ~ <' and 'C-x 8 ~ >'
+respectively, after activating French language support via
+'iso-transl-set-language'.  Double guillemets were already supported via
+'C-x 8 <' and 'C-x 8 >'
+
+*** Additional 'C-x 8' key translation for Euro "€" currency symbol.
+This can now be entered using 'C-x 8 E' in addition to the existing
+'C-x 8 * E' translation.
 
 
 * Changes in Specialized Modes and Packages in Emacs 30.1
@@ -901,6 +978,13 @@ command, which will give write permission for owners of newly-created
 files and deny read permission for users who are not members of the
 file's group.  See the Info node "(coreutils) File permissions" for
 more information on this notation.
+
+---
+*** Performance improvements for interactive output in Eshell.
+Interactive output in Eshell should now be significantly faster,
+especially for built-in commands that can print large amounts of output
+(e.g. "cat").  In addition, these commands can now update the display
+periodically to show their progress.
 
 +++
 *** New special reference type '#<marker POSITION BUFFER>'.
@@ -1345,6 +1429,11 @@ project, that you can quickly select using 'project-switch-project'
 *** New user option 'package-vc-allow-build-commands'.
 Controls for which packages Emacs runs extra build commands when
 installing directly from the package VCS repository.
+
+---
+*** New command 'package-vc-log-incoming'.
+This commands displays incoming changes for a VC package without
+modifying the current checkout.
 
 ---
 *** New command to start an inferior Emacs loading only specific packages.
@@ -1824,7 +1913,8 @@ chat buffers use by default.
 ---
 *** New user option 'Buffer-menu-group-by'.
 It controls how buffers are divided into groups that are displayed with
-headings using Outline minor mode.
+headings using Outline minor mode.  Using commands that mark buffers
+on the outline heading line will mark all buffers in the outline.
 
 +++
 *** New command 'Buffer-menu-toggle-internal'.
@@ -1936,6 +2026,13 @@ To revert to the previous behavior, set the (also new) variable
 'async-shell-command-mode' to 'shell-mode'.  Any hooks or mode-specific
 variables used should be adapted appropriately.
 
++++
+** New package Window-Tool-Bar.
+This provides a new minor mode, 'window-tool-bar-mode'.  When this minor
+mode is enabled, a tool bar is displayed at the top of a window.  To
+conserve space, no tool bar is shown if 'tool-bar-map' is nil.  The
+global minor mode 'global-window-tool-bar-mode' enables this minor mode
+in all buffers.
 
 * Incompatible Lisp Changes in Emacs 30.1
 
@@ -2109,6 +2206,16 @@ completion candidate.
 
 
 * Lisp Changes in Emacs 30.1
+
++++
+** New hook 'hack-dir-local-get-variables-functions'.
+This can be used to provide support for other directory-local settings
+beside '.dir-locals.el'.
+
++++
+** 'auto-coding-functions' can know the name of the file.
+The functions on this hook can now find the name of the file to
+which the text belongs by consulting the variable 'auto-coding-file-name'.
 
 +++
 ** New user option 'compilation-safety' to control safety of native code.
@@ -2733,6 +2840,10 @@ treesitter grammar.
 ** New buffer-local variable 'tabulated-list-groups'.
 It controls display and separate sorting of groups of entries.
 
++++
+** New variable 'revert-buffer-restore-functions'.
+It helps to preserve various states after reverting the buffer.
+
 ---
 ** New text property 'context-menu-functions'.
 Like the variable with the same name, it adds menus from the list that
@@ -2823,22 +2934,10 @@ parsers with that tag.  Note that passing nil as tag doesn't mean return
 all parsers, but rather "all parsers with no tags".
 
 +++
-*** New function 'treesit-parser-changed-ranges'.
-This function returns buffer regions that are affected by the last
-buffer edits.
-
-*** New function 'treesit-add-font-lock-rules'.
-This function helps users to add custom font-lock rules to a tree-sitter
-major mode.
-
----
-** The variable 'rx-constituents' is now obsolete.
-Use 'rx-define', 'rx-let' and 'rx-let-eval' instead.
-
----
-** 'defvar-keymap' can specify hints for 'repeat-mode'.
-Using ':repeat (:hints ((command . "hint") ...))' will show
-the hint string in the echo area together with repeatable keys.
+*** New variable 'treesit-primary-parser'.
+This variable should be set by multi-langauge major modes before calling
+'treesit-major-mode-setup', in order for tree-sitter integration
+functionalities to operate correctly.
 
 
 * Changes in Emacs 30.1 on Non-Free Operating Systems
