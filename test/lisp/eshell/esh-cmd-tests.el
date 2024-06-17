@@ -507,13 +507,14 @@ NAME is the name of the test case."
 
 (ert-deftest esh-cmd-test/empty-background-command ()
   "Test that Eshell reports an error when trying to background a nil command."
-  (with-temp-eshell
-    (eshell-match-command-output "echo hi & &"
-                                 "\\`Empty command before `&'\n")
-    ;; Make sure the next Eshell prompt has the original input so the
-    ;; user can fix it.
-    (should (equal (buffer-substring eshell-last-output-end (point))
-                   "echo hi & &"))))
+  (let ((text-quoting-style 'grave))
+    (with-temp-eshell
+     (eshell-match-command-output "echo hi & &"
+                                  "\\`Empty command before `&'\n")
+     ;; Make sure the next Eshell prompt has the original input so the
+     ;; user can fix it.
+     (should (equal (buffer-substring eshell-last-output-end (point))
+                    "echo hi & &")))))
 
 (ert-deftest esh-cmd-test/throw ()
   "Test that calling `throw' as an Eshell command unwinds everything properly."
@@ -537,8 +538,16 @@ NAME is the name of the test case."
 (ert-deftest esh-cmd-test/which/plain/external-program ()
   "Check that `which' finds external programs."
   (skip-unless (executable-find "sh"))
-  (eshell-command-result-equal "which sh"
-                               (concat (executable-find "sh") "\n")))
+  (ert-info (#'eshell-get-debug-logs :prefix "Command logs: ")
+    (let ((actual (eshell-test-command-result "which sh"))
+          (expected (concat (executable-find "sh") "\n")))
+      ;; Eshell handles the casing of the PATH differently from
+      ;; `executable-find'.  This means that the results may not match
+      ;; exactly on case-insensitive file systems (e.g. when using
+      ;; MS-Windows), so compare case-insensitively there.
+      (should (if (file-name-case-insensitive-p actual)
+                  (string-equal-ignore-case actual expected)
+                (string-equal actual expected))))))
 
 (ert-deftest esh-cmd-test/which/plain/not-found ()
   "Check that `which' reports an error for not-found commands."

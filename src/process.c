@@ -6263,10 +6263,7 @@ read_process_output (Lisp_Object proc, int channel)
      friends don't expect current-buffer to be changed from under them.  */
   record_unwind_current_buffer ();
 
-  if (read_process_output_fast && EQ (p->filter, Qinternal_default_process_filter))
-    read_and_insert_process_output (p, chars, nbytes, coding);
-  else
-    read_and_dispose_of_process_output (p, chars, nbytes, coding);
+  read_and_dispose_of_process_output (p, chars, nbytes, coding);
 
   /* Handling the process output should not deactivate the mark.  */
   Vdeactivate_mark = odeactivate;
@@ -6345,6 +6342,48 @@ read_process_output_after_insert (struct Lisp_Process *p, Lisp_Object *old_read_
 }
 
 static void
+read_process_output_set_last_coding_system (struct Lisp_Process *p,
+					    struct coding_system *coding)
+{
+  Vlast_coding_system_used = CODING_ID_NAME (coding->id);
+  /* A new coding system might be found.  */
+  if (!EQ (p->decode_coding_system, Vlast_coding_system_used))
+    {
+      pset_decode_coding_system (p, Vlast_coding_system_used);
+
+      /* Don't call setup_coding_system for
+	 proc_decode_coding_system[channel] here.  It is done in
+	 detect_coding called via decode_coding above.  */
+
+      /* If a coding system for encoding is not yet decided, we set
+	 it as the same as coding-system for decoding.
+
+	 But, before doing that we must check if
+	 proc_encode_coding_system[p->outfd] surely points to a
+	 valid memory because p->outfd will be changed once EOF is
+	 sent to the process.  */
+      eassert (p->outfd < FD_SETSIZE);
+      if (NILP (p->encode_coding_system) && p->outfd >= 0
+	  && proc_encode_coding_system[p->outfd])
+	{
+	  pset_encode_coding_system
+	    (p, coding_inherit_eol_type (Vlast_coding_system_used, Qnil));
+	  setup_coding_system (p->encode_coding_system,
+			       proc_encode_coding_system[p->outfd]);
+	}
+    }
+
+  if (coding->carryover_bytes > 0)
+    {
+      if (SCHARS (p->decoding_buf) < coding->carryover_bytes)
+	pset_decoding_buf (p, make_uninit_string (coding->carryover_bytes));
+      memcpy (SDATA (p->decoding_buf), coding->carryover,
+	      coding->carryover_bytes);
+      p->decoding_carryover = coding->carryover_bytes;
+    }
+}
+
+static void
 read_and_insert_process_output (struct Lisp_Process *p, char *buf,
 				ssize_t nread,
 				struct coding_system *process_coding)
@@ -6362,19 +6401,25 @@ read_and_insert_process_output (struct Lisp_Process *p, char *buf,
 				     &opoint_byte);
 
   /* Adapted from call_process.  */
+  prepare_to_modify_buffer (PT, PT, NULL);
+
   if (NILP (BVAR (XBUFFER (p->buffer), enable_multibyte_characters))
 	   && ! CODING_MAY_REQUIRE_DECODING (process_coding))
     {
-      insert_1_both (buf, nread, nread, 0, 0, 0);
+      /* For compatibility with the long-standing behavior of
+	 internal-default-process-filter we insert before markers,
+	 both here and in the 'else' branch.  */
+      insert_1_both (buf, nread, nread, 0, 0, 1);
       signal_after_change (PT - nread, 0, nread);
     }
   else
     {			/* We have to decode the input.  */
       Lisp_Object curbuf;
-      int carryover = 0;
       specpdl_ref count1 = SPECPDL_INDEX ();
 
       XSETBUFFER (curbuf, current_buffer);
+      /* See the comment above about inserting before markers.  */
+      process_coding->insert_before_markers = true;
       /* We cannot allow after-change-functions be run
 	 during decoding, because that might modify the
 	 buffer, while we rely on process_coding.produced to
@@ -6385,14 +6430,12 @@ read_and_insert_process_output (struct Lisp_Process *p, char *buf,
 			      (unsigned char *) buf, nread, curbuf);
       unbind_to (count1, Qnil);
 
+      read_process_output_set_last_coding_system (p, process_coding);
+
       TEMP_SET_PT_BOTH (PT + process_coding->produced_char,
 			PT_BYTE + process_coding->produced);
       signal_after_change (PT - process_coding->produced_char,
 			   0, process_coding->produced_char);
-      carryover = process_coding->carryover_bytes;
-      if (carryover > 0)
-	memcpy (buf, process_coding->carryover,
-		process_coding->carryover_bytes);
     }
 
   read_process_output_after_insert (p, &old_read_only, old_begv, old_zv,
@@ -6438,52 +6481,26 @@ read_and_dispose_of_process_output (struct Lisp_Process *p, char *chars,
      save the match data in a special nonrecursive fashion.  */
   running_asynch_code = 1;
 
-  decode_coding_c_string (coding, (unsigned char *) chars, nbytes, Qt);
-  text = coding->dst_object;
-  Vlast_coding_system_used = CODING_ID_NAME (coding->id);
-  /* A new coding system might be found.  */
-  if (!EQ (p->decode_coding_system, Vlast_coding_system_used))
+  if (fast_read_process_output
+      && EQ (p->filter, Qinternal_default_process_filter))
+    read_and_insert_process_output (p, chars, nbytes, coding);
+  else
     {
-      pset_decode_coding_system (p, Vlast_coding_system_used);
+      decode_coding_c_string (coding, (unsigned char *) chars, nbytes, Qt);
+      text = coding->dst_object;
 
-      /* Don't call setup_coding_system for
-	 proc_decode_coding_system[channel] here.  It is done in
-	 detect_coding called via decode_coding above.  */
+      read_process_output_set_last_coding_system (p, coding);
 
-      /* If a coding system for encoding is not yet decided, we set
-	 it as the same as coding-system for decoding.
+      if (SBYTES (text) > 0)
+	/* FIXME: It's wrong to wrap or not based on debug-on-error, and
+	   sometimes it's simply wrong to wrap (e.g. when called from
+	   accept-process-output).  */
+	internal_condition_case_1 (read_process_output_call,
+				   list3 (outstream, make_lisp_proc (p), text),
+				   !NILP (Vdebug_on_error) ? Qnil : Qerror,
+				   read_process_output_error_handler);
 
-	 But, before doing that we must check if
-	 proc_encode_coding_system[p->outfd] surely points to a
-	 valid memory because p->outfd will be changed once EOF is
-	 sent to the process.  */
-      eassert (p->outfd < FD_SETSIZE);
-      if (NILP (p->encode_coding_system) && p->outfd >= 0
-	  && proc_encode_coding_system[p->outfd])
-	{
-	  pset_encode_coding_system
-	    (p, coding_inherit_eol_type (Vlast_coding_system_used, Qnil));
-	  setup_coding_system (p->encode_coding_system,
-			       proc_encode_coding_system[p->outfd]);
-	}
     }
-
-  if (coding->carryover_bytes > 0)
-    {
-      if (SCHARS (p->decoding_buf) < coding->carryover_bytes)
-	pset_decoding_buf (p, make_uninit_string (coding->carryover_bytes));
-      memcpy (SDATA (p->decoding_buf), coding->carryover,
-	      coding->carryover_bytes);
-      p->decoding_carryover = coding->carryover_bytes;
-    }
-  if (SBYTES (text) > 0)
-    /* FIXME: It's wrong to wrap or not based on debug-on-error, and
-       sometimes it's simply wrong to wrap (e.g. when called from
-       accept-process-output).  */
-    internal_condition_case_1 (read_process_output_call,
-			       list3 (outstream, make_lisp_proc (p), text),
-			       !NILP (Vdebug_on_error) ? Qnil : Qerror,
-			       read_process_output_error_handler);
 
   /* If we saved the match data nonrecursively, restore it now.  */
   restore_search_regs ();
@@ -8879,12 +8896,12 @@ On GNU/Linux systems, the value should not exceed
 /proc/sys/fs/pipe-max-size.  See pipe(7) manpage for details.  */);
   read_process_output_max = 65536;
 
-  DEFVAR_BOOL ("read-process-output-fast", read_process_output_fast,
+  DEFVAR_BOOL ("fast-read-process-output", fast_read_process_output,
 	       doc: /* Non-nil to optimize the insertion of process output.
 We skip calling `internal-default-process-filter' and don't allocate
 the Lisp string that would be used as its argument.  Only affects the
 case of asynchronous process with the default filter.  */);
-  read_process_output_fast = true;
+  fast_read_process_output = true;
 
   DEFVAR_INT ("process-error-pause-time", process_error_pause_time,
 	      doc: /* The number of seconds to pause after handling process errors.
