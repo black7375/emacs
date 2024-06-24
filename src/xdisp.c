@@ -7288,6 +7288,7 @@ pop_it (struct it *it)
   it->bidi_p = p->bidi_p;
   it->paragraph_embedding = p->paragraph_embedding;
   it->from_disp_prop_p = p->from_disp_prop_p;
+  it->align_visually_p = false;
   if (it->bidi_p)
     {
       bidi_pop_it (&it->bidi_it);
@@ -24488,12 +24489,14 @@ static void
 handle_line_prefix (struct it *it)
 {
   Lisp_Object prefix;
+  bool wrap_prop = false;
 
   if (it->continuation_lines_width > 0)
     {
       prefix = get_line_prefix_it_property (it, Qwrap_prefix);
       if (NILP (prefix))
 	prefix = Vwrap_prefix;
+      wrap_prop = true;
     }
   else
     {
@@ -24508,6 +24511,11 @@ handle_line_prefix (struct it *it)
 	 iterator stack overflows.  So, don't wrap the prefix.  */
       it->line_wrap = TRUNCATE;
       it->avoid_cursor_p = true;
+      /* Interpreting :align-to relative to the beginning of the logical
+         line effectively renders this feature unusable, so we make an
+         exception for this use of :align-to.  */
+      if (wrap_prop && CONSP (prefix) && EQ (XCAR (prefix), Qspace))
+	it->align_visually_p = true;
     }
 }
 
@@ -31972,7 +31980,9 @@ produce_stretch_glyph (struct it *it)
 	   && calc_pixel_width_or_height (&tem, it, prop, font, true,
 					  &align_to))
     {
-      int x = it->current_x + it->continuation_lines_width;
+      int x = it->current_x + (it->align_visually_p
+			       ? 0
+			       : it->continuation_lines_width);
       int x0 = x;
       /* Adjust for line numbers, if needed.   */
       if (!NILP (Vdisplay_line_numbers) && it->line_number_produced_p)
