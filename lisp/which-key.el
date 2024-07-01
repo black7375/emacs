@@ -128,6 +128,12 @@ of the which-key popup."
   "If non-nil, don't use any unicode characters in default setup.
 For affected settings, see `which-key-replacement-alist', `which-key-ellipsis'
 `which-key-separator'."
+  :set (lambda (sym val)
+         (custom-set-default sym val)
+         (mapc #'custom-reevaluate-setting
+               '(which-key-separator
+                 which-key-ellipsis)))
+  :initialize #'custom-initialize-changed
   :type 'boolean
   :package-version "1.0" :version "30.1")
 
@@ -226,6 +232,15 @@ you use this feature."
           (const :tag "Do not show docstrings" nil)
           (const :tag "Add docstring to command names" t)
           (const :tag "Replace command name with docstring" docstring-only))
+  :package-version "1.0" :version "30.1")
+
+(defcustom which-key-extra-keymaps '(key-translation-map)
+  "List of extra keymaps to show entries from.
+The default is to check `key-translation-map', which contains the
+\\='C-x 8' bindings for entering common characters."
+  :type '(choice (list :tag "Translation map" (const key-translation-map))
+                 (const :tag "None" nil)
+                 (repeat :tag "Custom" symbol))
   :package-version "1.0" :version "30.1")
 
 (defcustom which-key-highlighted-command-list '()
@@ -885,7 +900,15 @@ disable support."
 
 ;;;###autoload
 (define-minor-mode which-key-mode
-  "Toggle `which-key-mode'."
+  "Toggle `which-key-mode'.
+
+`which-key' is a minor mode that displays the key bindings following
+your currently entered incomplete command (a prefix) in a popup.
+
+For example, after enabling the minor mode, if you enter \\`C-x' and
+wait for one second (by default), the minibuffer will expand with all
+available key bindings that follow \\`C-x' (or as many as space allows
+given your settings)."
   :global t
   :group 'which-key
   :lighter which-key-lighter
@@ -1591,7 +1614,7 @@ Within these categories order using `which-key-key-order'."
     (when found `(replaced . ,key-binding))))
 
 (defun which-key--maybe-replace (key-binding)
-  "Use `which-key--replacement-alist' to maybe replace KEY-BINDING.
+  "Use `which-key-replacement-alist' to maybe replace KEY-BINDING.
 KEY-BINDING is a cons cell of the form \(KEY . BINDING\) each of
 which are strings.  KEY is of the form produced by `key-binding'."
   (let* ((replacer (if which-key-allow-multiple-replacements
@@ -1937,8 +1960,10 @@ EVIL is non-nil, extract active evil bindings."
 
 (defun which-key--get-current-bindings (&optional prefix filter)
   "Generate a list of current active bindings."
-  (let (bindings)
-    (dolist (map (current-active-maps t) bindings)
+  (let (bindings
+        (maps (nconc (current-active-maps t)
+                     (mapcar #'symbol-value which-key-extra-keymaps))))
+    (dolist (map maps bindings)
       (when (cdr map)
         (setq bindings
               (which-key--get-keymap-bindings

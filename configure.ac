@@ -1263,6 +1263,11 @@ packages targeting Android 2.2.])])
   emacs_val="--enable-check-lisp-object-type=$enable_check_lisp_object_type"
   passthrough="$passthrough $emacs_val"
 
+  # And derive a name for the recursive configure invocation's cache
+  # file if one should be specified for this.
+  AS_IF([test -n "$cache_file"],
+    [passthrough="$passthrough --cache-file=$cache_file.1"])
+
   AS_IF([test "x$with_mailutils" = "xyes"], [emacs_use_mailutils=yes])
   AC_SUBST([emacs_use_mailutils])
 
@@ -3133,7 +3138,7 @@ if test "${HAVE_W32}" = "yes"; then
       NATIVE_IMAGE_API="yes (w32)"
       W32_OBJ="$W32_OBJ w32image.o"
     fi
-    W32_LIBS="$W32_LIBS -lwinmm -lusp10 -lgdi32 -lcomdlg32"
+    W32_LIBS="$W32_LIBS -lwinmm -lgdi32 -lcomdlg32"
     W32_LIBS="$W32_LIBS -lmpr -lwinspool -lole32 -lcomctl32"
     W32_RES_LINK="\$(EMACSRES)"
     CLIENTRES="emacsclient.res"
@@ -5927,7 +5932,7 @@ LIBS="$LIB_PTHREAD $LIB_MATH $LIBS"
 AC_CHECK_FUNCS([accept4 fchdir gethostname \
 getrusage get_current_dir_name \
 lrand48 random rint tcdrain trunc \
-select getpagesize setlocale newlocale \
+select getpagesize newlocale \
 getrlimit setrlimit shutdown \
 pthread_sigmask strsignal setitimer \
 sendto recvfrom getsockname getifaddrs freeifaddrs \
