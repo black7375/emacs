@@ -331,7 +331,10 @@ end it with `/'.  DIR must be either `project-root' or one of
 The file names should be relative to the project root.  And this can
 only happen when all returned files are in the same directory.
 In other words, the DIRS argument of `project-files' has to be nil or a
-list of only one element.")
+list of only one element.
+
+This variable is only meant to be set by Lisp code, not customized by
+the user.")
 
 (cl-defgeneric project-files (project &optional dirs)
   "Return a list of files in directories DIRS in PROJECT.
@@ -1070,17 +1073,16 @@ using a command like `project-find-file'."
     filename))
 
 ;;;###autoload
-(defun project-find-file-in-root ()
-  "Call `find-file' with the current project root as `default-directory'.
+(defun project-find-file-in-root (filename)
+  "Edit file FILENAME.
 
-Unlike `project-find-file', this doesn't provide completion over the
-entire file tree.
-
-This is equivalent to running `project-any-command' with `find-file'."
-  (interactive)
-  (let* ((pr (project-current t))
-         (default-directory (project-root pr)))
-    (call-interactively #'find-file)))
+Interactively, prompt for FILENAME, defaulting to the root directory of
+the current project."
+  (declare (interactive-only find-file))
+  (interactive (list (read-file-name "Find file in root: "
+                                     (project-root (project-current t)) nil
+                                     (confirm-nonexistent-file-or-buffer))))
+  (find-file filename t))
 
 ;;;###autoload
 (defun project-find-file (&optional include-all)
