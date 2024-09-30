@@ -461,10 +461,10 @@ Each DISPLAY can have the following values:
      `display-supports-face-attributes-p' for more information on
      exactly how testing is done.
 
-In the ATTS property list, possible attributes are `:family',
-`:width', `:height', `:weight', `:slant', `:underline',
-`:overline', `:strike-through', `:box', `:foreground',
-`:background', `:stipple', `:inverse-video', and `:inherit'.
+In the ATTS property list, possible attributes are `:family', `:font',
+`:foundry', `:width', `:height', `:weight', `:slant', `:underline',
+`:overline', `:strike-through', `:box', `:foreground', `:distant-foreground',
+`:background', `:stipple', `:inverse-video', `:extend', and `:inherit'.
 
 See Info node `(elisp) Faces' in the Emacs Lisp manual for more
 information."
@@ -977,7 +977,7 @@ Also change :reverse-video to :inverse-video."
   (when (listp spec)
     (if (or (memq :bold spec)
 	    (memq :italic spec)
-	    (memq :inverse-video spec))
+	    (memq :reverse-video spec))
 	(let (result)
 	  (while spec
 	    (let ((key (car spec))
