@@ -220,6 +220,7 @@ The default \"-b\" means to ignore whitespace-only changes,
   "C-c C-a" #'diff-apply-hunk
   "C-c M-r" #'diff-revert-and-kill-hunk
   "C-c C-m a" #'diff-apply-buffer
+  "C-c C-m n" #'diff-delete-other-hunks
   "C-c C-e" #'diff-ediff-patch
   "C-c C-n" #'diff-restrict-view
   "C-c C-s" #'diff-split-hunk
@@ -278,6 +279,8 @@ The default \"-b\" means to ignore whitespace-only changes,
      :help "Kill current hunk"]
     ["Kill current file's hunks" diff-file-kill
      :help "Kill all current file's hunks"]
+    ["Delete other hunks"       diff-delete-other-hunks
+     :help "Delete hunks other than the current hunk"]
     "-----"
     ["Previous Hunk"		diff-hunk-prev
      :help "Go to the previous count'th hunk"]
@@ -813,6 +816,39 @@ If the prefix ARG is given, restrict the view to the current file instead."
       (apply #'kill-region bounds)
       (goto-char (car bounds))
       (ignore-errors (diff-beginning-of-hunk t)))))
+
+;; This is not `diff-kill-other-hunks' because we might need to make
+;; copies of file headers in order to ensure the new kill ring entry
+;; would be a patch with the same meaning.  That is not implemented
+;; because it does not seem like it would be useful.
+(defun diff-delete-other-hunks (&optional beg end)
+  "Delete hunks other than the current one.
+Interactively, if the region is active, delete all hunks that the region
+overlaps; otherwise delete all hunks except the current one.
+When calling from Lisp, pass BEG and END as the bounds of the region in
+which to delete hunks; BEG and END omitted or nil means to delete all
+the hunks but the one which contains point."
+  (interactive (list (use-region-beginning) (use-region-end)))
+  (when (buffer-narrowed-p)
+    (user-error "Command is not safe in a narrowed buffer"))
+  (let ((inhibit-read-only t))
+    (save-excursion
+      (cond ((xor beg end)
+             (error "Require exactly zero or two arguments"))
+            (beg
+             (goto-char beg)
+             (setq beg (car (diff-bounds-of-hunk)))
+             (goto-char end)
+             (setq end (cadr (diff-bounds-of-hunk))))
+            (t
+             (pcase-setq `(,beg ,end) (diff-bounds-of-hunk))))
+      (delete-region end (point-max))
+      (goto-char beg)
+      (diff-beginning-of-file)
+      (diff-hunk-next)
+      (delete-region (point) beg)
+      (diff-beginning-of-file-and-junk)
+      (delete-region (point-min) (point)))))
 
 (defun diff-beginning-of-file-and-junk ()
   "Go to the beginning of file-related diff-info.
@@ -2117,7 +2153,8 @@ the number of failed hunk applications otherwise."
           (t
            (message (ngettext "%d hunk failed; no buffers changed"
                               "%d hunks failed; no buffers changed"
-                              failures))
+                              failures)
+                    failures)
            failures))))
 
 (defalias 'diff-mouse-goto-source #'diff-goto-source)
@@ -3168,6 +3205,17 @@ hunk text is not found in the source file."
 
 ;;;###autoload
 (defun diff-vc-deduce-fileset ()
+  (when (buffer-narrowed-p)
+    ;; If user used `diff-restrict-view' then we may not have the
+    ;; file header, and the commit will not succeed (bug#73387).
+    (user-error "Cannot commit patch when narrowed; consider %s"
+                (mapconcat (lambda (c)
+                             (key-description
+                              (where-is-internal c nil t)))
+                           '(widen
+                             diff-delete-other-hunks
+                             vc-next-action)
+                           " ")))
   (let ((backend (vc-responsible-backend default-directory))
         files)
     (save-excursion

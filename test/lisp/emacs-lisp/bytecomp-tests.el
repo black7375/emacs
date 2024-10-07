@@ -1985,6 +1985,17 @@ EXPECTED-POINT BINDINGS (MODES \\='\\='(ruby-mode js-mode python-mode)) \
      (dc 'integerp))
     ))
 
+(ert-deftest bytecomp-test-defcustom-local ()
+  (cl-flet ((dc (local) `(defcustom mytest nil "doc" :type 'sexp :local ',local :group 'test)))
+    (bytecomp--with-warning-test
+     (rx ":local keyword does not accept 'symbol") (dc 'symbol))
+    (bytecomp--with-warning-test
+     (rx ":local keyword does not accept \"string\"") (dc "string"))
+    (bytecomp--without-warning-test (dc t))
+    (bytecomp--without-warning-test (dc 'permanent))
+    (bytecomp--without-warning-test (dc 'permanent-only))
+    ))
+
 (ert-deftest bytecomp-test-defface-spec ()
   (cl-flet ((df (spec) `(defface mytest ',spec "doc" :group 'test)))
     (bytecomp--with-warning-test
