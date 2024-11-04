@@ -2177,36 +2177,60 @@ This command shares argument histories with \\[rgrep] and \\[grep]."
 	(if (eq next-error-last-buffer (current-buffer))
 	    (setq default-directory dir))))))
 
+(declare-function vc-deduce-fileset "vc"
+                  (&optional observer allow-unregistered
+                             state-model-only-files))
+
 (autoload 'vc-dir-marked-files "vc-dir")
 
+(defun vc-git--deduce-files-for-stash ()
+  ;; In *vc-dir*, if nothing is marked, act on the whole working tree
+  ;; regardless of the position of point.  This preserves historical
+  ;; behavior and is also probably more useful.
+  (if (derived-mode-p 'vc-dir-mode)
+      (vc-dir-marked-files)
+    (cadr (vc-deduce-fileset))))
+
 (defun vc-git-stash (name)
-  "Create a stash given the name NAME."
+  "Create a stash named NAME.
+In `vc-dir-mode', if there are files marked, stash the changes to those.
+If no files are marked, stash all uncommitted changes to tracked files.
+In other modes, call `vc-deduce-fileset' to determine files to stash."
   (interactive "sStash name: ")
   (let ((root (vc-git-root default-directory)))
     (when root
       (apply #'vc-git--call nil "stash" "push" "-m" name
-             (when (derived-mode-p 'vc-dir-mode)
-               (vc-dir-marked-files)))
+             (vc-git--deduce-files-for-stash))
       (vc-resynch-buffer root t t))))
 
 (defvar vc-git-stash-read-history nil
   "History for `vc-git-stash-read'.")
 
-(defun vc-git-stash-read (prompt)
-  "Read a Git stash.  PROMPT is a string to prompt with."
-  (let ((stash (completing-read
-                 prompt
-                 (split-string
-                  (or (vc-git--run-command-string nil "stash" "list") "") "\n" t)
-                 nil :require-match nil 'vc-git-stash-read-history)))
-    (if (string-equal stash "")
-        (user-error "Not a stash")
-      (string-match "^stash@{[[:digit:]]+}" stash)
-      (match-string 0 stash))))
+(cl-defun vc-git-stash-read (prompt &key default-most-recent)
+  "Prompt the user, with PROMPT, to select a git stash.
+PROMPT is passed to `format-prompt'.  If DEFAULT-MOST-RECENT is non-nil,
+then the most recently pushed stash is the default selection."
+  (if-let* ((stashes
+             (split-string (vc-git--run-command-string nil
+                                                       "stash" "list")
+                           "\n" t)))
+      (let* ((default (and default-most-recent (car stashes)))
+             (prompt (format-prompt prompt
+                                    (and default-most-recent
+                                         "most recent, stash@{0}")))
+             (stash (completing-read prompt stashes
+                                     nil :require-match nil
+                                     'vc-git-stash-read-history
+                                     default)))
+        (if (string-empty-p stash)
+            (user-error "Not a stash")
+          (string-match "^stash@{[[:digit:]]+}" stash)
+          (match-string 0 stash)))
+    (user-error "No stashes")))
 
 (defun vc-git-stash-show (name)
   "Show the contents of stash NAME."
-  (interactive (list (vc-git-stash-read "Show stash: ")))
+  (interactive (list (vc-git-stash-read "Show stash")))
   (vc-setup-buffer "*vc-git-stash*")
   (vc-git-command "*vc-git-stash*" 'async nil
                   "stash" "show" "--color=never" "-p" name)
@@ -2217,27 +2241,34 @@ This command shares argument histories with \\[rgrep] and \\[grep]."
 
 (defun vc-git-stash-apply (name)
   "Apply stash NAME."
-  (interactive (list (vc-git-stash-read "Apply stash: ")))
+  (interactive (list (vc-git-stash-read "Apply stash")))
   (vc-git-command "*vc-git-stash*" 0 nil "stash" "apply" "-q" name)
   (vc-resynch-buffer (vc-git-root default-directory) t t))
 
 (defun vc-git-stash-pop (name)
   "Pop stash NAME."
-  (interactive (list (vc-git-stash-read "Pop stash: ")))
+  ;; Stashes are commonly popped off in reverse order, so pass non-nil
+  ;; DEFAULT-MOST-RECENT to `vc-git-stash-read'.
+  (interactive (list (vc-git-stash-read "Pop stash"
+                                        :default-most-recent t)))
   (vc-git-command "*vc-git-stash*" 0 nil "stash" "pop" "-q" name)
   (vc-resynch-buffer (vc-git-root default-directory) t t))
 
 (defun vc-git-stash-delete (name)
   "Delete stash NAME."
-  (interactive (list (vc-git-stash-read "Delete stash: ")))
+  (interactive (list (vc-git-stash-read "Delete stash")))
   (vc-git-command "*vc-git-stash*" 0 nil "stash" "drop" "-q" name)
   (vc-resynch-buffer (vc-git-root default-directory) t t))
 
 (defun vc-git-stash-snapshot ()
-  "Create a stash with the current tree state."
+  "Create a stash with the current uncommitted changes.
+In `vc-dir-mode', if there are files marked, stash the changes to those.
+If no files are marked, stash all uncommitted changes to tracked files.
+In other modes, call `vc-deduce-fileset' to determine files to stash."
   (interactive)
-  (vc-git--call nil "stash" "save"
-		(format-time-string "Snapshot on %Y-%m-%d at %H:%M"))
+  (apply #'vc-git--call nil "stash" "push" "-m"
+	 (format-time-string "Snapshot on %Y-%m-%d at %H:%M")
+         (vc-git--deduce-files-for-stash))
   (vc-git-command "*vc-git-stash*" 0 nil "stash" "apply" "-q" "stash@{0}")
   (vc-resynch-buffer (vc-git-root default-directory) t t))
 
