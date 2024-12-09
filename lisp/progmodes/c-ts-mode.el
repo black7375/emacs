@@ -86,6 +86,7 @@
 (declare-function treesit-node-first-child-for-pos "treesit.c")
 (declare-function treesit-node-next-sibling "treesit.c")
 (declare-function treesit-node-eq "treesit.c")
+(declare-function treesit-node-match-p "treesit.c")
 (declare-function treesit-query-compile "treesit.c")
 
 ;;; Custom variables
@@ -440,7 +441,7 @@ NODE and PARENT are the same as other indent rules."
   "Return the indent rules for MODE and STYLE.
 
 The returned value can be set to `treesit-simple-indent-rules'.
-MODE can be `c' or `c++'.  STYLE can be `gnu', `k&r', `linux', `bsd'."
+MODE can be `c' or `cpp'.  STYLE can be `gnu', `k&r', `linux', `bsd'."
   (let ((rules
          `((c-ts-mode--for-each-tail-body-matcher
             prev-line c-ts-mode-indent-offset)
@@ -512,7 +513,7 @@ MODE can be `c' or `c++'.  STYLE can be `gnu', `k&r', `linux', `bsd'."
                ,@rules))))
     (pcase mode
       ('c `((c . ,rules)))
-      ('c++ `((cpp . ,rules))))))
+      ('cpp `((cpp . ,rules))))))
 
 (defun c-ts-mode--parenthesized-expression-indent-rule (_node parent &rest _)
   "Indent rule that indents aprenthesized expression.
@@ -1450,7 +1451,7 @@ recommended to enable `electric-pair-mode' with this mode."
       ;; Indent.
       (setq-local treesit-simple-indent-rules
                   (c-ts-mode--simple-indent-rules
-                   'c++ c-ts-mode-indent-style))
+                   'cpp c-ts-mode-indent-style))
 
       ;; Font-lock.
       (setq-local treesit-font-lock-settings
