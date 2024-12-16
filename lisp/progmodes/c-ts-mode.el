@@ -72,22 +72,7 @@
 (require 'treesit)
 (require 'c-ts-common)
 (eval-when-compile (require 'rx))
-
-(declare-function treesit-parser-create "treesit.c")
-(declare-function treesit-parser-root-node "treesit.c")
-(declare-function treesit-parser-set-included-ranges "treesit.c")
-(declare-function treesit-node-parent "treesit.c")
-(declare-function treesit-node-start "treesit.c")
-(declare-function treesit-node-end "treesit.c")
-(declare-function treesit-node-child "treesit.c")
-(declare-function treesit-node-child-by-field-name "treesit.c")
-(declare-function treesit-node-type "treesit.c")
-(declare-function treesit-node-prev-sibling "treesit.c")
-(declare-function treesit-node-first-child-for-pos "treesit.c")
-(declare-function treesit-node-next-sibling "treesit.c")
-(declare-function treesit-node-eq "treesit.c")
-(declare-function treesit-node-match-p "treesit.c")
-(declare-function treesit-query-compile "treesit.c")
+(treesit-declare-unavailable-functions)
 
 ;;; Custom variables
 
@@ -364,20 +349,31 @@ PARENT is the parent of the current node."
 
 NODE and PARENT as usual."
   (when (treesit-node-match-p parent "for_statement")
-    (pcase (treesit-node-field-name node)
-      ("initializer"
-       ;; Anchor is the opening paren.
-       (cons (treesit-node-start (treesit-node-child parent 1)) 1))
-      ((or "condition" "update")
-       (cons (treesit-node-start (treesit-node-prev-sibling node 'named))
-             0))
-      ("body"
-       (cons (c-ts-common--standalone-parent parent)
-             c-ts-mode-indent-offset))
-      (_ (if (treesit-node-match-p node ")")
-             ;; Anchor is the opening paren.
-             (cons (treesit-node-start (treesit-node-child parent 1)) 0)
-           nil)))))
+    ;; The first version of this function tests for the field name of
+    ;; NODE, which is a lot cleaner.  Alas, older tree-sitter library
+    ;; has a bug in treesit-node-field-name-for-child, which make it
+    ;; give the wrong field name for a child node.
+    (cond
+     ;; Body (Check if NODE is the last child, because when
+     ;; initializer/condition/update is empty, the index of body can
+     ;; change). Eg, for (;;) {...}
+     ((treesit-node-eq node (treesit-node-child parent -1 'named))
+      (cons (c-ts-common--standalone-parent parent)
+            c-ts-mode-indent-offset))
+     ;; Initializer.
+     ((and (treesit-node-check node 'named)
+           (eq (treesit-node-index node 'named) 0 ))
+      ;; Anchor is the opening paren.
+      (cons (treesit-node-start (treesit-node-child parent 1)) 1))
+     ;; Condition and update.
+     ((and (treesit-node-check node 'named)
+           (<= 1 (treesit-node-index node 'named) 2))
+      (cons (treesit-node-start (treesit-node-prev-sibling node 'named))
+            0))
+     ((treesit-node-match-p node ")")
+      ;; Anchor is the opening paren.
+      (cons (treesit-node-start (treesit-node-child parent 1)) 0))
+     (t nil))))
 
 (defvar c-ts-mode--preproc-indent-rules
   `(((node-is "preproc") column-0 0)
