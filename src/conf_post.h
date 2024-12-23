@@ -475,3 +475,15 @@ extern int emacs_setenv_TZ (char const *);
 /* Emacs does not need glibc strftime behavior for AM and PM
    indicators.  */
 #define REQUIRE_GNUISH_STRFTIME_AM_PM false
+
+#ifdef MSDOS
+/* These are required by file-has-acl.c but defined in dirent.h and
+   errno.h, which are not generated on DOS.  */
+#define _GL_DT_NOTDIR 0x100   /* Not a directory */
+#define ENOTSUP ENOSYS
+# define IFTODT(mode) \
+   (S_ISREG (mode) ? DT_REG : S_ISDIR (mode) ? DT_DIR \
+    : S_ISLNK (mode) ? DT_LNK : S_ISBLK (mode) ? DT_BLK \
+    : S_ISCHR (mode) ? DT_CHR : S_ISFIFO (mode) ? DT_FIFO \
+    : S_ISSOCK (mode) ? DT_SOCK : DT_UNKNOWN)
+#endif /* MSDOS */

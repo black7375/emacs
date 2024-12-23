@@ -2033,6 +2033,7 @@ function `read-from-minibuffer'."
         (set-syntax-table emacs-lisp-mode-syntax-table)
         (add-hook 'completion-at-point-functions
                   #'elisp-completion-at-point nil t)
+        (setq-local trusted-content :all)
         (run-hooks 'eval-expression-minibuffer-setup-hook))
     (read-from-minibuffer prompt initial-contents
                           read--expression-map t
@@ -6511,11 +6512,9 @@ PROMPT is a string to prompt with."
              map)))
       (completing-read
        prompt
-       (lambda (string pred action)
-         (if (eq action 'metadata)
-             ;; Keep sorted by recency
-             '(metadata (display-sort-function . identity))
-           (complete-with-action action completions string pred)))
+       ;; Keep sorted by recency
+       (completion-table-with-metadata
+        completions '((display-sort-function . identity)))
        nil nil nil
        (if history-pos
            (cons 'read-from-kill-ring-history

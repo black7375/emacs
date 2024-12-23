@@ -153,11 +153,11 @@ values of OVERRIDE."
                (string-match "\\`--" node-text))
       (treesit-fontify-with-override node-start
                                      delimiter-end
-                                     font-lock-comment-delimiter-face
+                                     'font-lock-comment-delimiter-face
                                      override))
     (treesit-fontify-with-override (max delimiter-end start)
                                    (min node-end end)
-                                   font-lock-comment-face
+                                   'font-lock-comment-face
                                    override)))
 
 (defvar lua-ts--font-lock-settings
@@ -839,7 +839,8 @@ Calls REPORT-FN directly."
 (derived-mode-add-parents 'lua-ts-mode '(lua-mode))
 
 (when (treesit-ready-p 'lua)
-  (add-to-list 'auto-mode-alist '("\\.lua\\'" . lua-ts-mode)))
+  (add-to-list 'auto-mode-alist '("\\.lua\\'" . lua-ts-mode))
+  (add-to-list 'interpreter-mode-alist '("\\<lua\\(?:jit\\)?" . lua-ts-mode)))
 
 (provide 'lua-ts-mode)
 

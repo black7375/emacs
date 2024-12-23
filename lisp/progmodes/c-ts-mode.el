@@ -22,6 +22,18 @@
 ;; You should have received a copy of the GNU General Public License
 ;; along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.
 
+;;; Tree-sitter language versions
+;;
+;; c-ts-mode is known to work with the following languages and version:
+;; - tree-sitter-c: v0.20.8-61-g3efee11
+;;
+;; c++-ts-mode is known to work with the following languages and version:
+;; - tree-sitter-cpp: v0.20.5-49-gf41b4f6
+;;
+;; We try our best to make builtin modes work with latest grammar
+;; versions, so a more recent grammar version has a good chance to work.
+;; Send us a bug report if it doesn't.
+
 ;;; Commentary:
 ;;
 ;; This package provides major modes for C and C++, plus some handy
@@ -1139,6 +1151,27 @@ if `c-ts-mode-emacs-sources-support' is non-nil."
   `(;; It's more useful to include semicolons as sexp so
     ;; that users can move to the end of a statement.
     (sexp (not ,(rx (or "{" "}" "[" "]" "(" ")" ","))))
+    (sexp-list
+     ,(regexp-opt '("preproc_params"
+                    "preproc_parenthesized_expression"
+                    "preproc_argument_list"
+                    "attribute_declaration"
+                    "declaration_list"
+                    "parenthesized_declarator"
+                    "parenthesized_field_declarator"
+                    "parenthesized_type_declarator"
+                    "abstract_parenthesized_declarator"
+                    "compound_statement"
+                    "enumerator_list"
+                    "field_declaration_list"
+                    "parameter_list"
+                    "argument_list"
+                    "parenthesized_expression"
+                    "initializer_list"
+                    "subscript_designator"
+                    "subscript_range_designator"
+                    "string_literal")
+                  'symbols))
     ;; compound_statement makes us jump over too big units
     ;; of code, so skip that one, and include the other
     ;; statements.
