@@ -1,6 +1,6 @@
 ;;; treesit.el --- tree-sitter utilities -*- lexical-binding: t -*-
 
-;; Copyright (C) 2021-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2021-2025 Free Software Foundation, Inc.
 
 ;; Maintainer: 付禹安 (Yuan Fu) <casouri@gmail.com>
 ;; Keywords: treesit, tree-sitter, languages
@@ -2481,47 +2481,40 @@ outside of the boundaries of the current list.
 
 ARG is described in the docstring of `forward-sexp-function'."
   (interactive "^p")
-  (let* ((arg (or arg 1))
-         (pred 'sexp-list)
-         (default-pos
-          (condition-case _
-              (save-excursion
-                (forward-sexp-default-function arg)
-                (point))
-            (scan-error nil)))
-         (default-pos (unless (eq (point) default-pos) default-pos))
-         (sibling-pos
-          (when default-pos
-            (save-excursion
-              (and (if (> arg 0)
-                       (treesit-end-of-thing pred (abs arg) 'restricted)
-                     (treesit-beginning-of-thing pred (abs arg) 'restricted))
-                   (point)))))
-         (sibling (when sibling-pos
-                    (if (> arg 0)
-                        (treesit-thing-prev sibling-pos pred)
-                      (treesit-thing-next sibling-pos pred))))
-         (sibling (when (and sibling
-                             (if (> arg 0)
-                                 (<= (point) (treesit-node-start sibling))
-                               (>= (point) (treesit-node-end sibling))))
-                    sibling))
-         (current-thing (when default-pos
-                          (treesit-thing-at (point) pred t))))
-
-    ;; 'forward-sexp-default-function' should not go out of the current thing,
-    ;; neither go inside the next thing or go over the next thing
-    (or (when (and default-pos
-                   (or (null current-thing)
-                       (if (> arg 0)
-                           (< default-pos (treesit-node-end current-thing))
-                         (> default-pos (treesit-node-start current-thing))))
-                   (or (null sibling)
-                       (if (> arg 0)
-                           (<= default-pos (treesit-node-start sibling))
-                         (>= default-pos (treesit-node-end sibling)))))
-          (goto-char default-pos))
-        (treesit-forward-list arg))))
+  (let* ((pred (or treesit-sexp-type-regexp 'sexp-list))
+         (arg (or arg 1))
+         (cnt arg)
+         (inc (if (> arg 0) 1 -1)))
+    (while (/= cnt 0)
+      (let* ((default-pos
+              (condition-case _
+                  (save-excursion
+                    (forward-sexp-default-function inc)
+                    (point))
+                (scan-error nil)))
+             (sibling (if (> arg 0)
+                          (treesit-thing-next (point) pred)
+                        (treesit-thing-prev (point) pred)))
+             (current (when default-pos
+                        (treesit-thing-at (point) pred t))))
+        ;; Use 'forward-sexp-default-function' only if it doesn't go
+        ;; over the sibling and doesn't go out of the current group.
+        (or (when (and default-pos
+                       (or (null sibling)
+                           (if (> arg 0)
+                               (<= default-pos (treesit-node-start sibling))
+                             (>= default-pos (treesit-node-end sibling))))
+                       (or (null current)
+                           (if (> arg 0)
+                               (< default-pos (treesit-node-end current))
+                             (> default-pos (treesit-node-start current)))))
+              (goto-char default-pos))
+            (when sibling
+              (goto-char (if (> arg 0)
+                             (treesit-node-end sibling)
+                           (treesit-node-start sibling))))
+            (treesit--scan-error pred arg)))
+      (setq cnt (- cnt inc)))))
 
 (defun treesit-forward-list (&optional arg)
   "Move forward across a list.
@@ -2557,21 +2550,34 @@ ARG is described in the docstring of `down-list'."
   (interactive "^p")
   (let* ((pred 'sexp-list)
          (arg (or arg 1))
+         (cnt arg)
          (inc (if (> arg 0) 1 -1)))
-    (while (/= arg 0)
-      (let* ((node (if (> arg 0)
-                       (treesit-thing-next (point) pred)
-                     (treesit-thing-prev (point) pred)))
-             (child (when node
-                      (treesit-node-child node (if (> arg 0) 0 -1))))
-             (pos (when child
-                    (if (> arg 0)
-                        (treesit-node-end child)
-                      (treesit-node-start child)))))
-        (if pos (goto-char pos) (treesit--scan-error pred arg)))
-      (setq arg (- arg inc)))))
+    (while (/= cnt 0)
+      (let* ((default-pos
+              (condition-case _
+                  (save-excursion
+                    (down-list-default-function inc)
+                    (point))
+                (scan-error nil)))
+             (sibling (if (> arg 0)
+                          (treesit-thing-next (point) pred)
+                        (treesit-thing-prev (point) pred)))
+             (child (when sibling
+                      (treesit-node-child sibling (if (> arg 0) 0 -1)))))
+        (or (when (and default-pos
+                       (or (null child)
+                           (if (> arg 0)
+                               (<= default-pos (treesit-node-start child))
+                             (>= default-pos (treesit-node-end child)))))
+              (goto-char default-pos))
+            (when child
+              (goto-char (if (> arg 0)
+                             (treesit-node-end child)
+                           (treesit-node-start child))))
+            (treesit--scan-error pred arg)))
+      (setq cnt (- cnt inc)))))
 
-(defun treesit-up-list (&optional arg _escape-strings _no-syntax-crossing)
+(defun treesit-up-list (&optional arg escape-strings no-syntax-crossing)
   "Move forward out of one level of parentheses.
 What constitutes a level of parentheses is determined by
 `sexp-list' in `treesit-thing-settings' that usually defines
@@ -2584,50 +2590,67 @@ ARG is described in the docstring of `up-list'."
   (interactive "^p")
   (let* ((pred 'sexp-list)
          (arg (or arg 1))
+         (cnt arg)
          (inc (if (> arg 0) 1 -1)))
-    (while (/= arg 0)
-      (let ((node (treesit-thing-at (point) pred)))
-        (while (and node (eq (point) (if (> arg 0)
-                                         (treesit-node-end node)
-                                       (treesit-node-start node))))
-          (setq node (treesit-parent-until node pred)))
-        (if node
-            (goto-char (if (> arg 0)
-                           (treesit-node-end node)
-                         (treesit-node-start node)))
-          (user-error "At top level")))
-      (setq arg (- arg inc)))))
+    (while (/= cnt 0)
+      (let* ((default-pos
+              (condition-case _
+                  (save-excursion
+                    (let ((forward-sexp-function nil))
+                      (up-list-default-function
+                       inc escape-strings no-syntax-crossing))
+                    (point))
+                (scan-error nil)
+                (user-error nil)))
+             (parent (treesit-thing-at (point) pred)))
+        (while (and parent (eq (point) (if (> arg 0)
+                                           (treesit-node-end parent)
+                                         (treesit-node-start parent))))
+          (setq parent (treesit-parent-until parent pred)))
+        (or (when (and default-pos
+                       (or (null parent)
+                           (if (> arg 0)
+                               (<= default-pos (treesit-node-end parent))
+                             (>= default-pos (treesit-node-start parent)))))
+              (goto-char default-pos))
+            (when parent
+              (goto-char (if (> arg 0)
+                             (treesit-node-end parent)
+                           (treesit-node-start parent))))
+            (user-error "At top level")))
+      (setq cnt (- cnt inc)))))
 
 (defun treesit-transpose-sexps (&optional arg)
   "Tree-sitter `transpose-sexps' function.
 ARG is the same as in `transpose-sexps'.
 
-Locate the node closest to POINT, and transpose that node with
-its sibling node ARG nodes away.
+Locate the named node closest to POINT, and transpose that node with
+its named sibling node ARG nodes away.
 
 Return a pair of positions as described by
 `transpose-sexps-function' for use in `transpose-subr' and
 friends."
-  ;; First arrive at the right level at where the node at point is
-  ;; considered a sexp. If sexp isn't defined, or we can't find any
-  ;; node that's a sexp, use the node at point.
-  (let* ((node (or (treesit-thing-at-point 'sexp 'nested)
-                   (treesit-node-at (point))))
-         (parent (treesit-node-parent node))
-         (child (treesit-node-child parent 0 t)))
-    (named-let loop ((prev child)
-                     (next (treesit-node-next-sibling child t)))
-      (when (and prev next)
-        (if (< (point) (treesit-node-end next))
-            (if (= arg -1)
-                (cons (treesit-node-start prev)
-                      (treesit-node-end prev))
-              (when-let* ((n (treesit-node-child
-                              parent (+ arg (treesit-node-index prev t)) t)))
-                (cons (treesit-node-end n)
-                      (treesit-node-start n))))
-          (loop (treesit-node-next-sibling prev t)
-                (treesit-node-next-sibling next t)))))))
+  (let* ((pred #'treesit-node-named)
+         (arg (or arg 1))
+         (cnt arg)
+         (inc (if (> arg 0) 1 -1))
+         (pos (point))
+         first sibling)
+    (while (and pos (/= cnt 0))
+      (setq sibling (if (> arg 0)
+                        (treesit-thing-next pos pred)
+                      (treesit-thing-prev pos pred)))
+      (unless first
+        (setq first (if (> arg 0)
+                        (treesit-node-start sibling)
+                      (treesit-node-end sibling))))
+      (setq pos (when sibling
+                  (if (> arg 0)
+                      (treesit-node-end sibling)
+                    (treesit-node-start sibling))))
+      (setq cnt (- cnt inc)))
+    (or (and sibling (cons pos first))
+        (transpose-sexps-default-function arg))))
 
 ;;; Navigation, defun, things
 ;;
@@ -2709,7 +2732,9 @@ If LANGUAGE is nil, return the first definition for THING in
                                   treesit-thing-settings)))))
 
 (defalias 'treesit-thing-defined-p #'treesit-thing-definition
-  "Return non-nil if THING is defined.")
+  "Return non-nil if THING is defined for LANGUAGE.
+
+\(fn THING LANGUAGE)")
 
 (defun treesit-beginning-of-thing (thing &optional arg tactic)
   "Like `beginning-of-defun', but generalized into things.
@@ -3393,7 +3418,10 @@ For BOUND, MOVE, BACKWARD, LOOKING-AT, see the descriptions in
 
 (defun treesit-show-paren-data--categorize (pos &optional end-p)
   (let* ((pred 'sexp-list)
-         (parent (treesit-parent-until (treesit-node-at (if end-p (1- pos) pos)) pred))
+         (parent (when (treesit-thing-defined-p
+                        'sexp-list (treesit-language-at pos))
+                   (treesit-parent-until
+                    (treesit-node-at (if end-p (1- pos) pos)) pred)))
          (first (when parent (treesit-node-child parent 0)))
          (first-start (when first (treesit-node-start first)))
          (first-end (when first (treesit-node-end first)))
@@ -3417,13 +3445,13 @@ For BOUND, MOVE, BACKWARD, LOOKING-AT, see the descriptions in
       (unless (bobp) (treesit-show-paren-data--categorize (point) t))
       (when show-paren-when-point-in-periphery
         (let* ((ind-pos (save-excursion (back-to-indentation) (point)))
-	       (eol-pos
-	        (save-excursion
-	          (end-of-line) (skip-chars-backward " \t" ind-pos) (point))))
+               (eol-pos
+                (save-excursion
+                  (end-of-line) (skip-chars-backward " \t" ind-pos) (point))))
           (cond
            ((<= (point) ind-pos)
             (or (treesit-show-paren-data--categorize ind-pos)
-	        (unless (bobp)
+                (unless (bobp)
                   (treesit-show-paren-data--categorize (1- eol-pos)))))
            ((>= (point) eol-pos)
             (unless (bobp)
@@ -3567,7 +3595,8 @@ before calling this function."
     (setq-local forward-sexp-function #'treesit-forward-sexp-list)
     (setq-local forward-list-function #'treesit-forward-list)
     (setq-local down-list-function #'treesit-down-list)
-    (setq-local up-list-function #'treesit-up-list))
+    (setq-local up-list-function #'treesit-up-list)
+    (setq-local show-paren-data-function 'treesit-show-paren-data))
 
   (when (treesit-thing-defined-p 'sentence nil)
     (setq-local forward-sentence-function #'treesit-forward-sentence))
@@ -3589,13 +3618,17 @@ before calling this function."
     (setq-local outline-search-function #'treesit-outline-search
                 outline-level #'treesit-outline-level))
 
-  (setq-local show-paren-data-function 'treesit-show-paren-data)
-
   ;; Remove existing local parsers.
   (dolist (ov (overlays-in (point-min) (point-max)))
     (when-let* ((parser (overlay-get ov 'treesit-parser)))
       (treesit-parser-delete parser)
       (delete-overlay ov))))
+
+;;; Helpers
+
+(defun treesit-node-named (node)
+  "Return non-nil if NODE has the property `named'."
+  (treesit-node-check node 'named))
 
 ;;; Debugging
 
@@ -4071,7 +4104,7 @@ window."
     ;; Turn off explore mode.
     (remove-hook 'post-command-hook
                  #'treesit--explorer-post-command t)
-    (remove-hook 'post-command-hook
+    (remove-hook 'kill-buffer-hook
                  #'treesit--explorer-kill-explorer-buffer t)
     (treesit--explorer-kill-explorer-buffer)))
 

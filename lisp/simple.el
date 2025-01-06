@@ -1,6 +1,6 @@
 ;;; simple.el --- basic editing commands for Emacs  -*- lexical-binding: t -*-
 
-;; Copyright (C) 1985-1987, 1993-2024 Free Software Foundation, Inc.
+;; Copyright (C) 1985-1987, 1993-2025 Free Software Foundation, Inc.
 
 ;; Maintainer: emacs-devel@gnu.org
 ;; Keywords: internal
@@ -393,7 +393,7 @@ To control which errors are matched, customize the variable
       (next-error-found buffer (current-buffer))
       (when (or next-error-verbose
                 (not (eq prev next-error-last-buffer)))
-        (message "Current locus from %s" next-error-last-buffer)))))
+        (message "Current locus from %S" next-error-last-buffer)))))
 
 (defun next-error-quit-window (from-buffer to-buffer)
   "Quit window of FROM-BUFFER when the prefix arg is 0.

@@ -1,6 +1,6 @@
 ;;; eglot.el --- The Emacs Client for LSP servers  -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2018-2024 Free Software Foundation, Inc.
+;; Copyright (C) 2018-2025 Free Software Foundation, Inc.
 
 ;; Version: 1.17
 ;; Author: João Távora <joaotavora@gmail.com>
@@ -3426,7 +3426,7 @@ for which LSP on-type-formatting should be requested."
                                        'font-lock-function-name-face))))
       ;; Now to the parameters
       (cl-loop
-       with active-param = (or sig-active activeParameter)
+       with active-param = (or activeParameter sig-active)
        for i from 0 for parameter across parameters do
        (eglot--dbind ((ParameterInformation)
                       ((:label parlabel))
