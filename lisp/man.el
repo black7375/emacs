@@ -230,20 +230,9 @@ the associated section number."
   :type '(repeat (cons (string :tag "Bogus Section")
 		       (string :tag "Real Section"))))
 
-;; FIXME see comments at ffap-c-path.
-(defcustom Man-header-file-path
-  (let ((arch (with-temp-buffer
-                (when (eq 0 (ignore-errors
-                              (call-process "gcc" nil '(t nil) nil
-                                            "-print-multiarch")))
-                  (goto-char (point-min))
-                  (buffer-substring (point) (line-end-position)))))
-        (base '("/usr/include" "/usr/local/include")))
-    (if (zerop (length arch))
-        base
-      (append base (list (expand-file-name arch "/usr/include")))))
+(defcustom Man-header-file-path (internal--c-header-file-path)
   "C Header file search path used in Man."
-  :version "24.1"                       ; add multiarch
+  :version "31.1"
   :type '(repeat string))
 
 (defcustom Man-name-local-regexp (concat "^" (regexp-opt '("NOM" "NAME")) "$")
@@ -1302,6 +1291,7 @@ Return the buffer in which the manpage will appear."
   (when (window-live-p window)
     (with-current-buffer (window-buffer window)
       (when (and (derived-mode-p 'Man-mode)
+                 Man-columns
                  (not (eq Man-columns (Man-columns))))
         (let ((proc (get-buffer-process (current-buffer))))
           (unless (and proc (not (eq (process-status proc) 'exit)))
@@ -2039,18 +2029,19 @@ Specify which REFERENCE to use; default is based on word at point."
       (error "You're looking at the first manpage in the buffer"))))
 
 ;; Header file support
+(defun man--find-header-files (file)
+  (delq nil
+        (mapcar (lambda (path)
+                  (let ((complete-path (expand-file-name file path)))
+                    (and (file-readable-p complete-path)
+                         complete-path)))
+                (Man-header-file-path))))
+
 (defun Man-view-header-file (file)
   "View a header file specified by FILE from `Man-header-file-path'."
-  (let ((path (Man-header-file-path))
-        complete-path)
-    (while path
-      (setq complete-path (expand-file-name file (car path))
-            path (cdr path))
-      (if (file-readable-p complete-path)
-          (progn (view-file complete-path)
-                 (setq path nil))
-        (setq complete-path nil)))
-    complete-path))
+  (when-let* ((match (man--find-header-files file)))
+    (view-file (car match))
+    (car match)))
 
 ;;; Bookmark Man Support
 (declare-function bookmark-make-record-default
