@@ -401,7 +401,7 @@ frame_windows_min_size (Lisp_Object frame, Lisp_Object horizontal,
 			      : FRAME_COLUMN_WIDTH (f)));
     }
   else
-    retval = XFIXNUM (call4 (Qframe_windows_min_size, frame, horizontal,
+    retval = XFIXNUM (calln (Qframe_windows_min_size, frame, horizontal,
 			     ignore, pixelwise));
 
   /* Don't allow too small height of text-mode frames, or else cm.c
@@ -890,7 +890,7 @@ adjust_frame_size (struct frame *f, int new_text_width, int new_text_height,
 #endif
     }
   else if (new_text_cols != old_text_cols)
-    call2 (Qwindow__pixel_to_total, frame, Qt);
+    calln (Qwindow__pixel_to_total, frame, Qt);
 
   if (new_inner_height != old_inner_height
       /* When the top margin has changed we have to recalculate the top
@@ -907,7 +907,7 @@ adjust_frame_size (struct frame *f, int new_text_width, int new_text_height,
 	  FrameRows (FRAME_TTY (f)) = new_text_lines + FRAME_TOP_MARGIN (f);
     }
   else if (new_text_lines != old_text_lines)
-    call2 (Qwindow__pixel_to_total, frame, Qnil);
+    calln (Qwindow__pixel_to_total, frame, Qnil);
 
   /* Assign new sizes.  */
   FRAME_COLS (f) = new_text_cols;
@@ -1153,7 +1153,7 @@ make_frame_without_minibuffer (Lisp_Object mini_window, KBOARD *kb,
 	  Lisp_Object initial_frame;
 
 	  /* If there's no minibuffer frame to use, create one.  */
-	  initial_frame = call1 (Qmake_initial_minibuffer_frame,
+	  initial_frame = calln (Qmake_initial_minibuffer_frame,
 				 display);
 	  kset_default_minibuffer_frame (kb, initial_frame);
 	}
@@ -1775,7 +1775,7 @@ do_switch_frame (Lisp_Object frame, int track, int for_deletion, Lisp_Object nor
 
       /* Don't mark the frame garbaged if we are switching to the frame
 	 that is already the top frame of that TTY.  */
-      if (!EQ (frame, top_frame))
+      if (!EQ (frame, top_frame) && root_frame (f) != XFRAME (top_frame))
 	{
 	  struct frame *new_root = root_frame (f);
 	  SET_FRAME_VISIBLE (new_root, true);
@@ -1818,7 +1818,7 @@ do_switch_frame (Lisp_Object frame, int track, int for_deletion, Lisp_Object nor
 	 non-active minibuffer.  */
       && NILP (Fminibufferp (XWINDOW (f->minibuffer_window)->contents, Qt)))
     {
-      Lisp_Object w = call1 (Qget_mru_window, frame);
+      Lisp_Object w = calln (Qget_mru_window, frame);
       if (WINDOW_LIVE_P (w)) /* W can be nil in minibuffer-only frames.  */
         Fset_frame_selected_window (frame, w, Qnil);
     }
@@ -2020,6 +2020,39 @@ frame.  */)
   struct frame *df = decode_live_frame (descendant);
   return frame_ancestor_p (af, df) ? Qt : Qnil;
 }
+
+
+/* Return the root frame of frame F.  Follow the parent_frame chain
+   until we reach a frame that has no parent.  That is the root frame.
+   Note that the root of a root frame is itself. */
+
+struct frame *
+root_frame (struct frame *f)
+{
+  while (FRAME_PARENT_FRAME (f))
+    f = FRAME_PARENT_FRAME (f);
+  return f;
+}
+
+
+DEFUN ("frame-root-frame", Fframe_root_frame, Sframe_root_frame,
+       0, 1, 0,
+       doc: /* Return root frame of specified FRAME.
+FRAME must be a live frame and defaults to the selected one.  The root
+frame of FRAME is the frame obtained by following the chain of parent
+frames starting with FRAME until a frame is reached that has no parent.
+If FRAME has no parent, its root frame is FRAME.  */)
+     (Lisp_Object frame)
+{
+  struct frame *f = decode_live_frame (frame);
+  struct frame *r = root_frame (f);
+  Lisp_Object root;
+
+  XSETFRAME (root, r);
+
+  return root;
+}
+
 
 /* Return CANDIDATE if it can be used as 'other-than-FRAME' frame on the
    same tty (for tty frames) or among frames which uses FRAME's keyboard.
@@ -2433,61 +2466,68 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
   /* Don't let the frame remain selected.  */
   if (f == sf)
     {
-      Lisp_Object tail;
-      Lisp_Object frame1 UNINIT;  /* This line works around GCC bug 85563.  */
-      eassume (CONSP (Vframe_list));
-
-      /* Look for another visible frame on the same terminal.
-	 Do not call next_frame here because it may loop forever.
-	 See https://debbugs.gnu.org/cgi/bugreport.cgi?bug=15025.  */
-      FOR_EACH_FRAME (tail, frame1)
+      if (is_tty_child_frame (f))
+	/* If F is a child frame on a tty and is the selected frame, try
+	   to re-select the frame that was selected before F.  */
+	do_switch_frame (mru_rooted_frame (f), 0, 1, Qnil);
+      else
 	{
-	  struct frame *f1 = XFRAME (frame1);
+	  Lisp_Object tail;
+	  Lisp_Object frame1 UNINIT;  /* This line works around GCC bug 85563.  */
+	  eassume (CONSP (Vframe_list));
 
-	  if (!EQ (frame, frame1)
-	      && !FRAME_TOOLTIP_P (f1)
-	      && FRAME_TERMINAL (f) == FRAME_TERMINAL (f1)
-	      && FRAME_VISIBLE_P (f1))
-	    break;
-	}
-
-      /* If there is none, find *some* other frame.  */
-      if (NILP (frame1) || EQ (frame1, frame))
-	{
+	  /* Look for another visible frame on the same terminal.
+	     Do not call next_frame here because it may loop forever.
+	     See https://debbugs.gnu.org/cgi/bugreport.cgi?bug=15025.  */
 	  FOR_EACH_FRAME (tail, frame1)
 	    {
 	      struct frame *f1 = XFRAME (frame1);
 
 	      if (!EQ (frame, frame1)
-		  && FRAME_LIVE_P (f1)
-		  && !FRAME_TOOLTIP_P (f1))
-		{
-		  if (FRAME_TERMCAP_P (f1) || FRAME_MSDOS_P (f1))
-		    {
-		      Lisp_Object top_frame = FRAME_TTY (f1)->top_frame;
+		  && !FRAME_TOOLTIP_P (f1)
+		  && FRAME_TERMINAL (f) == FRAME_TERMINAL (f1)
+		  && FRAME_VISIBLE_P (f1))
+		break;
+	    }
 
-		      if (!EQ (top_frame, frame))
-			frame1 = top_frame;
+	  /* If there is none, find *some* other frame.  */
+	  if (NILP (frame1) || EQ (frame1, frame))
+	    {
+	      FOR_EACH_FRAME (tail, frame1)
+		{
+		  struct frame *f1 = XFRAME (frame1);
+
+		  if (!EQ (frame, frame1)
+		      && FRAME_LIVE_P (f1)
+		      && !FRAME_TOOLTIP_P (f1))
+		    {
+		      if (FRAME_TERMCAP_P (f1) || FRAME_MSDOS_P (f1))
+			{
+			  Lisp_Object top_frame = FRAME_TTY (f1)->top_frame;
+
+			  if (!EQ (top_frame, frame))
+			    frame1 = top_frame;
+			}
+		      break;
 		    }
-		  break;
 		}
 	    }
-	}
 #ifdef NS_IMPL_COCOA
-      else
-	{
-	  /* Under NS, there is no system mechanism for choosing a new
-	     window to get focus -- it is left to application code.
-	     So the portion of THIS application interfacing with NS
-	     needs to make the frame we switch to the key window.  */
-	  struct frame *f1 = XFRAME (frame1);
-	  if (FRAME_NS_P (f1))
-	    ns_make_frame_key_window (f1);
-	}
+	  else
+	    {
+	      /* Under NS, there is no system mechanism for choosing a new
+		 window to get focus -- it is left to application code.
+		 So the portion of THIS application interfacing with NS
+		 needs to make the frame we switch to the key window.  */
+	      struct frame *f1 = XFRAME (frame1);
+	      if (FRAME_NS_P (f1))
+		ns_make_frame_key_window (f1);
+	    }
 #endif
 
-      do_switch_frame (frame1, 0, 1, Qnil);
-      sf = SELECTED_FRAME ();
+	  do_switch_frame (frame1, 0, 1, Qnil);
+	  sf = SELECTED_FRAME ();
+	}
     }
   else
     /* Ensure any minibuffers on FRAME are moved onto the selected
@@ -2583,11 +2623,11 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
     f->terminal = 0;             /* Now the frame is dead.  */
     unblock_input ();
 
-  /* Clear markers and overlays set by F on behalf of an input
-     method.  */
+    /* Clear markers and overlays set by F on behalf of an input
+       method.  */
 #ifdef HAVE_TEXT_CONVERSION
-  if (FRAME_WINDOW_P (f))
-    reset_frame_state (f);
+    if (FRAME_WINDOW_P (f))
+      reset_frame_state (f);
 #endif
 
     /* If needed, delete the terminal that this frame was on.
@@ -2940,7 +2980,7 @@ mouse_position (bool call_mouse_position_function)
     lispy_dummy = Qnil;
   retval = Fcons (lispy_dummy, Fcons (x, y));
   if (call_mouse_position_function && !NILP (Vmouse_position_function))
-    retval = call1 (Vmouse_position_function, retval);
+    retval = calln (Vmouse_position_function, retval);
   return retval;
 }
 
@@ -2982,7 +3022,7 @@ Y.  */)
 
   retval = Fcons (lispy_dummy, Fcons (x, y));
   if (!NILP (Vmouse_position_function))
-    retval = call1 (Vmouse_position_function, retval);
+    retval = calln (Vmouse_position_function, retval);
   return retval;
 }
 
@@ -4442,7 +4482,7 @@ frame_float (struct frame *f, Lisp_Object val, enum frame_float_type what,
 	      Lisp_Object frame;
 
 	      XSETFRAME (frame, f);
-	      monitor_attributes = call1 (Qframe_monitor_attributes, frame);
+	      monitor_attributes = calln (Qframe_monitor_attributes, frame);
 	      if (NILP (monitor_attributes))
 		{
 		  /* No monitor attributes available.  */
@@ -4487,7 +4527,7 @@ frame_float (struct frame *f, Lisp_Object val, enum frame_float_type what,
 	  Lisp_Object frame, outer_edges;
 
 	  XSETFRAME (frame, f);
-	  outer_edges = call2 (Qframe_edges, frame, Qouter_edges);
+	  outer_edges = calln (Qframe_edges, frame, Qouter_edges);
 
 	  if (!NILP (outer_edges))
 	    {
@@ -6087,7 +6127,7 @@ On Nextstep, this just calls `ns-parse-geometry'.  */)
 
 #ifdef HAVE_NS
   if (strchr (SSDATA (string), ' ') != NULL)
-    return call1 (Qns_parse_geometry, string);
+    return calln (Qns_parse_geometry, string);
 #endif
   int geometry = XParseGeometry (SSDATA (string),
 				 &x, &y, &width, &height);
@@ -6499,7 +6539,7 @@ have changed.  */)
 
   /* Now call this to apply the existing value(s) of the `default'
      face.  */
-  call2 (Qface_set_after_frame_default, frame, params);
+  calln (Qface_set_after_frame_default, frame, params);
 
   /* Restore the value of the `font-parameter' parameter, as
      `face-set-after-frame-default' will have changed it through its
@@ -7146,6 +7186,7 @@ iconify the top level frame instead.  */);
   defsubr (&Sframe_list);
   defsubr (&Sframe_parent);
   defsubr (&Sframe_ancestor_p);
+  defsubr (&Sframe_root_frame);
   defsubr (&Snext_frame);
   defsubr (&Sprevious_frame);
   defsubr (&Slast_nonminibuf_frame);

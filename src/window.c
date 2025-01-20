@@ -2665,8 +2665,8 @@ recombine_windows (Lisp_Object window)
 static void
 delete_deletable_window (Lisp_Object window)
 {
-  if (!NILP (call1 (Qwindow_deletable_p, window)))
-    call1 (Qdelete_window, window);
+  if (!NILP (calln (Qwindow_deletable_p, window)))
+    calln (Qdelete_window, window);
 }
 
 /***********************************************************************
@@ -3097,6 +3097,38 @@ be listed first but no error is signaled.  */)
 {
   return window_list_1 (window, minibuf, all_frames);
 }
+
+/** Return most recently selected frame that has the same root as a
+    given frame.  It's defined here because the static window_list_1 is
+    here too but in fact it's only needed in the frame code.  */
+Lisp_Object
+mru_rooted_frame (struct frame *f)
+{
+  Lisp_Object windows = window_list_1 (FRAME_SELECTED_WINDOW (f), Qnil, Qt);
+  struct frame *r = root_frame (f);
+  struct window *b = NULL;
+
+  for (; CONSP (windows); windows = XCDR (windows))
+    {
+      struct window *w = XWINDOW (XCAR (windows));
+      struct frame *wf = WINDOW_XFRAME (w);
+
+      if (wf != f && root_frame (wf) == r && FRAME_VISIBLE_P (wf)
+	  && (!b || w->use_time > b->use_time))
+	b = w;
+    }
+
+  if (b)
+    return WINDOW_FRAME (b);
+  else
+    {
+      Lisp_Object root;
+
+      XSETFRAME (root, r);
+
+      return root;
+    }
+}
 
 /* Look at all windows, performing an operation specified by TYPE
    with argument OBJ.
@@ -3299,7 +3331,7 @@ resize_root_window (Lisp_Object window, Lisp_Object delta,
 		    Lisp_Object horizontal, Lisp_Object ignore,
 		    Lisp_Object pixelwise)
 {
-  return call5 (Qwindow__resize_root_window, window, delta,
+  return calln (Qwindow__resize_root_window, window, delta,
 		horizontal, ignore, pixelwise);
 }
 
@@ -3307,7 +3339,7 @@ resize_root_window (Lisp_Object window, Lisp_Object delta,
 static Lisp_Object
 window_pixel_to_total (Lisp_Object frame, Lisp_Object horizontal)
 {
-  return call2 (Qwindow__pixel_to_total, frame, horizontal);
+  return calln (Qwindow__pixel_to_total, frame, horizontal);
 }
 
 
@@ -3678,7 +3710,7 @@ replace_buffer_in_windows (Lisp_Object buffer)
   /* When kill-buffer is called early during loadup, this function is
      undefined.  */
   if (!NILP (Ffboundp (Qreplace_buffer_in_windows)))
-    call1 (Qreplace_buffer_in_windows, buffer);
+    calln (Qreplace_buffer_in_windows, buffer);
 }
 
 /** If BUFFER is shown in any window, safely replace it with some other
@@ -4403,7 +4435,7 @@ This function runs `window-scroll-functions' before running
 	       dedication.  */
 	    wset_dedicated (w, Qnil);
 
-	  call1 (Qrecord_window_buffer, window);
+	  calln (Qrecord_window_buffer, window);
 	}
 
       unshow_buffer (w);
@@ -4417,7 +4449,7 @@ This function runs `window-scroll-functions' before running
 static Lisp_Object
 display_buffer (Lisp_Object buffer, Lisp_Object not_this_window_p, Lisp_Object override_frame)
 {
-  return call3 (Qdisplay_buffer, buffer, not_this_window_p, override_frame);
+  return calln (Qdisplay_buffer, buffer, not_this_window_p, override_frame);
 }
 
 DEFUN ("force-window-update", Fforce_window_update, Sforce_window_update,
@@ -4481,7 +4513,7 @@ temp_output_buffer_show (register Lisp_Object buf)
   set_buffer_internal (old);
 
   if (!NILP (Vtemp_buffer_show_function))
-    call1 (Vtemp_buffer_show_function, buf);
+    calln (Vtemp_buffer_show_function, buf);
   else if (WINDOW_LIVE_P (window = display_buffer (buf, Qnil, Qnil)))
     {
       if (!EQ (XWINDOW (window)->frame, selected_frame))
@@ -5612,7 +5644,7 @@ grow_mini_window (struct window *w, int delta)
       struct window *r = XWINDOW (root);
       Lisp_Object grow;
 
-      grow = call3 (Qwindow__resize_root_window_vertically,
+      grow = calln (Qwindow__resize_root_window_vertically,
 		    root, make_fixnum (- delta), Qt);
 
       if (FIXNUMP (grow)
@@ -5650,7 +5682,7 @@ shrink_mini_window (struct window *w)
       struct window *r = XWINDOW (root);
       Lisp_Object grow;
 
-      grow = call3 (Qwindow__resize_root_window_vertically,
+      grow = calln (Qwindow__resize_root_window_vertically,
 		    root, make_fixnum (delta), Qt);
 
       if (FIXNUMP (grow) && window_resize_check (r, false))
@@ -7461,7 +7493,7 @@ the return value is nil.  Otherwise the value is t.  */)
 	      && (NILP (Fminibufferp (p->buffer, Qnil))))
 	    /* If a window we restore gets another buffer, record the
 	       window's old buffer.  */
-	    call1 (Qrecord_window_buffer, window);
+	    calln (Qrecord_window_buffer, window);
 	}
 
       /* Disallow set_window_size_hook, temporarily.  */
@@ -7632,10 +7664,10 @@ the return value is nil.  Otherwise the value is t.  */)
 	      w->start_at_line_beg = true;
 	      if (FUNCTIONP (window_restore_killed_buffer_windows)
 		  && !MINI_WINDOW_P (w))
-		kept_windows = Fcons (listn (6, window, p->buffer,
-					     Fmarker_last_position (p->start),
-					     Fmarker_last_position (p->pointm),
-					     p->dedicated, Qt),
+		kept_windows = Fcons (list (window, p->buffer,
+					    Fmarker_last_position (p->start),
+					    Fmarker_last_position (p->pointm),
+					    p->dedicated, Qt),
 				      kept_windows);
 	    }
 	  else if (!NILP (w->start))
@@ -7657,10 +7689,10 @@ the return value is nil.  Otherwise the value is t.  */)
 		{
 		  if (FUNCTIONP (window_restore_killed_buffer_windows))
 		    kept_windows
-		      = Fcons (listn (6, window, p->buffer,
-				      Fmarker_last_position (p->start),
-				      Fmarker_last_position (p->pointm),
-				      p->dedicated, Qnil),
+		      = Fcons (list (window, p->buffer,
+				     Fmarker_last_position (p->start),
+				     Fmarker_last_position (p->pointm),
+				     p->dedicated, Qnil),
 			       kept_windows);
 		  else if (EQ (window_restore_killed_buffer_windows, Qdelete)
 			   || (!NILP (p->dedicated)

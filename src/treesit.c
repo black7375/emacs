@@ -1657,8 +1657,8 @@ an indirect buffer.  */)
 
   treesit_check_buffer_size (buf);
 
-  language = resolve_language_symbol (language);
-  CHECK_SYMBOL (language);
+  Lisp_Object remapped_lang = resolve_language_symbol (language);
+  CHECK_SYMBOL (remapped_lang);
 
   /* See if we can reuse a parser.  */
   if (NILP (no_reuse))
@@ -1679,7 +1679,7 @@ an indirect buffer.  */)
   Lisp_Object signal_data = Qnil;
   TSParser *parser = ts_parser_new ();
   struct treesit_loaded_lang loaded_lang
-    = treesit_load_language (language, &signal_symbol, &signal_data);
+    = treesit_load_language (remapped_lang, &signal_symbol, &signal_data);
   TSLanguage *lang = loaded_lang.lang;
   if (lang == NULL)
     xsignal (signal_symbol, signal_data);
@@ -1687,7 +1687,10 @@ an indirect buffer.  */)
      always succeed.  */
   ts_parser_set_language (parser, lang);
 
-  /* Create parser.  */
+  /* Create parser.  Use the unmapped LANGUAGE symbol, so the nodes
+     created by this parser (and this parser) self identify as the
+     unmapped language.  This makes the grammar mapping completely
+     transparent.  */
   Lisp_Object lisp_parser = make_treesit_parser (buf_orig,
 						 parser, NULL,
 						 language, tag);
@@ -1946,7 +1949,10 @@ which the parser should operate.  Regions must not overlap, and the
 regions should come in order in the list.  Signal
 `treesit-set-range-error' if the argument is invalid, or something
 else went wrong.  If RANGES is nil, the PARSER is to parse the whole
-buffer.  */)
+buffer.
+
+DO NOT modify RANGES after passing it to this function, as RANGES is
+saved to PARSER internally.  */)
   (Lisp_Object parser, Lisp_Object ranges)
 {
   treesit_check_parser (parser);
@@ -3081,6 +3087,9 @@ You can use `treesit-query-validate' to validate and debug a query.  */)
     wrong_type_argument (Qtreesit_query_p, query);
   CHECK_SYMBOL (language);
 
+  Lisp_Object remapped_lang = resolve_language_symbol (language);
+  CHECK_SYMBOL (remapped_lang);
+
   treesit_initialize ();
 
   if (TS_COMPILED_QUERY_P (query))
@@ -3091,7 +3100,7 @@ You can use `treesit-query-validate' to validate and debug a query.  */)
       return query;
     }
 
-  Lisp_Object lisp_query = make_treesit_query (query, language);
+  Lisp_Object lisp_query = make_treesit_query (query, remapped_lang);
 
   /* Maybe actually compile.  */
   if (NILP (eager))
@@ -3730,16 +3739,12 @@ treesit_traverse_match_predicate (TSTreeCursor *cursor, Lisp_Object pred,
 	   && !(SYMBOLP (pred) && !NILP (Fget (pred, Qtreesit_thing_symbol))))
     {
       Lisp_Object lisp_node = make_treesit_node (parser, node);
-      return !NILP (CALLN (Ffuncall, pred, lisp_node));
+      return !NILP (calln (pred, lisp_node));
     }
   else if (SYMBOLP (pred) && BASE_EQ (pred, Qnamed))
-    {
-      return ts_node_is_named (node);
-    }
+    return ts_node_is_named (node);
   else if (SYMBOLP (pred) && BASE_EQ (pred, Qanonymous))
-    {
-      return !ts_node_is_named (node);
-    }
+    return !ts_node_is_named (node);
   else if (SYMBOLP (pred))
     {
       Lisp_Object language = XTS_PARSER (parser)->language_symbol;
@@ -3784,7 +3789,7 @@ treesit_traverse_match_predicate (TSTreeCursor *cursor, Lisp_Object pred,
 	    return false;
 
 	  Lisp_Object lisp_node = make_treesit_node (parser, node);
-	  if (NILP (CALLN (Ffuncall, cdr, lisp_node)))
+	  if (NILP (calln (cdr, lisp_node)))
 	    return false;
 
 	  return true;
@@ -4053,7 +4058,7 @@ treesit_build_sparse_tree (TSTreeCursor *cursor, Lisp_Object parent,
       TSNode node = ts_tree_cursor_current_node (cursor);
       Lisp_Object lisp_node = make_treesit_node (parser, node);
       if (!NILP (process_fn))
-	lisp_node = CALLN (Ffuncall, process_fn, lisp_node);
+	lisp_node = calln (process_fn, lisp_node);
 
       Lisp_Object this = Fcons (lisp_node, Qnil);
       Fsetcdr (parent, Fcons (this, Fcdr (parent)));

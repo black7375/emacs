@@ -2018,9 +2018,9 @@ GLYPH_CODE_P (Lisp_Object gc)
 	     && RANGED_FIXNUMP (0, XCDR (gc), MAX_FACE_ID))
 	  : (RANGED_FIXNUMP
 	     (0, gc,
-	      (MAX_FACE_ID < TYPE_MAXIMUM (EMACS_INT) >> CHARACTERBITS
+	      (MAX_FACE_ID < EMACS_INT_MAX >> CHARACTERBITS
 	       ? ((EMACS_INT) MAX_FACE_ID << CHARACTERBITS) | MAX_CHAR
-	       : TYPE_MAXIMUM (EMACS_INT)))));
+	       : EMACS_INT_MAX))));
 }
 
 /* True means face attributes have been changed since the last
@@ -3949,7 +3949,6 @@ extern void gui_redo_mouse_highlight (Display_Info *);
 
 #endif /* HAVE_WINDOW_SYSTEM */
 
-struct frame *root_frame (struct frame *f);
 Lisp_Object frames_in_reverse_z_order (struct frame *f, bool visible);
 bool is_tty_frame (struct frame *f);
 bool is_tty_child_frame (struct frame *f);
