@@ -1361,7 +1361,7 @@ EQ (Lisp_Object x, Lisp_Object y)
 INLINE intmax_t
 clip_to_bounds (intmax_t lower, intmax_t num, intmax_t upper)
 {
-  return num < lower ? lower : min (num, upper);
+  return max (lower, min (num, upper));
 }
 
 /* Construct a Lisp_Object from a value or address.  */
@@ -4592,8 +4592,8 @@ extern Lisp_Object make_uninit_bool_vector (EMACS_INT);
 extern Lisp_Object bool_vector_fill (Lisp_Object, Lisp_Object);
 extern AVOID string_overflow (void);
 extern Lisp_Object make_string (const char *, ptrdiff_t);
-extern Lisp_Object make_formatted_string (char *, const char *, ...)
-  ATTRIBUTE_FORMAT_PRINTF (2, 3);
+extern Lisp_Object make_formatted_string (const char *, ...)
+  ATTRIBUTE_FORMAT_PRINTF (1, 2);
 extern Lisp_Object make_unibyte_string (const char *, ptrdiff_t);
 extern ptrdiff_t vectorlike_nbytes (const union vectorlike_header *hdr);
 
@@ -4910,6 +4910,15 @@ extern void init_eval_once (void);
 extern Lisp_Object safe_funcall (ptrdiff_t, Lisp_Object*);
 #define safe_calln(...) \
   CALLMANY (safe_funcall, ((Lisp_Object []) {__VA_ARGS__}))
+
+INLINE void
+CHECK_KEYWORD_ARGS (ptrdiff_t nargs)
+{
+  /* Used to check if a list of keyword/value pairs is missing a
+     value.  */
+  if (nargs & 1)
+    xsignal0 (Qmalformed_keyword_arg_list);
+}
 
 extern void init_eval (void);
 extern void syms_of_eval (void);
