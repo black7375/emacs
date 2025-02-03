@@ -248,7 +248,11 @@ your init file, you would be incompatible with other people's files.")
 
 (defvar time-stamp-count 1		;Do not change!
   "How many templates \\[time-stamp] will look for in a buffer.
-The same time stamp will be written in each case.
+
+If the value is greater than 1, the same time stamp will be written in
+each case.  If you want to insert different text on different lines,
+then instead of changing this variable, include a newline (written as
+\"\\n\") in `time-stamp-format' or the format part of `time-stamp-pattern'.
 
 `time-stamp-count' is best changed with a file-local variable.
 If you were to change it in your init file, you would be incompatible
@@ -259,26 +263,27 @@ with other people's files.")
 (defvar time-stamp-pattern nil		;Do not change!
   "Convenience variable setting all `time-stamp' location and format values.
 This string has four parts, each of which is optional.
-These four parts set `time-stamp-line-limit', `time-stamp-start',
-`time-stamp-format', and `time-stamp-end'.  See the documentation
-for each of these variables for details.
+These four parts override `time-stamp-line-limit', `time-stamp-start',
+`time-stamp-format' and `time-stamp-end', respectively.  See the
+documentation for each of these variables for details.
 
 The first part is a number followed by a slash; the number sets the number
 of lines at the beginning (negative counts from end) of the file searched
 for the time stamp.  The number and the slash may be omitted to use the
-normal value.
+value of `time-stamp-line-limit' as the number.
 
 The second part is a regexp identifying the pattern preceding the time stamp.
-This part may be omitted to use the normal pattern.
+This part may be omitted to use the value of `time-stamp-start'.
 
-The third part specifies the format of the time stamp inserted.  See
-the documentation for `time-stamp-format' for details.  Specify this
-part as \"%%\" to use the normal format.
+The third part specifies the format of the time stamp inserted.  Specify
+this part as \"%%\" to use the value of `time-stamp-format'.
 
 The fourth part is a regexp identifying the pattern following the time stamp.
-This part may be omitted to use the normal pattern.
+This part may be omitted to use the value of `time-stamp-end'.
 
 The pattern does not need to match the entire line of the time stamp.
+The pattern will update time stamp information on multiple lines if the
+pattern includes newlines, written as \"\\n\".
 
 These variables are best changed with file-local variables.
 If you were to change `time-stamp-pattern', `time-stamp-line-limit',
@@ -298,6 +303,11 @@ Examples:
 
 %% time-stamp-pattern: \"newcommand{\\\\\\\\timestamp}{%%}\"
     (sets `time-stamp-start' and `time-stamp-end')
+
+// time-stamp-pattern: \"10/Author %L\\nRevised %-d %b %Y$\"
+    (sets all four variables and updates text on two lines)
+
+See Info node `Time Stamps' for more examples.
 
 
 See also `time-stamp-count' and `time-stamp-inserts-lines'.")
@@ -726,11 +736,12 @@ and all `time-stamp-format' compatibility."
                      (time-stamp--format "%Z" time)))
 	           ((eq cur-char ?f)    ;buffer-file-name, base name only
 	            (if buffer-file-name
-	                (file-name-nondirectory buffer-file-name)
+                        (time-stamp-filtered-buffer-file-name :nondirectory)
 	              time-stamp-no-file))
 	           ((eq cur-char ?F)    ;buffer-file-name, absolute name
-	            (or buffer-file-name
-	                time-stamp-no-file))
+                    (if buffer-file-name
+                        (time-stamp-filtered-buffer-file-name :absolute)
+                      time-stamp-no-file))
 	           ((eq cur-char ?s)    ;system name, legacy
 		    (time-stamp-conv-warn "%s" "%Q")
 	            (system-name))
@@ -802,6 +813,26 @@ This is an internal helper for `time-stamp-string-preprocess'."
     (if (and (> colon-count 0) (not (string-equal field-width "")))
 	""				;discourage "%:2d" and the like
       (string-to-number (time-stamp--format format-string time)))))
+
+(defun time-stamp-filtered-buffer-file-name (type)
+  "Return the buffer file name, but with non-graphic characters replaced by ?.
+TYPE is :absolute for the full name or :nondirectory for base name only."
+  (declare (ftype (function ((member :absolute :nondirectory)) string)))
+  (let ((file-name buffer-file-name)
+        (safe-character-filter
+         (lambda (chr)
+           (let ((category (get-char-code-property chr 'general-category)))
+             (if (or
+                  ;; Letter, Mark, Number, Punctuation, or Symbol
+                  (member (aref (symbol-name category) 0) '(?L ?M ?N ?P ?S))
+                  ;; spaces of various widths, but not ctrl chars like CR or LF
+                  (eq category 'Zs))
+                 chr
+               ;; substitute "?" for format or control character
+               ??)))))
+    (when (eq type :nondirectory)
+      (setq file-name (file-name-nondirectory file-name)))
+    (apply #'string (mapcar safe-character-filter file-name))))
 
 
 (defvar time-stamp-conversion-warn t

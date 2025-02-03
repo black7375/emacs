@@ -94,68 +94,68 @@
 (defvar lisp-imenu-generic-expression
   (list
    (list nil
-	 (purecopy (concat "^\\s-*("
-			   (regexp-opt
-			    '("defun" "defmacro"
-                              ;; Elisp.
-                              "defun*" "defsubst" "define-inline"
-			      "define-advice" "defadvice" "define-skeleton"
-			      "define-compilation-mode" "define-minor-mode"
-			      "define-global-minor-mode"
-			      "define-globalized-minor-mode"
-			      "define-derived-mode" "define-generic-mode"
-			      "ert-deftest"
-			      "cl-defun" "cl-defsubst" "cl-defmacro"
-			      "cl-define-compiler-macro" "cl-defgeneric"
-			      "cl-defmethod"
-                              ;; CL.
-			      "define-compiler-macro" "define-modify-macro"
-			      "defsetf" "define-setf-expander"
-			      "define-method-combination"
-                              ;; CLOS and EIEIO
-			      "defgeneric" "defmethod")
-                            t)
-			   "\\s-+\\(" (rx lisp-mode-symbol) "\\)"))
+         (concat "^\\s-*("
+                 (regexp-opt
+                  '("defun" "defmacro"
+                    ;; Elisp.
+                    "defun*" "defsubst" "define-inline"
+                    "define-advice" "defadvice" "define-skeleton"
+                    "define-compilation-mode" "define-minor-mode"
+                    "define-global-minor-mode"
+                    "define-globalized-minor-mode"
+                    "define-derived-mode" "define-generic-mode"
+                    "ert-deftest"
+                    "cl-defun" "cl-defsubst" "cl-defmacro"
+                    "cl-define-compiler-macro" "cl-defgeneric"
+                    "cl-defmethod"
+                    ;; CL.
+                    "define-compiler-macro" "define-modify-macro"
+                    "defsetf" "define-setf-expander"
+                    "define-method-combination"
+                    ;; CLOS and EIEIO
+                    "defgeneric" "defmethod")
+                  t)
+                 "\\s-+\\(" (rx lisp-mode-symbol) "\\)")
 	 2)
    ;; Like the previous, but uses a quoted symbol as the name.
    (list nil
-	 (purecopy (concat "^\\s-*("
-			   (regexp-opt
-			    '("defalias" "define-obsolete-function-alias")
-                            t)
-			   "\\s-+'\\(" (rx lisp-mode-symbol) "\\)"))
+         (concat "^\\s-*("
+                 (regexp-opt
+                  '("defalias" "define-obsolete-function-alias")
+                  t)
+                 "\\s-+'\\(" (rx lisp-mode-symbol) "\\)")
 	 2)
-   (list (purecopy "Variables")
-	 (purecopy (concat "^\\s-*("
-			   (regexp-opt
-			    '(;; Elisp
-                              "defconst" "defcustom" "defvar-keymap"
-                              ;; CL
-                              "defconstant"
-			      "defparameter" "define-symbol-macro")
-                            t)
-			   "\\s-+\\(" (rx lisp-mode-symbol) "\\)"))
+   (list "Variables"
+         (concat "^\\s-*("
+                 (regexp-opt
+                  '(;; Elisp
+                    "defconst" "defcustom" "defvar-keymap"
+                    ;; CL
+                    "defconstant"
+                    "defparameter" "define-symbol-macro")
+                  t)
+                 "\\s-+\\(" (rx lisp-mode-symbol) "\\)")
 	 2)
    ;; For `defvar'/`defvar-local', we ignore (defvar FOO) constructs.
-   (list (purecopy "Variables")
-	 (purecopy (concat "^\\s-*(defvar\\(?:-local\\)?\\s-+\\("
-                           (rx lisp-mode-symbol) "\\)"
-			   "[[:space:]\n]+[^)]"))
+   (list "Variables"
+         (concat "^\\s-*(defvar\\(?:-local\\)?\\s-+\\("
+                 (rx lisp-mode-symbol) "\\)"
+                 "[[:space:]\n]+[^)]")
 	 1)
-   (list (purecopy "Types")
-	 (purecopy (concat "^\\s-*("
-			   (regexp-opt
-			    '(;; Elisp
-                              "defgroup" "deftheme"
-                              "define-widget" "define-error"
-			      "defface" "cl-deftype" "cl-defstruct"
-                              ;; CL
-                              "deftype" "defstruct"
-			      "define-condition" "defpackage"
-                              ;; CLOS and EIEIO
-                              "defclass")
-                            t)
-			   "\\s-+'?\\(" (rx lisp-mode-symbol) "\\)"))
+   (list "Types"
+         (concat "^\\s-*("
+                 (regexp-opt
+                  '(;; Elisp
+                    "defgroup" "deftheme"
+                    "define-widget" "define-error"
+                    "defface" "cl-deftype" "cl-defstruct"
+                    ;; CL
+                    "deftype" "defstruct"
+                    "define-condition" "defpackage"
+                    ;; CLOS and EIEIO
+                    "defclass")
+                  t)
+                 "\\s-+'?\\(" (rx lisp-mode-symbol) "\\)")
 	 2))
 
   "Imenu generic expression for Lisp mode.  See `imenu-generic-expression'.")
@@ -1431,16 +1431,17 @@ Any non-integer value means do not use a different value of
   :group 'lisp
   :version "30.1")
 
-(defvar lisp-fill-paragraph-as-displayed nil
-  "Modify the behavior of `lisp-fill-paragraph'.
+(defvar lisp-fill-paragraphs-as-doc-string t
+  "Whether `lisp-fill-paragraph' should fill strings as ELisp doc strings.
 The default behavior of `lisp-fill-paragraph' is tuned for filling Emacs
 Lisp doc strings, with their special treatment for the first line.
-Particularly, strings are filled in a narrowed context to avoid filling
+Specifically, strings are filled in a narrowed context to avoid filling
 surrounding code, which means any leading indent is disregarded, which
 can cause the filled string to extend passed the configured
 `fill-column' variable value.  If you would rather fill the string in
-its original context and ensure the `fill-column' value is more strictly
-respected, set this variable to true.  Doing so makes
+its original context, disregarding the special conventions of ELisp doc
+strings, and want to ensure the `fill-column' value is more strictly
+respected, set this variable to nil.  Doing so makes
 `lisp-fill-paragraph' behave as it used to in Emacs 27 and prior
 versions.")
 
@@ -1506,7 +1507,7 @@ and initial semicolons."
               ;; code.
               (if (not string-start)
                   (lisp--fill-line-simple)
-                (unless lisp-fill-paragraph-as-displayed
+                (when lisp-fill-paragraphs-as-doc-string
                   ;; If we're in a string, then narrow (roughly) to that
                   ;; string before filling.  This avoids filling Lisp
                   ;; statements that follow the string.

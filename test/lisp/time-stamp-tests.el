@@ -29,7 +29,7 @@
   (declare (indent 0) (debug t))
   `(let ((user-login-name "test-logname")
          (user-full-name "100%d Tester") ;verify "%" passed unchanged
-         (buffer-file-name "/emacs/test/time-stamped-file")
+         (buffer-file-name "/emacs/test/0-9AZaz (time)_stamped.file$+^")
          (mail-host-address "test-mail-host-name")
          (ref-time1 '(17337 16613))    ;Monday, Jan 2, 2006, 3:04:05 PM
          (ref-time2 '(22574 61591))    ;Friday, Nov 18, 2016, 12:14:15 PM
@@ -286,6 +286,24 @@
           (time-stamp)
           (should (equal (buffer-string) buffer-expected-2)))))))
 
+(ert-deftest time-stamp-custom-file-name ()
+  "Test that `time-stamp' isn't confused by a newline in the file name."
+  (with-time-stamp-test-env
+    (let ((time-stamp-format "1 %f")     ;changed later in the test
+          (buffer-original-contents "Time-stamp: <>")
+          (expected-1 "Time-stamp: <1 Embedded?Newline>")
+          (expected-2 "Time-stamp: <2 Embedded?Newline>"))
+      (with-temp-buffer
+        (let ((buffer-file-name "Embedded\nNewline"))
+          (insert buffer-original-contents)
+          (time-stamp)
+          (should (equal (buffer-string) expected-1))
+          ;; If the first time-stamp inserted an unexpected newline, the
+          ;; next time-stamp would be unable to find the end pattern.
+          (setq time-stamp-format "2 %f")
+          (time-stamp)
+          (should (equal (buffer-string) expected-2)))))))
+
 ;;; Tests of time-stamp-string formatting
 
 (ert-deftest time-stamp-format-day-of-week ()
@@ -326,13 +344,12 @@
       ;; broken in 2019, changed in 2024
       (should (equal (time-stamp-string "%-A" ref-time1) Monday))
       (should (equal (time-stamp-string "%_A" ref-time1) Monday))
-      ;; allowed but not recommended since 2019 (warned 1997-2019)
-      (should (equal (time-stamp-string "%^A" ref-time1) MONDAY))
       ;; warned 1997-2019, changed in 2019, recommended (with caveat) since 2024
       (should (equal (time-stamp-string "%a" ref-time1) Mon))
       (should (equal (time-stamp-string "%4a" ref-time1) p4-Mon))
       (should (equal (time-stamp-string "%04a" ref-time1) p4-Mon))
       (should (equal (time-stamp-string "%A" ref-time1) Monday))
+      (should (equal (time-stamp-string "%^A" ref-time1) MONDAY))
       ;; warned 1997-2019, changed in 2019
       (should (equal (time-stamp-string "%^a" ref-time1) MON))
       (should (equal (time-stamp-string "%^4a" ref-time1) p4-MON))
@@ -383,13 +400,12 @@
       ;; broken in 2019, changed in 2024
       (should (equal (time-stamp-string "%-B" ref-time1) January))
       (should (equal (time-stamp-string "%_B" ref-time1) January))
-      ;; allowed but not recommended since 2019 (warned 1997-2019)
-      (should (equal (time-stamp-string "%^B" ref-time1) JANUARY))
       ;; warned 1997-2019, changed in 2019, recommended (with caveat) since 2024
       (should (equal (time-stamp-string "%b" ref-time1) Jan))
       (should (equal (time-stamp-string "%4b" ref-time1) p4-Jan))
       (should (equal (time-stamp-string "%04b" ref-time1) p4-Jan))
       (should (equal (time-stamp-string "%B" ref-time1) January))
+      (should (equal (time-stamp-string "%^B" ref-time1) JANUARY))
       ;; warned 1997-2019, changed in 2019
       (should (equal (time-stamp-string "%^b" ref-time1) JAN))
       (should (equal (time-stamp-string "%^4b" ref-time1) p4-JAN))
@@ -472,7 +488,7 @@
     (should (equal (time-stamp-string "%:I" ref-time1) "3")) ;PM
     (should (equal (time-stamp-string "%:I" ref-time2) "12")) ;PM
     (should (equal (time-stamp-string "%:I" ref-time3) "6")) ;AM
-    ;; implemented since 1997, recommended since 2019
+    ;; implemented since 1997, recommended 2019-2024
     (should (equal (time-stamp-string "%1I" ref-time1) "3"))
     (should (equal (time-stamp-string "%1I" ref-time2) "12"))
     (should (equal (time-stamp-string "%1I" ref-time3) "6"))
@@ -499,7 +515,7 @@
     ;; recommended 1997-2019
     (should (equal (time-stamp-string "%:m" ref-time1) "1"))
     (should (equal (time-stamp-string "%:m" ref-time2) "11"))
-    ;; implemented since 1997, recommended since 2019
+    ;; implemented since 1997, recommended 2019-2024
     (should (equal (time-stamp-string "%1m" ref-time1) "1"))
     (should (equal (time-stamp-string "%1m" ref-time2) "11"))
     ;; warned 1997-2019, allowed 2019, recommended (with caveat) since 2024
@@ -522,7 +538,7 @@
     ;; recommended 1997-2019
     (should (equal (time-stamp-string "%:M" ref-time1) "4"))
     (should (equal (time-stamp-string "%:M" ref-time2) "14"))
-    ;; implemented since 1997, recommended since 2019
+    ;; implemented since 1997, recommended 2019-2024
     (should (equal (time-stamp-string "%1M" ref-time1) "4"))
     (should (equal (time-stamp-string "%1M" ref-time2) "14"))
     ;; warned 1997-2019, allowed 2019, recommended (with caveat) since 2024
@@ -545,7 +561,7 @@
     ;; recommended 1997-2019
     (should (equal (time-stamp-string "%:S" ref-time1) "5"))
     (should (equal (time-stamp-string "%:S" ref-time2) "15"))
-    ;; implemented since 1997, recommended since 2019
+    ;; implemented since 1997, recommended 2019-2024
     (should (equal (time-stamp-string "%1S" ref-time1) "5"))
     (should (equal (time-stamp-string "%1S" ref-time2) "15"))
     ;; warned 1997-2019, allowed 2019, recommended (with caveat) since 2024
@@ -568,10 +584,12 @@
      (should (equal (time-stamp-string "%:y" ref-time1) "2006")))
     (time-stamp-should-warn
      (should (equal (time-stamp-string "%:y" ref-time2) "2016")))
-    ;; warned 1997-2019, changed in 2019
-    ;; (We don't expect the %-y or %_y form to be useful,
-    ;; but we test both so that we can confidently state that
-    ;; `-' and `_' affect all 2-digit conversions identically.)
+    ;; %-y and %_y warned 1997-2019, changed in 2019
+    ;; (We don't expect these forms to be useful,
+    ;; but we test here so that we can confidently state that
+    ;; all 2-digit conversions behave identically.)
+    (should (equal (time-stamp-string "%1y" ref-time1) "6"))
+    (should (equal (time-stamp-string "%1y" ref-time2) "16"))
     (should (equal (time-stamp-string "%-y" ref-time1) "6"))
     (should (equal (time-stamp-string "%-y" ref-time2) "16"))
     (should (equal (time-stamp-string "%_y" ref-time1) " 6"))
@@ -601,6 +619,8 @@
           (am (format-time-string "%P" ref-time3 t))
           (Pm (format-time-string "%p" ref-time1 t))
           (Am (format-time-string "%p" ref-time3 t))
+          (Pm-tc (capitalize (format-time-string "%p" ref-time1 t)))
+          (Am-tc (capitalize (format-time-string "%p" ref-time3 t)))
           (PM (format-time-string "%^p" ref-time1 t))
           (AM (format-time-string "%^p" ref-time3 t)))
       ;; implemented and recommended since 1997
@@ -626,6 +646,11 @@
       (should (equal (time-stamp-string "%^#P" ref-time3) am))
       (should (equal (time-stamp-string "%^P" ref-time1) ""))
       (should (equal (time-stamp-string "%^P" ref-time3) ""))
+      ;; implemented since 2025
+      (should (equal (time-stamp-string "%*p" ref-time1) Pm-tc))
+      (should (equal (time-stamp-string "%*p" ref-time3) Am-tc))
+      (should (equal (time-stamp-string "%*P" ref-time1) Pm-tc))
+      (should (equal (time-stamp-string "%*P" ref-time3) Am-tc))
       ;; reserved for possible adding or removing periods (dots)
       (should (equal (time-stamp-string "%:p" ref-time1) Pm))
       (should (equal (time-stamp-string "%#:p" ref-time1) pm))
@@ -649,6 +674,7 @@
   "Test `time-stamp' format %Z."
   (with-time-stamp-test-env
     (let ((UTC-abbr (format-time-string "%Z" ref-time1 t))
+          (Utc-abbr (capitalize (format-time-string "%Z" ref-time1 t)))
           (utc-abbr (format-time-string "%#Z" ref-time1 t)))
       ;; implemented and recommended since 1995
       (should (equal (time-stamp-string "%Z" ref-time1) UTC-abbr))
@@ -656,7 +682,10 @@
       (should (equal (time-stamp-string "%#Z" ref-time1) utc-abbr))
       ;; ^ accepted and ignored since 1995/1997, test for consistency with %p
       (should (equal (time-stamp-string "%^Z" ref-time1) UTC-abbr))
-      (should (equal (time-stamp-string "%^#Z" ref-time1) utc-abbr)))))
+      (should (equal (time-stamp-string "%^#Z" ref-time1) utc-abbr))
+      ;; implemented since 2025
+      (should (equal (time-stamp-string "%*Z" ref-time1) Utc-abbr))
+      )))
 
 (ert-deftest time-stamp-format-time-zone-offset ()
   "Test `time-stamp' legacy format %z and spot-test new offset format %5z."
@@ -690,9 +719,10 @@
       ;; implemented and recommended since 1995
       (should (equal (time-stamp-string "%%" ref-time1) "%")) ;% last char
       (should (equal (time-stamp-string "%%P" ref-time1) "%P")) ;% not last char
-      (should (equal (time-stamp-string "%f" ref-time1) "time-stamped-file"))
+      (should (equal (time-stamp-string "%f" ref-time1)
+                     "0-9AZaz (time)_stamped.file$+^"))
       (should (equal (time-stamp-string "%F" ref-time1)
-                     "/emacs/test/time-stamped-file"))
+                     "/emacs/test/0-9AZaz (time)_stamped.file$+^"))
       (with-temp-buffer
         (should (equal (time-stamp-string "%f" ref-time1) "(no file)"))
         (should (equal (time-stamp-string "%F" ref-time1) "(no file)")))
@@ -1067,41 +1097,63 @@ the other expected results for hours greater than 99 with non-zero seconds."
   ;; We will modify this list, so start with a list consed at runtime.
   (let ((ert-test-list (list 'progn))
         (common-description
-         (concat "\nThis test expands from a call to"
-                 " the macro `define-formatz-tests'.\n"
-                 "To find the specific call, search the source file for \"")))
+         (concat "\nThis test is defined by a call to"
+                 " the macro `define-formatz-tests'.")))
     (dolist (form-string form-strings ert-test-list)
-      (nconc
-       ert-test-list
-       (list
-        `(ert-deftest ,(intern (concat "formatz-" form-string "-hhmm")) ()
-           ,(concat "Test `time-stamp' format " form-string
-                    " with whole hours and whole minutes.\n"
-                    common-description form-string "\".")
-           (should (equal (formatz ,form-string (fz-make+zone 0))
-                          ,(car hour-mod)))
-           (formatz-hours-exact-helper ,form-string ',(cdr hour-mod))
-           (should (equal (formatz ,form-string (fz-make+zone 0 30))
-                          ,(car mins-mod)))
-           (formatz-nonzero-minutes-helper ,form-string ',(cdr mins-mod)))
-        `(ert-deftest ,(intern (concat "formatz-" form-string "-seconds")) ()
-           ,(concat "Test `time-stamp' format " form-string
-                    " with offsets that have non-zero seconds.\n"
-                    common-description form-string "\".")
-           (should (equal (formatz ,form-string (fz-make+zone 0 0 30))
-                          ,(car secs-mod)))
-           (formatz-nonzero-seconds-helper ,form-string ',(cdr secs-mod)))
-        `(ert-deftest ,(intern (concat "formatz-" form-string "-threedigit")) ()
-           ,(concat "Test `time-stamp' format " form-string
-                    " with offsets of 100 hours or greater.\n"
-                    common-description form-string "\".")
-           (should (equal (formatz ,form-string (fz-make+zone 100))
-                          ,(car big-mod)))
-           (formatz-hours-big-helper ,form-string ',(cdr big-mod))
-           (should (equal (formatz ,form-string (fz-make+zone 100 0 30))
-                          ,(car secbig-mod)))
-           (formatz-seconds-big-helper ,form-string ',(cdr secbig-mod)))
-        )))))
+      (let ((test-name-hhmm
+             (intern (concat "formatz-" form-string "-hhmm")))
+            (test-name-seconds
+             (intern (concat "formatz-" form-string "-seconds")))
+            (test-name-threedigit
+             (intern (concat "formatz-" form-string "-threedigit"))))
+        (nconc
+         ert-test-list
+         (list
+          `(find-function-update-type-alist
+            ',test-name-hhmm 'ert--test 'formatz-find-test-def-function)
+          `(ert-deftest ,test-name-hhmm ()
+             ,(concat "Test `time-stamp' format " form-string
+                      " with whole hours and whole minutes.\n"
+                      common-description)
+             (should (equal (formatz ,form-string (fz-make+zone 0))
+                            ,(car hour-mod)))
+             (formatz-hours-exact-helper ,form-string ',(cdr hour-mod))
+             (should (equal (formatz ,form-string (fz-make+zone 0 30))
+                            ,(car mins-mod)))
+             (formatz-nonzero-minutes-helper ,form-string ',(cdr mins-mod)))
+          `(find-function-update-type-alist
+            ',test-name-seconds 'ert--test 'formatz-find-test-def-function)
+          `(ert-deftest ,test-name-seconds ()
+             ,(concat "Test `time-stamp' format " form-string
+                      " with offsets that have non-zero seconds.\n"
+                      common-description)
+             (should (equal (formatz ,form-string (fz-make+zone 0 0 30))
+                            ,(car secs-mod)))
+             (formatz-nonzero-seconds-helper ,form-string ',(cdr secs-mod)))
+          `(find-function-update-type-alist
+            ',test-name-threedigit 'ert--test 'formatz-find-test-def-function)
+          `(ert-deftest ,test-name-threedigit ()
+             ,(concat "Test `time-stamp' format " form-string
+                      " with offsets of 100 hours or greater.\n"
+                      common-description)
+             (should (equal (formatz ,form-string (fz-make+zone 100))
+                            ,(car big-mod)))
+             (formatz-hours-big-helper ,form-string ',(cdr big-mod))
+             (should (equal (formatz ,form-string (fz-make+zone 100 0 30))
+                            ,(car secbig-mod)))
+             (formatz-seconds-big-helper ,form-string ',(cdr secbig-mod)))
+          ))))))
+
+(defun formatz-find-test-def-function (test-name)
+  "Search for the `define-formatz-tests' call defining test TEST-NAME.
+Return non-nil if the definition is found."
+  (let* ((z-format (replace-regexp-in-string "\\`formatz-\\([^z]+z\\)-.*\\'"
+                                             "\\1"
+                                             (symbol-name test-name)))
+         (regexp (concat "^(define-formatz-tests ("
+                         "\\(?:[^)]\\|;.*\n\\)*"
+                         "\"" (regexp-quote z-format) "\"")))
+    (re-search-forward regexp nil t)))
 
 ;;;; The actual test cases for %z
 
