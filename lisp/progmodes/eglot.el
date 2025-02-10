@@ -566,7 +566,9 @@ under cursor."
           (const :tag "Decorate color references" :colorProvider)
           (const :tag "Fold regions of buffer" :foldingRangeProvider)
           (const :tag "Execute custom commands" :executeCommandProvider)
-          (const :tag "Inlay hints" :inlayHintProvider)))
+          (const :tag "Inlay hints" :inlayHintProvider)
+          (const :tag "Type hierarchies" :typeHierarchyProvider)
+          (const :tag "Call hierarchies" :callHierarchyProvider)))
 
 (defcustom eglot-advertise-cancellation nil
   "If non-nil, Eglot attemps to inform server of cancelled requests.
@@ -717,7 +719,13 @@ This can be useful when using docker to run a language server.")
       (WorkspaceSymbol (:name :kind) (:containerName :location :data))
       (InlayHint (:position :label) (:kind :textEdits :tooltip :paddingLeft
                                            :paddingRight :data))
-      (InlayHintLabelPart (:value) (:tooltip :location :command)))
+      (InlayHintLabelPart (:value) (:tooltip :location :command))
+      ;; HACK! 'HierarchyItem' doesn't exist, only `CallHierarchyItem'
+      ;; and `TypeHierarchyItem'.  But they're the same, so no bother.
+      (HierarchyItem (:name :kind)
+                     (:tags :detail :uri :range :selectionRange :data))
+      (CallHierarchyIncomingCall (:from :fromRanges) ())
+      (CallHierarchyOutgoingCall (:to :fromRanges) ()))
     "Alist (INTERFACE-NAME . INTERFACE) of known external LSP interfaces.
 
 INTERFACE-NAME is a symbol designated by the spec as
@@ -1066,6 +1074,8 @@ object."
              :rangeFormatting    `(:dynamicRegistration :json-false)
              :rename             `(:dynamicRegistration :json-false)
              :inlayHint          `(:dynamicRegistration :json-false)
+             :callHierarchy      `(:dynamicRegistration :json-false)
+             :typeHierarchy      `(:dynamicRegistration :json-false)
              :publishDiagnostics (list :relatedInformation :json-false
                                        ;; TODO: We can support :codeDescription after
                                        ;; adding an appropriate UI to
@@ -1246,7 +1256,7 @@ SERVER."
   (unwind-protect
       (progn
         (setf (eglot--shutdown-requested server) t)
-        (eglot--request server :shutdown nil :timeout (or timeout 1.5))
+        (eglot--request server :shutdown eglot--{} :timeout (or timeout 1.5))
         (jsonrpc-notify server :exit nil))
     ;; Now ask jsonrpc.el to shut down the server.
     (jsonrpc-shutdown server (not preserve-buffers))
@@ -1312,22 +1322,28 @@ in `eglot-server-programs' (which see).
 CONTACT-PROXY is the value of the corresponding
 `eglot-server-programs' entry."
   (cl-loop
+   with lang-from-sym = (lambda (sym &optional language-id)
+                          (cons sym
+                                (or language-id
+                                    (or (get sym 'eglot-language-id)
+                                        (replace-regexp-in-string
+                                         "\\(?:-ts\\)?-mode$" ""
+                                         (symbol-name sym))))))
    for (modes . contact) in eglot-server-programs
    for llists = (mapcar #'eglot--ensure-list
-                           (if (or (symbolp modes) (keywordp (cadr modes)))
-                               (list modes) modes))
+                        (if (or (symbolp modes) (keywordp (cadr modes)))
+                            (list modes) modes))
    for normalized = (mapcar (jsonrpc-lambda (sym &key language-id &allow-other-keys)
-                              (cons sym
-                                    (or language-id
-                                        (or (get sym 'eglot-language-id)
-                                            (replace-regexp-in-string
-                                             "\\(?:-ts\\)?-mode$" ""
-                                             (symbol-name sym))))))
+                              (funcall lang-from-sym sym language-id))
                             llists)
    when (cl-some (lambda (cell)
                    (provided-mode-derived-p mode (car cell)))
                  normalized)
-   return (cons normalized contact)))
+   return (cons normalized contact)
+   ;; If lookup fails at least return some suitable LANGUAGES.
+   finally (cl-return
+            (cons (list (funcall lang-from-sym major-mode))
+                  nil))))
 
 (defun eglot--guess-contact (&optional interactive)
   "Helper for `eglot'.
@@ -1781,6 +1797,15 @@ in project `%s'."
   (apply #'eglot--message (concat "(warning) " format) args)
   (let ((warning-minimum-level :error))
     (display-warning 'eglot (apply #'eglot--format format args) :warning)))
+
+(defun eglot--goto (range)
+  "Goto and momentarily highlight RANGE in current buffer."
+  (pcase-let ((`(,beg . ,end) (eglot-range-region range)))
+    ;; FIXME: it is very naughty to use someone else's `--'
+    ;; function, but `xref--goto-char' happens to have
+    ;; exactly the semantics we want vis-a-vis widening.
+    (xref--goto-char beg)
+    (pulse-momentary-highlight-region beg end 'highlight)))
 
 (defalias 'eglot--bol
   (if (fboundp 'pos-bol) #'pos-bol
@@ -2285,6 +2310,11 @@ If it is activated, also signal textDocument/didOpen."
      :visible (eglot-server-capable :codeActionProvider)]
     ["Quickfix" eglot-code-action-quickfix
      :visible (eglot-server-capable :codeActionProvider)]
+    "--"
+    ["Show type hierarchy" eglot-show-type-hierarchy
+     :active (eglot-server-capable :typeHierarchyProvider)]
+    ["Show call hierarchy" eglot-show-call-hierarchy
+     :active (eglot-server-capable :callHierarchyProvider)]
     "--"))
 
 (easy-menu-define eglot-server-menu nil "Manage server communication"
@@ -2699,12 +2729,7 @@ THINGS are either registrations or unregisterations (sic)."
                   (select-frame-set-input-focus (selected-frame)))
                  ((display-buffer (current-buffer))))
            (when selection
-             (pcase-let ((`(,beg . ,end) (eglot-range-region selection)))
-               ;; FIXME: it is very naughty to use someone else's `--'
-               ;; function, but `xref--goto-char' happens to have
-               ;; exactly the semantics we want vis-a-vis widening.
-               (xref--goto-char beg)
-               (pulse-momentary-highlight-region beg end 'highlight)))))))
+             (eglot--goto selection))))))
      (t (setq success :json-false)))
     `(:success ,success)))
 
@@ -4247,47 +4272,47 @@ If NOERROR, return predicate, else erroring function."
 (defvar-local eglot--outstanding-inlay-regions-timer nil
   "Helper timer for `eglot--update-hints'.")
 
-(defun eglot--update-hints (from to)
+(cl-defun eglot--update-hints (from to)
   "Jit-lock function for Eglot inlay hints."
+  ;; XXX: We're relying on knowledge of jit-lock internals here.
+  ;; Comparing `jit-lock-context-unfontify-pos' (if non-nil) to
+  ;; `point-max' tells us whether this call to `jit-lock-functions'
+  ;; happens after `jit-lock-context-timer' has just run.
+  (when (and jit-lock-context-unfontify-pos
+             (/= jit-lock-context-unfontify-pos (point-max)))
+    (cl-return-from eglot--update-hints))
   (cl-symbol-macrolet ((region eglot--outstanding-inlay-hints-region)
                        (last-region eglot--outstanding-inlay-hints-last-region)
                        (timer eglot--outstanding-inlay-regions-timer))
     (setcar region (min (or (car region) (point-max)) from))
     (setcdr region (max (or (cdr region) (point-min)) to))
-    ;; HACK: We're relying on knowledge of jit-lock internals here.  The
-    ;; condition comparing `jit-lock-context-unfontify-pos' to
-    ;; `point-max' is a heuristic for telling whether this call to
-    ;; `jit-lock-functions' happens after `jit-lock-context-timer' has
-    ;; just run.  Only after this delay should we start the smoothing
-    ;; timer that will eventually call `eglot--update-hints-1' with the
-    ;; coalesced region.  I wish we didn't need the timer, but sometimes
-    ;; a lot of "non-contextual" calls come in all at once and do verify
-    ;; the condition.  Notice it is a 0 second timer though, so we're
-    ;; not introducing any more delay over jit-lock's timers.
-    (when (= jit-lock-context-unfontify-pos (point-max))
-      (if timer (cancel-timer timer))
-      (let ((buf (current-buffer)))
-        (setq timer (run-at-time
-                     0 nil
-                     (lambda ()
-                       (eglot--when-live-buffer buf
-                         ;; HACK: In some pathological situations
-                         ;; (Emacs's own coding.c, for example),
-                         ;; jit-lock is calling `eglot--update-hints'
-                         ;; repeatedly with same sequence of
-                         ;; arguments, which leads to
-                         ;; `eglot--update-hints-1' being called with
-                         ;; the same region repeatedly.  This happens
-                         ;; even if the hint-painting code does
-                         ;; nothing else other than widen, narrow,
-                         ;; move point then restore these things.
-                         ;; Possible Emacs bug, but this fixes it.
-                         (unless (equal last-region region)
-                           (eglot--update-hints-1 (max (car region) (point-min))
-                                                  (min (cdr region) (point-max)))
-                           (setq last-region region))
-                         (setq region (cons nil nil)
-                               timer nil)))))))))
+    ;; XXX: Then there is a smoothing timer.  I wish we didn't need it,
+    ;; but sometimes a lot of calls come in all at once and do make it
+    ;; past the check above.  Notice it is a 0 second timer though, so
+    ;; we're not introducing any more delay over jit-lock's timers.
+    (when timer (cancel-timer timer))
+    (setq timer (run-at-time
+                 0 nil
+                 (lambda (buf)
+                   (eglot--when-live-buffer buf
+                     ;; HACK: In some pathological situations
+                     ;; (Emacs's own coding.c, for example),
+                     ;; jit-lock is calling `eglot--update-hints'
+                     ;; repeatedly with same sequence of
+                     ;; arguments, which leads to
+                     ;; `eglot--update-hints-1' being called with
+                     ;; the same region repeatedly.  This happens
+                     ;; even if the hint-painting code does
+                     ;; nothing else other than widen, narrow,
+                     ;; move point then restore these things.
+                     ;; Possible Emacs bug, but this fixes it.
+                     (unless (equal last-region region)
+                       (eglot--update-hints-1 (max (car region) (point-min))
+                                              (min (cdr region) (point-max)))
+                       (setq last-region region))
+                     (setq region (cons nil nil)
+                           timer nil)))
+                 (current-buffer)))))
 
 (defun eglot--update-hints-1 (from to)
   "Do most work for `eglot--update-hints', including LSP request."
@@ -4368,6 +4393,195 @@ If NOERROR, return predicate, else erroring function."
         (t
          (jit-lock-unregister #'eglot--update-hints)
          (remove-overlays nil nil 'eglot--inlay-hint t))))
+
+
+;;; Call and type hierarchies
+(require 'button)
+(require 'tree-widget)
+
+(define-button-type 'eglot--hierarchy-item
+  'follow-link t
+  'face 'font-lock-function-name-face)
+
+(defun eglot--hierarchy-interactive (specs)
+  (let ((ans
+         (completing-read "[eglot] Direction (default both)?"
+                   (cons "both" (mapcar #'cl-fourth specs))
+                   nil t nil nil "both")))
+    (list
+     (cond ((equal ans "both") t)
+           (t (cl-third (cl-find ans specs :key #'cl-fourth :test #'equal)))))))
+
+(defmacro eglot--define-hierarchy-command
+    (name kind feature preparer specs)
+  `(defun ,name (direction)
+     ,(concat
+       "Show " kind " hierarchy for symbol at point.\n"
+       "DIRECTION can be:\n"
+       (cl-loop for (_ _ d e) in specs
+                concat (format "  - `%s' for %s;\n" d e))
+       "or t, the default, to consider both.\n"
+       "Interactively with a prefix argument, prompt for DIRECTION.")
+     (interactive (if current-prefix-arg
+                      (eglot--hierarchy-interactive ',specs)
+                    (list t)))
+     (let* ((specs ',specs)
+            (specs (if (eq t direction) specs
+                     (list
+                      (cl-find direction specs :key #'cl-third)))))
+       (eglot--hierarchy-1
+        (format "*EGLOT %s hierarchy for %s*"
+                ,kind
+                (eglot-project-nickname (eglot--current-server-or-lose)))
+        ,feature ,preparer specs))))
+
+(eglot--define-hierarchy-command
+ eglot-show-type-hierarchy
+ "type"
+ :typeHierarchyProvider
+ :textDocument/prepareTypeHierarchy
+ ((:typeHierarchy/supertypes " ↑ " derived "supertypes" "derives from")
+  (:typeHierarchy/subtypes " ↓ " base "subtypes" "base of")))
+
+(eglot--define-hierarchy-command
+ eglot-show-call-hierarchy
+ "call"
+ :callHierarchyProvider
+ :textDocument/prepareCallHierarchy
+ ((:callHierarchy/incomingCalls " ← " incoming "incoming calls" "called by"
+                                :from :fromRanges)
+  (:callHierarchy/outgoingCalls " → " base "outgoing calls" "calls"
+                                :to :fromRanges)))
+
+(defvar-local eglot--hierarchy-roots nil)
+(defvar-local eglot--hierarchy-specs nil)
+
+(defun eglot--hierarchy-children (node)
+  (cl-flet ((get-them (method node)
+              (eglot--dbind ((HierarchyItem) name) node
+                (let* ((sym (intern (format "eglot--%s" method)))
+                       (plist (text-properties-at 0 name))
+                       (probe (cl-getf plist sym :none)))
+                  (cond ((eq probe :none)
+                         (let ((v (ignore-errors (jsonrpc-request
+                                                  (eglot--current-server-or-lose) method
+                                                  `(:item ,node)))))
+                           (put-text-property 0 1 sym v name)
+                           v))
+                        (t probe))))))
+    (cl-loop
+     with specs = eglot--hierarchy-specs
+     for (method bullet _ _ hint key ranges) in specs
+     for resp = (get-them method node)
+     for items =
+     (cl-loop for r across resp
+              for item = (if key (plist-get r key) r)
+              collect item
+              do (eglot--dbind ((HierarchyItem) name) item
+                   (put-text-property 0 1 'eglot--hierarchy-method
+                                      method name)
+                   (put-text-property 0 1 'eglot--hierarchy-bullet
+                                      (propertize bullet
+                                                  'help-echo hint)
+                                      name)
+                   (when ranges
+                     (put-text-property 0 1 'eglot--hierarchy-call-sites
+                                        (plist-get r ranges)
+                                        name))))
+     append items)))
+
+(defvar eglot-hierarchy-label-map
+  (let ((map (make-sparse-keymap)))
+    (set-keymap-parent map button-map)
+    (define-key map [mouse-3] (eglot--mouse-call
+                               #'eglot-hierarchy-center-on-node))
+    map)
+  "Keymap active in labels Eglot hierarchy buffers.")
+
+(defun eglot--hierarchy-label (node)
+  (eglot--dbind ((HierarchyItem) name uri _detail ((:range item-range))) node
+    (with-temp-buffer
+      (insert (propertize
+               (or (get-text-property
+                    0 'eglot--hierarchy-bullet name)
+                   " ∘ ")
+               'face 'shadow))
+      (insert-text-button
+       name
+       :type 'eglot--hierarchy-item
+       'eglot--hierarchy-node node
+       'help-echo "mouse-1, RET: goto definition, mouse-3: center on node"
+       'keymap eglot-hierarchy-label-map
+       'action
+       (lambda (_btn)
+         (pop-to-buffer (find-file-noselect (eglot-uri-to-path uri)))
+         (eglot--goto
+          (or
+           (elt
+            (get-text-property 0 'eglot--hierarchy-call-sites name)
+            0)
+           item-range))))
+      (buffer-string))))
+
+(defun eglot--hierarchy-1 (name provider preparer specs)
+  (eglot-server-capable-or-lose provider)
+  (let* ((server (eglot-current-server))
+         (roots (jsonrpc-request
+                 server
+                 preparer
+                 (eglot--TextDocumentPositionParams))))
+    (with-current-buffer (get-buffer-create name)
+      (eglot-hierarchy-mode)
+      (setq-local
+       eglot--hierarchy-roots roots
+       eglot--hierarchy-specs specs
+       eglot--cached-server server
+       buffer-read-only t
+       revert-buffer-function
+       (lambda (&rest _ignore)
+         ;; flush cache, would defeat purpose of a revert
+         (mapc (lambda (r)
+                 (eglot--dbind ((HierarchyItem) name) r
+                   (set-text-properties 0 1 nil name)))
+               eglot--hierarchy-roots)
+         (eglot--hierarchy-2)))
+      (eglot--hierarchy-2))))
+
+(defun eglot--hierarchy-2 ()
+  (cl-labels ((expander-for (node)
+                (lambda (_widget)
+                  (mapcar
+                   #'convert
+                   (eglot--hierarchy-children node))))
+              (convert (node)
+                (let ((w (widget-convert
+                          'tree-widget
+                          :tag (eglot--hierarchy-label node)
+                          :expander (expander-for node))))
+                  (widget-put w :empty-icon
+                              (widget-get w :leaf-icon))
+                  w)))
+    (let ((inhibit-read-only t))
+      (erase-buffer)
+      (mapc (lambda (r)
+              (let ((w (widget-create (convert r))))
+                (widget-apply-action w)))
+            eglot--hierarchy-roots)
+      (goto-char (point-min))))
+    (pop-to-buffer (current-buffer)))
+
+(define-derived-mode eglot-hierarchy-mode special-mode
+  "Eglot special" "Eglot mode for viewing hierarchies.
+\\{eglot-hierarchy-mode-map}"
+  :interactive nil)
+
+(defun eglot-hierarchy-center-on-node ()
+  "Refresh hierarchy, centering on node at point."
+  (interactive)
+  (setq-local eglot--hierarchy-roots
+              (list (get-text-property (point)
+                                 'eglot--hierarchy-node)))
+  (eglot--hierarchy-2))
 
 
 ;;; Hacks

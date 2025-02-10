@@ -226,17 +226,35 @@ is nil, try to guess the language at POS using `treesit-language-at'.
 If there's a local parser at POS, the local parser takes priority
 unless PARSER-OR-LANG is a parser, or PARSER-OR-LANG is a
 language and doesn't match the language of the local parser."
-  (let* ((root (if (treesit-parser-p parser-or-lang)
-                   (treesit-parser-root-node parser-or-lang)
-                 (or (when-let* ((parser
-                                  (car (treesit-local-parsers-at
-                                        pos parser-or-lang))))
-                       (treesit-parser-root-node parser))
-                     (condition-case nil
-                         (treesit-buffer-root-node
-                          (or parser-or-lang
-                              (treesit-language-at pos)))
-                       (treesit-no-parser nil)))))
+  (let* ((root
+          ;; 1. Given a parser, just use the parser's root node.
+          (cond ((treesit-parser-p parser-or-lang)
+                 (treesit-parser-root-node parser-or-lang))
+                ;; 2. Given a language, try local parser, then global
+                ;; parser.
+                (parser-or-lang
+                 (let* ((local-parser (car (treesit-local-parsers-at
+                                            pos parser-or-lang)))
+                        (global-parser (car (treesit-parser-list
+                                             nil parser-or-lang)))
+                        (parser (or local-parser global-parser)))
+                   (when parser
+                     (treesit-parser-root-node parser))))
+                ;; 3. No given language, try to get a language at point.
+                ;; If we got a language, only use parser of that
+                ;; language, otherwise use any parser we can find.  When
+                ;; finding parser, try local parser first, then global
+                ;; parser.
+                (t
+                 ;; LANG can be nil.
+                 (let* ((lang (treesit-language-at pos))
+                        (local-parser (car (treesit-local-parsers-at
+                                            pos lang)))
+                        (global-parser (car (treesit-parser-list
+                                             nil lang)))
+                        (parser (or local-parser global-parser)))
+                   (when parser
+                     (treesit-parser-root-node parser))))))
          (node root)
          (node-before root)
          (pos-1 (max (1- pos) (point-min)))
@@ -3489,15 +3507,26 @@ when a major mode sets it.")
               (funcall (nth 2 setting) node))))
    treesit-simple-imenu-settings))
 
+(defun treesit-outline--at-point ()
+  "Return the outline heading at the current line."
+  (let* ((pred treesit-outline-predicate)
+         (bol (pos-bol))
+         (eol (pos-eol))
+         (current (treesit-thing-at (point) pred))
+         (current-valid (when current
+                          (<= bol (treesit-node-start current) eol)))
+         (next (unless current-valid
+                 (treesit-navigate-thing (point) 1 'beg pred)))
+         (next-valid (when next (<= bol next eol))))
+    (or (and current-valid current)
+        (and next-valid (treesit-thing-at next pred)))))
+
 (defun treesit-outline-search (&optional bound move backward looking-at)
   "Search for the next outline heading in the syntax tree.
 For BOUND, MOVE, BACKWARD, LOOKING-AT, see the descriptions in
 `outline-search-function'."
   (if looking-at
-      (when-let* ((node (or (treesit-thing-at (pos-eol) treesit-outline-predicate)
-                            (treesit-thing-at (pos-bol) treesit-outline-predicate)))
-                  (start (treesit-node-start node)))
-        (eq (pos-bol) (save-excursion (goto-char start) (pos-bol))))
+      (when (treesit-outline--at-point) (pos-bol))
 
     (let* ((bob-pos
             ;; `treesit-navigate-thing' can't find a thing at bobp,
@@ -3528,7 +3557,7 @@ For BOUND, MOVE, BACKWARD, LOOKING-AT, see the descriptions in
 
 (defun treesit-outline-level ()
   "Return the depth of the current outline heading."
-  (let* ((node (treesit-node-at (point) nil t))
+  (let* ((node (treesit-outline--at-point))
          (level (if (treesit-node-match-p node treesit-outline-predicate)
                     1 0)))
     (while (setq node (treesit-parent-until node treesit-outline-predicate))
@@ -3568,7 +3597,7 @@ For BOUND, MOVE, BACKWARD, LOOKING-AT, see the descriptions in
   (let* ((comment-pred
           (when comments
             (if (treesit-thing-defined-p 'comment (treesit-language-at (point)))
-                'comment "comment")))
+                'comment "\\`comment\\'")))
          (pred (if comment-pred (append '(or list) (list comment-pred)) 'list))
          ;; `treesit-navigate-thing' can't find a thing at bobp,
          ;; so use `treesit-thing-at' to match at bobp.
@@ -3603,7 +3632,7 @@ For BOUND, MOVE, BACKWARD, LOOKING-AT, see the descriptions in
   "Tree-sitter implementation of `hs-inside-comment-p-func'."
   (let* ((comment-pred
           (if (treesit-thing-defined-p 'comment (treesit-language-at (point)))
-              'comment "comment"))
+              'comment "\\`comment\\'"))
          (thing (or (treesit-thing-at (point) comment-pred)
                     (unless (bobp)
                       (treesit-thing-at (1- (point)) comment-pred)))))
