@@ -3230,7 +3230,7 @@ See more for options in `search-exit-option'."
       (setq isearch-pre-move-point (point)))
      ;; Append control characters to the search string
      ((eq search-exit-option 'append)
-      (unless (memq nil (mapcar (lambda (k) (characterp k)) key))
+      (unless (memq nil (mapcar #'characterp key))
         (isearch-process-search-string key key))
       (setq this-command 'ignore))
      ;; Other characters terminate the search and are then executed normally.
@@ -4098,7 +4098,10 @@ This is called when `isearch-update' is invoked (which can cause the
 search string to change or the window to scroll).  It is also used
 by other Emacs features."
   (when (and (null executing-kbd-macro)
-             (sit-for 0)         ;make sure (window-start) is credible
+             ;; This used to read `(sit-for 0)', but that has proved
+             ;; unreliable when called from within
+             ;; after-change-functions bound to certain special events.
+             (redisplay)         ;make sure (window-start) is credible
              (or (not (equal isearch-string
                              isearch-lazy-highlight-last-string))
                  (not (memq (selected-window)
@@ -4654,8 +4657,7 @@ defaults to the value of `isearch-search-fun-default' when nil."
                                          (match-data)))))
             (when found (goto-char found))
             (when match-data (set-match-data
-                              (mapcar (lambda (m) (copy-marker m))
-                                      match-data))))
+                              (mapcar #'copy-marker match-data))))
         (setq found (funcall
                      (or search-fun (isearch-search-fun-default))
                      string (if bound (if isearch-forward
