@@ -1,6 +1,6 @@
 ;;; mhtml-ts-mode.el --- Major mode for HTML using tree-sitter -*- lexical-binding: t; -*-
 
-;; Copyright (C) 2024 Free Software Foundation, Inc.
+;; Copyright (C) 2024-2025 Free Software Foundation, Inc.
 
 ;; Author: Vincenzo Pupillo <v.pupillo@gmail.com>
 ;; Maintainer: Vincenzo Pupillo <v.pupillo@gmail.com>
@@ -107,7 +107,7 @@ By default should have same value as `html-ts-mode-indent-offset'."
             executable html-ts-mode-indent-offset))
           ((setq executable (executable-find "xmllint"))
            (format "%s --html --quiet --format -" executable))
-          (t "Install tidy, ore some other HTML pretty print tool, and set `mhtml-ts-mode-pretty-print-command'.")))
+          (t "Install tidy, or some other HTML pretty print tool, and set `mhtml-ts-mode-pretty-print-command'.")))
   "The command to pretty print the current HTML buffer."
   :type 'string
   :version "31.1")
@@ -248,7 +248,7 @@ For NODE, OVERRIDE, START, and END, see `treesit-font-lock-rules'."
      'font-lock-variable-name-face
      override start end)))
 
-;; Embedded languages ​​should be indented according to the language
+;; Embedded languages should be indented according to the language
 ;; that embeds them.
 ;; This function signature complies with `treesit-simple-indent-rules'
 ;; ANCHOR.
@@ -315,20 +315,25 @@ NODE and PARENT are ignored."
      (defun ,(regexp-opt (list css--treesit-defun-type-regexp)))))
   "Settings for `treesit-thing-settings'.")
 
-(defvar mhtml-ts-mode--treesit-indent-rules
+;; We use a function instead of a variable, because
+;; `js--treesit-indent-rules' and `css--treesit-indent-rules' doesn't
+;; exist when at compile time (unless we `eval-when-compile', but that
+;; doesn't feel like the right solution to me).
+(defun mhtml-ts-mode--treesit-indent-rules ()
+  "Return intent rules for `mhtml-ts-mode'."
   (treesit--indent-rules-optimize
    (append html-ts-mode--indent-rules
            ;; Extended rules for js and css, to
            ;; indent appropriately when injected
            ;; into html
-           (treesit-modify-indent-rules
+           (treesit-simple-indent-modify-rules
             'javascript
             `((javascript ((parent-is "program")
                            mhtml-ts-mode--js-css-tag-bol
                            mhtml-ts-mode--js-css-indent-offset)))
             js--treesit-indent-rules
             :replace)
-           (treesit-modify-indent-rules
+           (treesit-simple-indent-modify-rules
             'css
             `((css ((parent-is "stylesheet")
                     mhtml-ts-mode--js-css-tag-bol
@@ -440,6 +445,7 @@ Calls REPORT-FN directly.  Requires tidy."
         (process-send-region mhtml-ts-mode--flymake-process (point-min) (point-max))
         (process-send-eof mhtml-ts-mode--flymake-process)))))
 
+;;;###autoload
 (define-derived-mode mhtml-ts-mode html-ts-mode
   '("HTML+" (:eval (let ((lang (mhtml-ts-mode--language-at-point (point))))
                      (cond ((eq lang 'html) "")
@@ -516,7 +522,7 @@ Powered by tree-sitter."
                   js--treesit-jsdoc-comment-regexp))
 
 
-    ;; Many treesit fuctions need to know the language at-point.
+    ;; Many treesit functions need to know the language at-point.
     ;; So you should define such a function.
     (setq-local treesit-language-at-point-function #'mhtml-ts-mode--language-at-point)
     (setq-local prettify-symbols-alist mhtml-ts-mode--prettify-symbols-alist)
@@ -534,7 +540,8 @@ Powered by tree-sitter."
     ;; `mhtml-ts-mode-tag-relative-indent' and can be used to indent
     ;; JavaScript and CSS code relative to the HTML that contains them,
     ;; just like in mhtml-mode.
-    (setq-local treesit-simple-indent-rules mhtml-ts-mode--treesit-indent-rules)
+    (setq-local treesit-simple-indent-rules
+                (mhtml-ts-mode--treesit-indent-rules))
 
     ;; Navigation.
 
@@ -573,7 +580,11 @@ Powered by tree-sitter."
     (setq-local treesit-aggregated-simple-imenu-settings
                 mhtml-ts-mode--treesit-aggregated-simple-imenu-settings)
 
-    ;; (setq-local treesit-outline-predicate nil)
+    (setq-local treesit-aggregated-outline-predicate
+                `((html . ,#'html-ts-mode--outline-predicate)
+                  ;; TODO: add a predicate like for html above
+                  (javascript . "\\`function_declaration\\'")
+                  (css . "\\`rule_set\\'")))
 
     (treesit-major-mode-setup)
 
@@ -583,7 +594,7 @@ Powered by tree-sitter."
     ;; Flymake
     (add-hook 'flymake-diagnostic-functions #'mhtml-ts-mode-flymake-mhtml nil 'local)))
 
-;; Add nome extra parents.
+;; Add some extra parents.
 (derived-mode-add-parents 'mhtml-ts-mode '(css-mode js-mode))
 
 (when (and (treesit-ready-p 'html) (treesit-ready-p 'javascript) (treesit-ready-p 'css))

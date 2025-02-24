@@ -2645,7 +2645,7 @@ Return the number of headers removed."
 		   (looking-at "[!-9;-~]+:"))
 	    (looking-at regexp))
 	  (progn
-	    (cl-incf number)
+            (incf number)
 	    (when first
 	      (setq last t))
 	    (delete-region
@@ -2670,10 +2670,10 @@ Return the number of headers removed."
     (save-excursion
       (goto-char (point-min))
       (while (re-search-forward regexp nil t)
-	(cl-incf count)))
+        (incf count)))
     (while (> count 1)
       (message-remove-header header nil t)
-      (cl-decf count))))
+      (decf count))))
 
 (defun message-narrow-to-headers ()
   "Narrow the buffer to the head of the message."
@@ -3881,7 +3881,7 @@ text was killed."
   "Create a rot table with offset N."
   (let ((i -1)
 	(table (make-string 256 0)))
-    (while (< (cl-incf i) 256)
+    (while (< (incf i) 256)
       (aset table i i))
     (concat
      (substring table 0 ?A)
@@ -6591,7 +6591,7 @@ they are."
     (when (> count maxcount)
       (let ((surplus (- count maxcount)))
 	(message-shorten-1 refs cut surplus)
-	(cl-decf count surplus)))
+        (decf count surplus)))
 
     ;; When sending via news, make sure the total folded length will
     ;; be less than 998 characters.  This is to cater to broken INN
@@ -8929,7 +8929,7 @@ used to take the screenshot."
   (unless (executable-find (car message-screenshot-command))
     (error "Can't find %s to take the screenshot"
 	   (car message-screenshot-command)))
-  (cl-decf delay)
+  (decf delay)
   (unless (zerop delay)
     (dotimes (i delay)
       (message "Sleeping %d second%s..."

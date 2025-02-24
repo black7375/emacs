@@ -1159,21 +1159,21 @@ Also changes the counters in STATS to match."
                                                 (aref results pos))
                     (cl-etypecase (aref results pos)
                       (ert-test-passed
-                       (cl-incf (ert--stats-passed-expected stats) d))
+                       (incf (ert--stats-passed-expected stats) d))
                       (ert-test-failed
-                       (cl-incf (ert--stats-failed-expected stats) d))
+                       (incf (ert--stats-failed-expected stats) d))
 		      (ert-test-skipped
-                       (cl-incf (ert--stats-skipped stats) d))
+                       (incf (ert--stats-skipped stats) d))
                       (null)
                       (ert-test-aborted-with-non-local-exit)
                       (ert-test-quit))
                   (cl-etypecase (aref results pos)
                     (ert-test-passed
-                     (cl-incf (ert--stats-passed-unexpected stats) d))
+                     (incf (ert--stats-passed-unexpected stats) d))
                     (ert-test-failed
-                     (cl-incf (ert--stats-failed-unexpected stats) d))
+                     (incf (ert--stats-failed-unexpected stats) d))
                     (ert-test-skipped
-                     (cl-incf (ert--stats-skipped stats) d))
+                     (incf (ert--stats-skipped stats) d))
                     (null)
                     (ert-test-aborted-with-non-local-exit)
                     (ert-test-quit)))))
@@ -1419,7 +1419,7 @@ Returns the stats object."
                          (message "%9s  %S%s"
                                   (ert-string-for-test-result result nil)
                                   (ert-test-name test)
-                                  (if (cl-plusp
+                                  (if (plusp
                                        (length (getenv "EMACS_TEST_VERBOSE")))
                                       (ert-reason-for-test-result result)
                                     ""))))
@@ -1432,7 +1432,7 @@ Returns the stats object."
                          (message "%9s  %S%s"
                                   (ert-string-for-test-result result nil)
                                   (ert-test-name test)
-                                  (if (cl-plusp
+                                  (if (plusp
                                        (length (getenv "EMACS_TEST_VERBOSE")))
                                       (ert-reason-for-test-result result)
                                     ""))))
@@ -1684,8 +1684,8 @@ test packages depend on each other, it might be helpful.")
                   (insert "      </error>\n"
                           "    </testcase>\n"
                           "  </testsuite>\n")
-                  (cl-incf errors 1)
-                  (cl-incf id 1)))
+                  (incf errors 1)
+                  (incf id 1)))
 
             (insert-file-contents-literally test-report)
             (when (looking-at-p
@@ -1693,15 +1693,15 @@ test packages depend on each other, it might be helpful.")
               (delete-region (point) (line-beginning-position 2)))
             (when (looking-at
                    "<testsuites name=\".+\" tests=\"\\(.+\\)\" errors=\"\\(.+\\)\" failures=\"\\(.+\\)\" skipped=\"\\(.+\\)\" time=\"\\(.+\\)\">")
-              (cl-incf tests (string-to-number (match-string 1)))
-              (cl-incf errors  (string-to-number (match-string 2)))
-              (cl-incf failures  (string-to-number (match-string 3)))
-              (cl-incf skipped (string-to-number (match-string 4)))
-              (cl-incf time (string-to-number (match-string 5)))
+              (incf tests (string-to-number (match-string 1)))
+              (incf errors (string-to-number (match-string 2)))
+              (incf failures (string-to-number (match-string 3)))
+              (incf skipped (string-to-number (match-string 4)))
+              (incf time (string-to-number (match-string 5)))
               (delete-region (point) (line-beginning-position 2)))
             (when (looking-at "  <testsuite id=\"\\(0\\)\"")
               (replace-match (number-to-string id) nil nil nil 1)
-              (cl-incf id 1))
+              (incf id 1))
             (goto-char (point-max))
             (beginning-of-line 0)
             (when (looking-at-p "</testsuites>")
@@ -2123,7 +2123,7 @@ non-nil, returns the face for expected results.."
 (defun ert-face-for-stats (stats)
   "Return a face that represents STATS."
   (cond ((ert--stats-aborted-p stats) 'nil)
-        ((cl-plusp (ert-stats-completed-unexpected stats))
+        ((plusp (ert-stats-completed-unexpected stats))
          (ert-face-for-test-result nil))
         ((eql (ert-stats-completed-expected stats) (ert-stats-total stats))
          (ert-face-for-test-result t))
