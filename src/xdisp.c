@@ -11653,6 +11653,7 @@ window_text_pixel_size (Lisp_Object window, Lisp_Object from, Lisp_Object to,
   it.bidi_p = false;
 
   int start_x;
+  ptrdiff_t start_bpos = BYTEPOS (startp);
   if (vertical_offset != 0)
     {
       int last_y;
@@ -11685,6 +11686,7 @@ window_text_pixel_size (Lisp_Object window, Lisp_Object from, Lisp_Object to,
       it.current_y = (WINDOW_TAB_LINE_HEIGHT (w)
 		      + WINDOW_HEADER_LINE_HEIGHT (w));
       start = clip_to_bounds (BEGV, IT_CHARPOS (it), ZV);
+      start_bpos = CHAR_TO_BYTE (start);
       start_y = it.current_y;
       start_x = it.current_x;
     }
@@ -11746,7 +11748,7 @@ window_text_pixel_size (Lisp_Object window, Lisp_Object from, Lisp_Object to,
   it.current_y = start_y;
   /* If FROM is on a newline, pretend that we start at the beginning
      of the next line, because the newline takes no place on display.  */
-  if (FETCH_BYTE (start) == '\n')
+  if (FETCH_BYTE (start_bpos) == '\n')
     it.current_x = 0, it.wrap_prefix_width = 0;
   if (!NILP (x_limit))
     {
@@ -27755,7 +27757,7 @@ display_mode_element (struct it *it, int depth, int field_width, int precision,
     case Lisp_String:
       {
 	/* A string: output it and check for %-constructs within it.  */
-	unsigned char c;
+	int c;
 	ptrdiff_t offset = 0;
 
 	if (SCHARS (elt) > 0
@@ -27925,6 +27927,15 @@ display_mode_element (struct it *it, int depth, int field_width, int precision,
 		field = 0;
 		while ((c = SREF (elt, offset++)) >= '0' && c <= '9')
 		  field = field * 10 + c - '0';
+
+		/* "%" could be followed by a multibyte character.  */
+                if (STRING_MULTIBYTE (elt))
+		  {
+		    int length;
+		    offset--;
+		    c = string_char_and_length (SDATA (elt) + offset, &length);
+		    offset += length;
+		  }
 
 		/* Don't pad beyond the total padding allowed.  */
 		if (field_width - n > 0 && field > field_width - n)

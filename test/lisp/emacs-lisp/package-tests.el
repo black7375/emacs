@@ -128,11 +128,11 @@
             package-selected-packages
             ,@(if update-news
                   '(package-update-news-on-upload t)
-                (list (cl-gensym)))
+                (list (gensym)))
             ,@(if upload-base
                   '((package-test-archive-upload-base (make-temp-file "pkg-archive-base-" t))
                     (package-archive-upload-base package-test-archive-upload-base))
-                (list (cl-gensym)))) ;; Dummy value so `let' doesn't try to bind nil
+                (list (gensym)))) ;; Dummy value so `let' doesn't try to bind nil
        (let ((buf (get-buffer "*Packages*")))
          (when (buffer-live-p buf)
            (kill-buffer buf)))
@@ -449,6 +449,13 @@ but with a different end of line convention (bug#48137)."
     (package-initialize)
     (package-refresh-contents)
     (package-install 'simple-single)))
+
+(ert-deftest package-test-install-single-from-archive/string-type ()
+  "Install a single package from a package archive, using string argument."
+  (with-package-test ()
+    (package-initialize)
+    (package-refresh-contents)
+    (package-install "simple-single")))
 
 (ert-deftest package-test-install-prioritized ()
   "Install a lower version from a higher-prioritized archive."

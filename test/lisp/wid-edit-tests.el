@@ -22,8 +22,20 @@
 (require 'ert)
 (require 'wid-edit)
 
+(ert-deftest widget-test-editable-field-widget-get/put ()
+  (with-temp-buffer
+    (let ((widget (widget-create 'editable-field
+                                 :size 13
+                                 :format "Name: %v "
+                                 "My Name")))
+      (should (eq (widget-get widget :size) 13))
+      (should (equal (widget-get widget :format) "Name: %v "))
+      (should (eq (widget-put widget :size 1) 1))
+      (should (equal (widget-put widget :format "foo") "foo"))
+      (should (eq (widget-get widget :size) 1))
+      (should (equal (widget-get widget :format) "foo")))))
+
 (ert-deftest widget-at ()
-  "Test `widget-at' behavior."
   (with-temp-buffer
     (should-not (widget-at))
     (let ((marco (widget-create 'link "link widget"))
@@ -480,5 +492,19 @@ markers (and so on) as well."
       (should (= oto (widget-get group :to)))
       (should (= ofrom2 (widget-get group2 :from)))
       (should (= oto2 (widget-get group2 :to))))))
+
+(ert-deftest widget-test-modification-of-inactive-widget ()
+  "Test that modifications to an inactive widget keep all of it inactive."
+  (with-temp-buffer
+    (let* ((radio (widget-create 'radio-button-choice
+                                 '(item "One") '(item "Two") '(item "Confirm")))
+           (from (widget-get radio :from))
+           (to (widget-get radio :to))
+           (ov (progn (widget-apply radio :deactivate)
+                      (widget-get radio :inactive))))
+      (widget-value-set radio "")
+      (widget-apply radio :deactivate)
+      (should (= (overlay-start ov) from))
+      (should (= (overlay-end ov) to)))))
 
 ;;; wid-edit-tests.el ends here

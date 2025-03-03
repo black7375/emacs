@@ -184,6 +184,17 @@ accepts a comma-separated list.  The prompt format can include the
 separator description and the separator string, which are both stored as
 text properties of the 'crm-separator' regular expression.
 
+---
+*** New user option 'completion-preview-sort-function'.
+This option controls how Completion Preview mode sorts completion
+candidates.  If you use this mode together with an in-buffer completion
+popup interface, such as the interfaces that the GNU ELPA packages Corfu
+and Company provide, you can set this option to the same sort function
+that your popup interface uses for a more integrated experience.
+
+Note: 'completion-preview-sort-function' was present also in Emacs 30.1,
+albeit as a variable, not a user option.
+
 ** Windows
 
 +++
@@ -434,6 +445,17 @@ modal editing packages.
 * Changes in Specialized Modes and Packages in Emacs 31.1
 
 ---
+** Text mode
+
+*** New commands to convert between ASCII and full-width characters.
+New commands 'fullwidth-region' and 'fullwidth-word' convert ASCII
+characters in region or in the word at point to the corresponding
+full-width characters, which are customarily used instead of ASCII
+characters in CJK texts.  For example, 'A' is converted to 'Ａ', '1' is
+converted to '１', etc.  Companion commands 'halfwidth-region' and
+'halfwidth-word' perform the opposite conversion.
+
+---
 ** ASM mode
 
 *** 'asm-mode-set-comment-hook' is obsolete.
@@ -465,6 +487,19 @@ content.
 *** New user option 'Buffer-menu-human-readable-sizes'.
 When non-nil, buffer sizes are shown in human readable format.  The
 default is nil, which retains the old format.
+
+** Term
+
+*** The terminal emulator now supports auto-margins control.
+Term mode now handles DECAWM escape sequences that control whether text
+automatically wraps at the right margin:
+- \e[?7h enables auto-margins (default)
+- \e[?7l disables auto-margins
+
+When auto-margins is disabled, characters that would go beyond the right margin
+are discarded, which matches the behavior of physical terminals and other
+terminal emulators. Control sequences and escape sequences are still processed
+correctly regardless of margin position.
 
 ** Smerge
 
@@ -537,6 +572,12 @@ Such bindings make it possible to compute which function to bind to FUNC.
 *** 'cl-locally' is now obsolete.
 It is an alias for the 'progn' special-form.
 
++++
+*** 'cl-declare' is now obsolete; use 'defvar' instead.
+
++++
+*** 'cl-gensym' is now obsolete; use 'gensym' instead.
+
 ** Whitespace
 
 ---
@@ -603,6 +644,11 @@ behavior included additional information about the originating message.
 The new variable 'message-header-use-obsolete-in-reply-to', nil by
 default, can be set to a non-nil value to restore the previous behavior.
 
++++
+*** Hashcash support has been removed.
+It is believed to no longer be useful as a method to fight spam.  The
+'message-generate-hashcash' option is now obsolete and has no effect.
+
 ** Gnus
 
 ---
@@ -610,6 +656,11 @@ default, can be set to a non-nil value to restore the previous behavior.
 When called with a prefix argument, accepting, declining, or tentatively
 accepting an icalendar event will prompt for a comment to add to the
 response.
+
++++
+*** Hashcash support has been removed.
+It is believed to no longer be useful as a method to fight spam.  The
+'spam-use-hashcash' hook is now obsolete and has no effect.
 
 ** Sieve
 
@@ -891,6 +942,14 @@ for docstrings where symbols 'nil' and 't' are in quotes.
 In most cases, having it enabled leads to a large amount of false
 positives.
 
+** IELM
+
+---
+*** IELM input history is now saved also when the IELM process is killed.
+When you kill the IELM process with "C-c C-c", the input history is now
+saved to the file specified by 'ielm-history-file-name', just like when
+you exit the Emacs session or kill the IELM buffer.
+
 ** DocView
 
 ---
@@ -933,6 +992,14 @@ consider making this behavior the default in a future Emacs version, so
 we invite Flyspell users to enable this new option and report issues.
 
 ** Tramp
+
++++
+*** New command 'tramp-cleanup-bufferless-connections'.
+Connection-related objects for which no associated buffers exist, except
+for Tramp internal buffers, are flushed.  This is helpful to prune
+connections after you close remote-file buffers without having to either
+cherry pick via 'tramp-cleanup-connection' or clear them all via
+'tramp-cleanup-all-connections'.
 
 +++
 *** Connection method "kubernetes" supports now optional namespace.
@@ -1304,8 +1371,21 @@ change the selection rules.
 ** Miscellaneous
 
 ---
+*** 'tooltip-mode' now shows tooltips after delay on TTY frames.
+Display of tooltips on text-only terminals now happens after
+'tooltip-delay' as it does on GUI terminals.  To get back the old
+behavior, customize the value of 'tooltip-delay' to zero.
+
+---
 *** cdl.el is now obsolete.
 Use 'shell-command' and 'shell-command-on-region' instead.
+
+---
+*** echistory.el is now obsolete.
+
+---
+*** hashcash.el is now obsolete.
+It is believed to no longer be useful as a method to fight spam.
 
 ---
 *** kermit.el is now obsolete.
@@ -1408,6 +1488,17 @@ and signal an error if they are given a non-number.
 They return non-nil if an integer is odd or even, respectively, and
 signal an error if they are given a non-integer.
 
+** ERT
+
+*** Some experimental ERT macros are now considered stable.
+The following macros, previously only available in the experimental
+'ert-x' module, are now considered stable and have been moved to 'ert':
+- ert-with-test-buffer
+- ert-with-buffer-selected
+- ert-with-buffer-renamed
+
+See the ERT manual for more information.
+
 ** Time & Date
 
 +++
@@ -1420,8 +1511,8 @@ strings in a variety of formats, for example "6 months 3 weeks" or "5m
 ** The function 'purecopy' is now an obsolete alias for 'identity'.
 
 ** New function 'native-compile-directory'.
-This function natively-compiles all Lisp files in a directory and in its
-sub-directories, recursively, which were not already natively-compiled.
+This function natively compiles all Lisp files in a directory and in its
+sub-directories, recursively, which were not already natively compiled.
 
 ---
 ** New function 'color-blend'.
@@ -1614,8 +1705,9 @@ will be calculated based on the window width.
 A command with this symbol property whose value is a list of repeat
 maps will not activate the repeat map in 'repeat-mode'.  It will only
 continue the already activated repeating sequence.  Also 'defvar-keymap'
-supports a new keyword ':continue' with a list of commands that
-only continue the active repeating sequence.
+supports a new keyword ':continue' with a list of commands that only
+continue the active repeating sequence, and the 'use-package' and
+'bind-keys' macros supports a similar keyword ':continue-only'.
 
 ** New function 'completion-table-with-metadata'.
 It offers a more concise way to create a completion table with metadata.
@@ -1652,6 +1744,12 @@ sleep state.
 The run-time performance of subprocesses on recent Android releases,
 where a userspace executable loader is required, has been optimized on
 systems featuring Linux 3.5.0 and above.
+
+---
+** It is now possible to read GUI events from non-main Lisp threads on Android.
+Put differently, this enables input events to be read and recursive
+editing sessions to be started from non-main threads.  The only platform
+where this remains unsupported is Nextstep (GNUstep or Mac OS).
 
 ---
 ** 'NSSpeechRecognitionUsageDescription' now included in "Info.plist" (macOS).
