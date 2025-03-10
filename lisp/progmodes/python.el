@@ -329,8 +329,8 @@ effect."
 
 ;;; Bindings
 
-(defvar-keymap python-mode-map
-  :doc "Keymap for `python-mode'."
+(defvar-keymap python-base-mode-map
+  :doc "Keymap for `python-base-mode'."
   ;; Movement
   "<remap> <backward-sentence>" #'python-nav-backward-block
   "<remap> <forward-sentence>"  #'python-nav-forward-block
@@ -375,7 +375,7 @@ effect."
 
 (defvar subword-mode nil)
 
-(easy-menu-define python-menu python-mode-map
+(easy-menu-define python-menu python-base-mode-map
   "Menu used for ´python-mode'."
   '("Python"
     :help "Python-specific Features"
@@ -436,7 +436,10 @@ effect."
       :style toggle :selected subword-mode
       :help "Toggle subword movement and editing mode"])))
 
-(defvar python-ts-mode-map (copy-keymap python-mode-map)
+(defvar python-mode-map (make-composed-keymap nil python-base-mode-map)
+ "Keymap for `python-mode'.")
+
+(defvar python-ts-mode-map (make-composed-keymap nil python-base-mode-map)
   "Keymap for `python-ts-mode'.")
 
 
@@ -6938,6 +6941,12 @@ argument, restrict the suggestions to imports defining the symbol
 at point.  If there is only one such suggestion, act without
 asking.
 
+If the buffer does not belong to a project, the import statement is
+searched under the buffer's default directory.  For example, if the file
+is located directly under the home directory, all files under the home
+directory will be searched.  Please note that this can take a long time
+and may appear to hang.
+
 When calling from Lisp, use a non-nil NAME to restrict the
 suggestions to imports defining NAME."
   (interactive (list (when current-prefix-arg (thing-at-point 'symbol))))
@@ -6982,7 +6991,17 @@ asking."
 
 ;;;###autoload
 (defun python-fix-imports ()
-  "Add missing imports and remove unused ones from the current buffer."
+  "Add missing imports and remove unused ones from the current buffer.
+
+If there are missing imports, ask for an import statement using all
+imports found in the current project as suggestions.  If there is only
+one such suggestion, act without asking.
+
+If the buffer does not belong to a project, the import statement is
+searched under the buffer's default directory.  For example, if the file
+is located directly under the home directory, all files under the home
+directory will be searched.  Please note that this can take a long time
+and may appear to hang."
   (interactive)
   (let ((buffer (current-buffer))
         undefined unused add remove)

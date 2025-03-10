@@ -1481,7 +1481,7 @@ For more details, see Info node `(cl)Loop Facility'.
 	       ((memq word key-types)
 		(or (memq (car cl--loop-args) '(in of))
                     (error "Expected `of'"))
-		(let ((cl-map (cl--pop2 cl--loop-args))
+                (let ((map (cl--pop2 cl--loop-args))
 		      (other
                        (if (eq (car cl--loop-args) 'using)
                            (if (and (= (length (cadr cl--loop-args)) 2)
@@ -1496,7 +1496,7 @@ For more details, see Info node `(cl)Loop Facility'.
                    'keys (lambda (body)
                            `(,(if (memq word '(key-seq key-seqs))
                                   'cl--map-keymap-recursively 'map-keymap)
-                             (lambda (,var ,other) . ,body) ,cl-map)))))
+                             (lambda (,var ,other) . ,body) ,map)))))
 
 	       ((memq word '(frame frames screen screens))
 		(let ((temp (make-symbol "--cl-var--")))
@@ -3576,7 +3576,10 @@ Of course, we really can't know that for sure, so it's just a heuristic."
 ;;;###autoload
 (defmacro cl-check-type (form type &optional string)
   "Verify that FORM is of type TYPE; signal an error if not.
-STRING is an optional description of the desired type."
+STRING is an optional description of the desired type.
+
+Hint: To check the type of an object, use `cl-type-of'.
+To define new types, see `cl-deftype'."
   (declare (debug (place cl-type-spec &optional stringp)))
   (and (or (not (macroexp-compiling-p))
 	   (< cl--optimize-speed 3) (= cl--optimize-safety 3))

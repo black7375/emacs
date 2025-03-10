@@ -168,7 +168,7 @@
 
 (defmacro with-fake-help-buffer (&rest body)
   "Execute BODY in a temp buffer which is treated as the \"*Help*\" buffer."
-  (declare (debug body))
+  (declare (debug (body)))
   `(with-temp-buffer
     (help-mode)
     ;; Trick `help-buffer' into using the temp buffer.
@@ -449,13 +449,6 @@ but with a different end of line convention (bug#48137)."
     (package-initialize)
     (package-refresh-contents)
     (package-install 'simple-single)))
-
-(ert-deftest package-test-install-single-from-archive/string-type ()
-  "Install a single package from a package archive, using string argument."
-  (with-package-test ()
-    (package-initialize)
-    (package-refresh-contents)
-    (package-install "simple-single")))
 
 (ert-deftest package-test-install-prioritized ()
   "Install a lower version from a higher-prioritized archive."
