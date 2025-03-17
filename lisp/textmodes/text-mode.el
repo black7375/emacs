@@ -34,7 +34,8 @@
 (defcustom text-mode-hook '(text-mode-hook-identify)
   "Normal hook run when entering Text mode and many related modes."
   :type 'hook
-  :options '(turn-on-auto-fill turn-on-flyspell)
+  :options '(turn-on-auto-fill flyspell-mode)
+  :version "31.1"
   :group 'text)
 
 (defvar text-mode-variant nil
@@ -83,10 +84,7 @@ means that Text mode adds an Ispell word completion function to
 `completion-at-point-functions'.  Any other non-nil value says to
 bind M-TAB directly to `ispell-complete-word' instead.  If this
 is nil, Text mode neither binds M-TAB to `ispell-complete-word'
-nor does it extend `completion-at-point-functions'.
-
-This user option only takes effect when you customize it in
-Custom or with `setopt', not with `setq'."
+nor does it extend `completion-at-point-functions'."
   :group 'text
   :type '(choice (const completion-at-point) boolean)
   :version "30.1"
@@ -288,6 +286,9 @@ The argument NLINES says how many lines to center."
           (aset tbl ch (+ ch #xFEE0))
           (aset rev-tbl (+ ch #xFEE0) ch)
           (setq ch (1+ ch)))
+        ;; SPC -> U+3000 IDEOGRAPHIC SPACE
+        (aset tbl ?\  #x3000)
+        (aset rev-tbl #x3000 ?\ )
         (set-char-table-extra-slot tbl 0 rev-tbl)
         (set-char-table-extra-slot tbl 1 1)
         (set-char-table-extra-slot rev-tbl 1 1)

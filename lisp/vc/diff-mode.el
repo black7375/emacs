@@ -2048,9 +2048,11 @@ SWITCHED is non-nil if the patch is already applied."
         (goto-char (point-min)) (forward-line (1- (string-to-number line)))
 	(let* ((orig-pos (point))
 	       (switched nil)
-	       ;; FIXME: Check for case where both OLD and NEW are found.
-	       (pos (or (diff-find-text (car old))
-			(progn (setq switched t) (diff-find-text (car new)))
+	       (maybe-old (diff-find-text (car old)))
+	       (maybe-new (diff-find-text (car new)))
+	       (pos (or (and maybe-new maybe-old (null reverse) (setq switched t) maybe-new)
+			maybe-old
+			(progn (setq switched t) maybe-new)
 			(progn (setq switched nil)
 			       (condition-case nil
 				   (diff-find-approx-text (car old))
@@ -2193,12 +2195,18 @@ customize `diff-ask-before-revert-and-kill-hunk' to control that."
 
 (defun diff-apply-buffer (&optional beg end reverse)
   "Apply the diff in the entire diff buffer.
+Interactively, if the region is active, apply all hunks that the region
+overlaps; otherwise, apply all hunks.
+With a prefix argument, reverse-apply the hunks.
 If applying all hunks succeeds, save the changed buffers.
+
 When called from Lisp with optional arguments, restrict the application
-to hunks lying between BEG and END, and reverse-apply them when REVERSE is
-non-nil.  Returns nil if buffers were successfully modified and saved, or
-the number of failed hunk applications otherwise."
-  (interactive)
+to hunks lying between BEG and END, and reverse-apply them when REVERSE
+is non-nil.  Returns nil if buffers were successfully modified and
+saved, or the number of failed hunk applications otherwise."
+  (interactive (list (use-region-beginning)
+                     (use-region-end)
+                     current-prefix-arg))
   (let ((buffer-edits nil)
         (failures 0)
         (diff-refine nil))
