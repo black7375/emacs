@@ -4713,21 +4713,22 @@ the \".dir-locals.el\".
 
 See Info node `(elisp)Directory Local Variables' for details.")
 
-(defun dir-locals--all-files (directory)
+(defun dir-locals--all-files (directory &optional base-el-only)
   "Return a list of all readable dir-locals files in DIRECTORY.
 The returned list is sorted by increasing priority.  That is,
 values specified in the last file should take precedence over
 those in the first."
   (when (file-readable-p directory)
     (let* ((file-1 (expand-file-name (if (eq system-type 'ms-dos)
-                                        (dosified-file-name dir-locals-file)
-                                      dir-locals-file)
-                                    directory))
+                                         (dosified-file-name dir-locals-file)
+                                       dir-locals-file)
+                                     directory))
            (file-2 (when (string-match "\\.el\\'" file-1)
                      (replace-match "-2.el" t nil file-1)))
-          (out nil))
-      ;; The order here is important.
-      (dolist (f (list file-2 file-1))
+           out)
+      (dolist (f (or (and base-el-only (list file-1))
+                     ;; The order here is important.
+                     (list file-2 file-1)))
         (when (and f
                    (file-readable-p f)
                    ;; FIXME: Aren't file-regular-p and
@@ -4736,6 +4737,10 @@ those in the first."
                    (not (file-directory-p f)))
           (push f out)))
       out)))
+
+(defun dir-locals--base-file (directory)
+  "Return readable `dir-locals-file' in DIRECTORY, or nil."
+  (dir-locals--all-files directory 'base-el-only))
 
 (defun dir-locals-find-file (file)
   "Find the directory-local variables for FILE.
@@ -4758,7 +4763,7 @@ This function returns either:
     entry."
   (setq file (expand-file-name file))
   (let* ((locals-dir (locate-dominating-file (file-name-directory file)
-                                             #'dir-locals--all-files))
+                                             #'dir-locals--base-file))
          dir-elt)
     ;; `locate-dominating-file' may have abbreviated the name.
     (when locals-dir
@@ -6288,7 +6293,10 @@ Before and after saving the buffer, this function runs
         (if (not enable-recursive-minibuffers)
             (progn (display-buffer buf)
                    (setq other-window-scroll-buffer buf))
-          (view-buffer buf (lambda (_) (exit-recursive-edit)))
+          ;; Like 'view-buffer' but ignore 'special' mode-class
+          ;; because 'q' should call 'exit-action' in any case:
+          (switch-to-buffer buf)
+          (view-mode-enter nil (lambda (_) (exit-recursive-edit)))
           (recursive-edit))
         ;; Return nil to ask about BUF again.
         nil)
@@ -6307,7 +6315,10 @@ Before and after saving the buffer, this function runs
                (if (not enable-recursive-minibuffers)
                    (progn (display-buffer diffbuf)
                           (setq other-window-scroll-buffer diffbuf))
-                 (view-buffer diffbuf (lambda (_) (exit-recursive-edit)))
+                 ;; Like 'view-buffer' but ignore 'special' mode-class
+                 ;; because 'q' should call 'exit-action' in any case:
+                 (switch-to-buffer diffbuf)
+                 (view-mode-enter nil (lambda (_) (exit-recursive-edit)))
                  (recursive-edit))))
            ;; Return nil to ask about BUF again.
            nil)

@@ -30,6 +30,12 @@ The traditional unexec dumper, deprecated since Emacs 27, has been
 removed.
 
 ---
+** Emacs's old ctags program is no longer built or installed.
+You are encouraged to use Universal Ctags <https://ctags.io/> instead.
+For now, to get the old ctags behavior you can can run 'etags --ctags'
+or use a shell script named 'ctags' that runs 'etags --ctags "$@"'.
+
+---
 ** Changed GCC default options on 32-bit x86 systems.
 When using GCC 4 or later to build Emacs on 32-bit x86 systems,
 'configure' now defaults to using the GCC options '-mfpmath=sse' (if the
@@ -72,11 +78,8 @@ display table it changes.
 ** Child frames are now supported on TTY frames.
 This supports use-cases like Posframe, Corfu, and child frames acting
 like tooltips.  Other use-cases of child frames are not supported yet.
-In particular:
-
-- trying to create minibuffer-only child frames on a TTY frame will
-  signal an error; and
-- a TTY child frame cannot be converted to a root frame or vice-versa.
+In particular, a TTY child frame cannot be converted to a root frame or
+vice-versa.
 
 To enable tooltips on TTY frames, call 'tty-tip-mode'.
 
@@ -186,6 +189,16 @@ new list of completions.  The candidate is automatically deselected when
 the "*Completions*" buffer is hidden.
 
 ---
+*** "*Completions*" is now displayed faster when there are many candidates.
+As before, if there are more completion candidates than can be displayed
+in the current frame, only a subset of the candidates is displayed.
+This process is now faster: only that subset of the candidates is
+actually inserted into "*Completions*" until you run a command which
+interacts with the text of the "*Completions*" buffer.  This
+optimization only applies when 'completions-format' is 'horizontal' or
+'one-column'.
+
+---
 *** New user option 'crm-prompt' for 'completing-read-multiple'.
 This option configures the prompt format of 'completing-read-multiple'.
 By default, the prompt indicates to the user that the completion command
@@ -284,6 +297,12 @@ return value windows whose buffers share their text with BUFFER-OR-NAME.
 *** New 'display-buffer' action alist entry 'reuse-indirect'.
 With such an entry, 'display-buffer-reuse-window' may also choose a
 window whose buffer shares text with the buffer to display.
+
++++
+*** New variable 'window-state-normalize-buffer-name'.
+When bound to non-nil, 'window-state-get' will normalize 'uniquify'
+managed buffer names by removing 'uniquify' prefixes and suffixes.  This
+helps restore window buffers across Emacs sessions.
 
 ** Frames
 
@@ -981,7 +1000,7 @@ blocks are syntax-highlighted if the Doxygen grammar library is
 available.
 
 ---
-*** New user option 'java-ts-mode-method-chaining-indent-offset'
+*** New user option 'java-ts-mode-method-chaining-indent-offset'.
 Now method chaining is indented by 8 spaces rather than 4, and this
 variable controls how much is indented for method chaining.
 
@@ -1004,6 +1023,11 @@ those versions can't install packages where that line is missing.
 
 This change affects both 'M-x checkdoc' and the corresponding flymake
 backend.
+
+---
+*** Checkdoc no longer warns about wide docstrings.
+The Checkdoc warning for wide docstrings duplicates the byte-compiler
+warning added in Emacs 28.1.  This redundancy is now removed.
 
 ---
 *** New user option 'checkdoc-arguments-missing-flag'.
@@ -1191,6 +1215,14 @@ changes when supplied with a universal prefix argument via 'C-u':
 - 'C-u b c' copies all changes from buffer B to buffer C.
 - 'C-u c a' copies all changes from buffer C to buffer A.
 - 'C-u c b' copies all changes from buffer C to buffer B.
+
++++
+*** Ediff now supports more flexible custom window layouts
+Custom implementations of 'ediff-window-setup-function' no
+longer need to display *all* ediff windows.  Any of the A, B, C,
+and control windows can be left undisplayed and the corresponding
+variable set to nil.  This change enables custom layouts without
+a control panel window.
 
 ** Dired
 
@@ -1406,17 +1438,19 @@ It is intended to be added to the 'log-edit-done-hook' so that
 command line.
 
 ---
-*** New user options 'vc-resolve-conflicts', 'vc-*-resolve-conflicts'
+*** New user options 'vc-resolve-conflicts' and 'vc-*-resolve-conflicts'.
 Control whether to mark a conflicted file as resolved when saving.
 You can now control it globally, with 'vc-resolve-conflicts' or for
 specific backends with 'vc-bzr-resolve-conflicts',
 'vc-hg-resolve-conflicts' and 'vc-svn-resolve-conflicts'.
+
 ---
-*** New value for 'vc-git-resolve-conflicts'
+*** New value for 'vc-git-resolve-conflicts'.
 The option now accepts the symbol 'default' as a value, which is
 its default value.  Effectively, the default value hasn't changed,
 since 'vc-resolve-conflicts' defaults to t, the previous default value
 for 'vc-git-resolve-conflicts'.
+
 ** Diff mode
 
 +++
@@ -1584,6 +1618,12 @@ This controls whether activation clicks are passed through to Emacs
 commands.  When nil, clicking on an inactive Emacs frame will only
 activate it.  When t (the default), the click will both activate the
 frame and be interpreted as a command.
+
+---
+*** New user option 'global-hl-line-modes'.
+This specifies in which major modes should the 'global-hl-line-mode' be
+switched on.  The default is t, which means enable it in all major
+modes.
 
 ---
 *** New user option 'display-fill-column-indicator-warning'.
