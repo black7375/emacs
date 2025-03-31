@@ -16939,9 +16939,18 @@ overlay_arrow_at_row (struct it *it, struct glyph_row *row)
 
       val = find_symbol_value (var);
 
+      ptrdiff_t arrow_marker_pos;
       if (MARKERP (val)
 	  && current_buffer == XMARKER (val)->buffer
-	  && (MATRIX_ROW_START_CHARPOS (row) == marker_position (val)))
+	  && (arrow_marker_pos = marker_position (val),
+	      /* Normally, the marker position will be at the row's
+                 start charpos.  But if the previous text lines are
+                 invisible, the row's start charpos includes those
+                 invisible lines, so we make a more general test that
+                 the marker position is anywhere between the start and
+                 the end character positions of this row.  */
+	      (MATRIX_ROW_START_CHARPOS (row) <= arrow_marker_pos
+	       && arrow_marker_pos < MATRIX_ROW_END_CHARPOS (row))))
 	{
 	  if (FRAME_WINDOW_P (it->f)
 	      /* FIXME: if ROW->reversed_p is set, this should test
@@ -31956,12 +31965,14 @@ produce_image_glyph (struct it *it)
      word-wrap, unless the image starts at column zero, because
      wrapping correctly needs the real pixel width of the image.  */
   if ((it->line_wrap != WORD_WRAP
-       || it->hpos == 0
+       || it->hpos == (0 + (it->lnum_width ? it->lnum_width + 2 : 0))
        /* Always crop images larger than the window-width, minus 1 space.  */
-       || it->pixel_width > it->last_visible_x - FRAME_COLUMN_WIDTH (it->f))
+       || it->pixel_width > (it->last_visible_x - it->lnum_pixel_width
+			     - FRAME_COLUMN_WIDTH (it->f)))
       && (crop = it->pixel_width - (it->last_visible_x - it->current_x),
 	  crop > 0)
-      && (it->hpos == 0 || it->pixel_width > it->last_visible_x / 4))
+      && (it->hpos == (0 + (it->lnum_width ? it->lnum_width + 2 : 0))
+	  || it->pixel_width > it->last_visible_x / 4))
     {
       it->pixel_width -= crop;
       slice.width -= crop;

@@ -225,20 +225,23 @@ in order to restore the state of the local variables set via this macro.
   (declare (debug setq))
   (unless (evenp (length pairs))
     (error "PAIRS must have an even number of variable/value members"))
-  `(prog1
-       (buffer-local-set-state--get ',pairs)
-     (setq-local ,@pairs)))
+  (let ((vars nil)
+        (tmp pairs))
+    (while tmp (push (car tmp) vars) (setq tmp (cddr tmp)))
+    (setq vars (nreverse vars))
+    `(prog1
+         (buffer-local-set-state--get ',vars)
+       (setq-local ,@pairs))))
 
-(defun buffer-local-set-state--get (pairs)
+(defun buffer-local-set-state--get (vars)
   (let ((states nil))
-    (while pairs
-      (push (list (car pairs)
-                  (and (boundp (car pairs))
-                       (local-variable-p (car pairs)))
-                  (and (boundp (car pairs))
-                       (symbol-value (car pairs))))
-            states)
-      (setq pairs (cddr pairs)))
+    (dolist (var vars)
+      (push (list var
+                  (and (boundp var)
+                       (local-variable-p var))
+                  (and (boundp var)
+                       (symbol-value var)))
+            states))
     (nreverse states)))
 
 (defun buffer-local-restore-state (states)
@@ -4759,6 +4762,18 @@ Point in BUFFER will be placed after the inserted text."
     (with-current-buffer buffer
       (insert-buffer-substring current start end))))
 
+(defun replace-buffer-contents (source &optional max-secs max-costs)
+  "Replace accessible portion of current buffer with that of SOURCE.
+SOURCE can be a buffer or a string that names a buffer.
+Interactively, prompt for SOURCE.
+
+The replacement is performed using `replace-region-contents'
+which also describes the MAX-SECS and MAX-COSTS arguments and the
+return value."
+  (interactive "bSource buffer: ")
+  (replace-region-contents (point-min) (point-max) (get-buffer source)
+                           max-secs max-costs))
+
 (defun replace-string-in-region (string replacement &optional start end)
   "Replace STRING with REPLACEMENT in the region from START to END.
 The number of replaced occurrences are returned, or nil if STRING
@@ -4782,8 +4797,8 @@ Comparisons and replacements are done with fixed case."
       (let ((matches 0)
             (case-fold-search nil))
         (while (search-forward string nil t)
-          (delete-region (match-beginning 0) (match-end 0))
-          (insert replacement)
+          (replace-region-contents (match-beginning 0) (match-end 0)
+                                   replacement 0)
           (setq matches (1+ matches)))
         (and (not (zerop matches))
              matches)))))
@@ -7388,6 +7403,13 @@ REGEXP defaults to  \"[ \\t\\n\\r]+\"."
 TRIM-LEFT and TRIM-RIGHT default to \"[ \\t\\n\\r]+\"."
   (declare (important-return-value t))
   (string-trim-left (string-trim-right string trim-right) trim-left))
+
+(defsubst hash-table-contains-p (key table)
+  "Return non-nil if TABLE has an element with KEY."
+  (declare (side-effect-free t)
+           (important-return-value t))
+  (let ((missing (make-symbol "missing")))
+    (not (eq (gethash key table missing) missing))))
 
 ;; The initial anchoring is for better performance in searching matches.
 (defconst regexp-unmatchable "\\`a\\`"
