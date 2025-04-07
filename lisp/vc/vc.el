@@ -38,6 +38,9 @@
 ;;   J.D. Smith <jdsmith@alum.mit.edu>
 ;;   Andre Spiegel <spiegel@gnu.org>
 ;;   Richard Stallman <rms@gnu.org>
+;;   Dmitry Gutov <dmitry@gutov.dev>
+;;   Juri Linkov <juri@linkov.net>
+;;   Sean Whitton <spwhitton@spwhitton.name>
 ;;
 ;; In July 2007 ESR returned and redesigned the mode to cope better
 ;; with modern version-control systems that do commits by fileset
@@ -997,21 +1000,6 @@ the first association for which the URL of the repository matches
 the URL-REGEXP of the association."
   :type `(alist :key-type (regexp :tag "Regular expression matching URLs")
                 :value-type ,vc-cloneable-backends-custom-type)
-  :version "31.1")
-
-(defcustom vc-resolve-conflicts t
-  "Whether to mark conflicted file as resolved upon saving.
-
-If this is non-nil and there are no more conflict markers in the file,
-VC will mark the conflicts in the saved file as resolved.  This is
-only meaningful for VCS that handle conflicts by inserting conflict
-markers in a conflicted file.
-
-When saving a conflicted file, VC first tries to use the value
-of `vc-BACKEND-resolve-conflicts', for handling backend-specific
-settings.  It defaults to this option if that option has the special
-value `default'."
-  :type 'boolean
   :version "31.1")
 
 
