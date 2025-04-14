@@ -1589,7 +1589,9 @@ it is displayed along with the global value."
   ;; Make a link to customize if this variable can be customized.
   (when (custom-variable-p variable)
     (let ((customize-label "customize")
-          (custom-set (get variable 'custom-set)))
+          (custom-set (get variable 'custom-set))
+          (opoint (with-current-buffer standard-output
+                    (point))))
       (princ (concat "  You can " customize-label (or text " this variable.")))
       (when (and custom-set
                  ;; Don't override manually written documentation.
@@ -1606,7 +1608,7 @@ it is displayed along with the global value."
                         "."))))
       (with-current-buffer standard-output
 	(save-excursion
-          (while (re-search-backward (concat "\\(" customize-label "\\)") nil t)
+          (while (re-search-backward (concat "\\(" customize-label "\\)") opoint t)
 	    (help-xref-button 1 'help-customize-variable variable))))
       (terpri))))
 
@@ -1965,7 +1967,8 @@ current buffer and the selected frame, respectively."
         (unless single
           ;; Don't record the `describe-variable' item in the stack.
           (setq help-xref-stack-item nil)
-          (help-setup-xref (list #'describe-symbol symbol) nil))
+          (let ((help-mode--current-data help-mode--current-data))
+            (help-setup-xref (list #'describe-symbol symbol) nil)))
         (goto-char (point-max))
         (help-xref--navigation-buttons)
         (goto-char (point-min))))))

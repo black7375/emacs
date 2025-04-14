@@ -1781,7 +1781,13 @@ rgb()/rgba()."
            res)))))))
 
 (defvar css--treesit-thing-settings
-  `((css (list
+  `((css (sexp
+          (not (or (and named
+                        ,(rx bos (or "stylesheet" "comment") eos))
+                   (and anonymous
+                        ,(rx (or "{" "}" "[" "]"
+                                 "(" ")" ","))))))
+         (list
           ,(rx bos (or "keyframe_block_list"
                        "block"
                        "pseudo_class_arguments"
@@ -1804,7 +1810,7 @@ rgb()/rgba()."
                        "declaration")
                eos))
          (text
-          ,(rx bos "comment" eos))))
+          ,(rx bos (or "comment" "string_value") eos))))
   "Settings for `treesit-thing-settings'.")
 
 (defvar css--treesit-font-lock-feature-list
@@ -1847,6 +1853,8 @@ implementations: `css-mode' and `css-ts-mode'."
   (setq-local comment-start-skip "/\\*+[ \t]*")
   (setq-local comment-end "*/")
   (setq-local comment-end-skip "[ \t]*\\*+/")
+  (setq-local block-comment-start "/*")
+  (setq-local block-comment-end "*/")
   (setq-local electric-indent-chars
               (append css-electric-keys electric-indent-chars))
   ;; The default "." creates ambiguity with class selectors.
@@ -2070,6 +2078,8 @@ be used to fill comments.
   "Major mode to edit \"Sassy CSS\" files."
   (setq-local comment-start "// ")
   (setq-local comment-end "")
+  (setq-local block-comment-start "/*")
+  (setq-local block-comment-end "*/")
   (setq-local comment-continue " *")
   (setq-local comment-start-skip "/[*/]+[ \t]*")
   (setq-local comment-end-skip "[ \t]*\\(?:\n\\|\\*+/\\)")

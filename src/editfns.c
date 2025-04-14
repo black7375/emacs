@@ -1916,7 +1916,10 @@ static bool compareseq_early_abort (struct context *);
 #include "diffseq.h"
 
 DEFUN ("replace-region-contents", Freplace_region_contents,
-       Sreplace_region_contents, 3, 6, 0,
+       Sreplace_region_contents, 3, 6,
+       "(list (if (use-region-p) (region-beginning) (point-min)) \
+              (if (use-region-p) (region-end) (point-max)) 	 \
+              (get-buffer (read-buffer-to-switch \"Source buffer: \")))",
        doc: /* Replace the region between BEG and END with that of SOURCE.
 SOURCE can be a buffer, a string, or a vector [SBUF SBEG SEND]
 denoting the subtring SBEG..SEND of buffer SBUF.
@@ -1926,7 +1929,9 @@ properties from adjoining text.
 
 As far as possible the replacement is non-destructive, i.e. existing
 buffer contents, markers, properties, and overlays in the current
-buffer stay intact.
+buffer stay intact.  However, if point is at the end of the replaced
+text, it may not be at the end of the replacement when this function
+returns.
 
 Because this function can be very slow if there is a large number of
 differences between the two buffers, there are two optional arguments
@@ -1937,14 +1942,16 @@ for comparing the buffers.  If it takes longer than MAX-SECS, the
 function falls back to a plain `delete-region' and
 `insert-buffer-substring'.  (Note that the checks are not performed
 too evenly over time, so in some cases it may run a bit longer than
-allowed).
+allowed).  In partricular, passing zero as the value of MAX-SECS
+disables the comparison step, so this function immediately falls
+back to a plain delete/insert method.
 
 The optional argument MAX-COSTS defines the quality of the difference
 computation.  If the actual costs exceed this limit, heuristics are
 used to provide a faster but suboptimal solution.  The default value
 is 1000000.
 
-Note: If the replacement is a string, it’ll usually be placed internally
+Note: If the replacement is a string, it'll usually be placed internally
 in a temporary buffer.  Therefore, all else being equal, it is preferable
 to pass a buffer rather than a string as SOURCE argument.
 
@@ -1968,6 +1975,7 @@ a buffer or a string.  But this is deprecated.  */)
   if (FUNCTIONP (source))
     {
       specpdl_ref count = SPECPDL_INDEX ();
+      record_unwind_protect_excursion ();
       record_unwind_protect (save_restriction_restore,
 			     save_restriction_save ());
       Fnarrow_to_region (beg, end);
@@ -2119,7 +2127,6 @@ a buffer or a string.  But this is deprecated.  */)
 
   Fundo_boundary ();
   bool modification_hooks_inhibited = false;
-  record_unwind_protect_excursion ();
 
   /* We are going to make a lot of small modifications, and having the
      modification hooks called for each of them will slow us down.
