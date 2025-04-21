@@ -214,9 +214,10 @@ Be careful to do it while preserving the current history data."
                               (savehist--file-modtime)))))
     ;; FIXME: Process the file manually rather than passing it to `load'.
     (let ((savehist-old-minibuffer-history-variables
-           (mapcar (lambda (s) (and (boundp s) (cons s (symbol-value s))))
-                   (cons 'savehist-minibuffer-history-variables
-                         savehist-minibuffer-history-variables))))
+           (delq nil (mapcar (lambda (s)
+                               (and (boundp s) (cons s (symbol-value s))))
+                             (cons 'savehist-minibuffer-history-variables
+                                   savehist-minibuffer-history-variables)))))
       (condition-case errvar
 	  (progn
 	    ;; Don't set coding-system-for-read -- we rely on the
@@ -242,7 +243,8 @@ Be careful to do it while preserving the current history data."
         ;; For each histvar that we knew about, make sure all the entries that
         ;; were there before are still here now and in the same order.
         (with-demoted-errors "%S" ;Maybe some var is not a list or something.
-          (set s (savehist--merge v (symbol-value s))))))))
+          (unless (equal v (symbol-value s))
+            (set s (savehist--merge v (symbol-value s)))))))))
 
 (defun savehist--file-modtime ()
   (or (file-attribute-modification-time (file-attributes savehist-file))
@@ -442,7 +444,12 @@ Does nothing if Savehist mode is off."
 	      ;; (which `read-password' does),
 	      ;; `minibuffer-history-variable' is bound to t to mean
 	      ;; "no history is being recorded".
-	      (memq minibuffer-history-variable savehist-ignored-variables))
+	      (memq minibuffer-history-variable savehist-ignored-variables)
+	      ;; Filter out uninterned history vars since we can't
+              ;; reliably write+read them back in anyway (and presumably
+              ;; they are not intended to survive sessions).
+	      (not (eq (intern-soft minibuffer-history-variable)
+	               minibuffer-history-variable)))
     (add-to-list 'savehist-minibuffer-history-variables
 		 minibuffer-history-variable)))
 
