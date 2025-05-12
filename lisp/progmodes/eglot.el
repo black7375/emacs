@@ -2531,7 +2531,11 @@ still unanswered LSP requests to the server\n"))))
   '(:eval
     (when (and (memq 'mode-line eglot-code-action-indications)
                (overlay-buffer eglot--suggestion-overlay))
-      (overlay-get eglot--suggestion-overlay 'eglot--suggestion-tooltip)))
+      (eglot--mode-line-props
+       eglot-code-action-indicator 'eglot-code-action-indicator-face
+       `((mouse-1
+          eglot-code-actions-at-mouse
+          "execute code actions at point")))))
   "Eglot mode line construct for at-point code actions.")
 
 (add-to-list
@@ -2578,7 +2582,7 @@ still unanswered LSP requests to the server\n"))))
 (defvar eglot-diagnostics-map
   (let ((map (make-sparse-keymap)))
     (define-key map [mouse-2] #'eglot-code-actions-at-mouse)
-    (define-key map [left-margin mouse-2] #'eglot-code-actions-at-mouse)
+    (define-key map [left-margin mouse-1] #'eglot-code-actions-at-mouse)
     map)
   "Keymap active in Eglot-backed Flymake diagnostic overlays.")
 
@@ -4146,14 +4150,13 @@ at point.  With prefix argument, prompt for ACTION-KIND."
              (setq tooltip
                    (propertize eglot-code-action-indicator
                                'face 'eglot-code-action-indicator-face
-                               'help-echo blurb
+                               'help-echo "mouse-1: execute code actions at point"
                                'mouse-face 'highlight
                                'keymap eglot-diagnostics-map))
              (save-excursion
                (goto-char (car bounds))
                (let ((ov (make-overlay (car bounds) (cadr bounds))))
                  (overlay-put ov 'eglot--actions actions)
-                 (overlay-put ov 'eglot--suggestion-tooltip tooltip)
                  (overlay-put
                   ov
                   'before-string
@@ -4598,7 +4601,7 @@ If NOERROR, return predicate, else erroring function."
     map)
   "Keymap active in labels Eglot hierarchy buffers.")
 
-(defun eglot--hierarchy-label (node)
+(defun eglot--hierarchy-label (node parent-uri)
   (eglot--dbind ((HierarchyItem) name uri _detail ((:range item-range))) node
     (with-temp-buffer
       (insert (propertize
@@ -4614,13 +4617,22 @@ If NOERROR, return predicate, else erroring function."
        'keymap eglot-hierarchy-label-map
        'action
        (lambda (_btn)
-         (pop-to-buffer (find-file-noselect (eglot-uri-to-path uri)))
-         (eglot--goto
-          (or
-           (elt
-            (get-text-property 0 'eglot--hierarchy-call-sites name)
-            0)
-           item-range))))
+         (let* ((method
+                 (get-text-property 0 'eglot--hierarchy-method name))
+                (target-uri
+                 (if (eq method :callHierarchy/outgoingCalls)
+                     ;; We probably want `parent-uri' for this edge case
+                     ;; because that's where the call site we want
+                     ;; lives.  (bug#78250, bug#78367).
+                     (or parent-uri uri)
+                   uri)))
+           (pop-to-buffer (find-file-noselect (eglot-uri-to-path target-uri)))
+           (eglot--goto
+            (or
+             (elt
+              (get-text-property 0 'eglot--hierarchy-call-sites name)
+              0)
+             item-range)))))
       (buffer-string))))
 
 (defun eglot--hierarchy-1 (name provider preparer specs)
@@ -4654,20 +4666,21 @@ If NOERROR, return predicate, else erroring function."
   (cl-labels ((expander-for (node)
                 (lambda (_widget)
                   (mapcar
-                   #'convert
+                   (lambda (child)
+                     (convert child (plist-get node :uri)))
                    (eglot--hierarchy-children node))))
-              (convert (node)
+              (convert (node parent-uri)
                 (let ((w (widget-convert
                           'tree-widget
-                          :tag (eglot--hierarchy-label node)
+                          :tag (eglot--hierarchy-label node parent-uri)
                           :expander (expander-for node))))
                   (widget-put w :empty-icon
                               (widget-get w :leaf-icon))
                   w)))
     (let ((inhibit-read-only t))
       (erase-buffer)
-      (mapc (lambda (r)
-              (let ((w (widget-create (convert r))))
+      (mapc (lambda (root)
+              (let ((w (widget-create (convert root nil))))
                 (widget-apply-action w)))
             eglot--hierarchy-roots)
       (goto-char (point-min))))

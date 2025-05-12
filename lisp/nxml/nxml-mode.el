@@ -817,7 +817,8 @@ Called with `font-lock-beg' and `font-lock-end' dynamically bound."
            (skip-syntax-forward " ")
 
            ;; find the beginning of the previous tag
-           (when (not (equal (char-after) ?\<))
+           (when (and (not (equal (char-after) ?\<))
+                      (< nxml-prolog-end (point)))
              (search-backward "<" nxml-prolog-end t))
            (nxml-ensure-scan-up-to-date)
            (nxml-move-outside-backwards)
@@ -1522,6 +1523,8 @@ of the line.  This expects the xmltok-* variables to be set up as by
 	((progn
 	   (goto-char pos)
 	   (forward-line -1)
+           (while (looking-at "^[[:blank:]]*$")
+             (forward-line -1))
 	   (<= (point) xmltok-start))
 	 (goto-char (+ xmltok-start (length open-delim)))
 	 (when (and (string= open-delim "<!--")
