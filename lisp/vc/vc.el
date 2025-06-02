@@ -357,6 +357,12 @@
 ;;   Insert in BUFFER the revision log for the changes that will be
 ;;   received when performing a pull operation from REMOTE-LOCATION.
 ;;
+;; * incoming-revision (remote-location)
+;;
+;;   Return revision at the head of the branch at REMOTE-LOCATION.
+;;   If there is no such branch there, return nil.  (Should signal an
+;;   error, not return nil, in the case that fetching data fails.)
+;;
 ;; - log-search (buffer pattern)
 ;;
 ;;   Search for PATTERN in the revision log and output results into BUFFER.
@@ -1019,6 +1025,9 @@ Not supported by all backends."
   :type 'boolean
   :safe #'booleanp
   :version "31.1")
+
+(defvar vc-async-checkin-backends '(Git Hg)
+  "Backends which support `vc-async-checkin'.")
 
 
 ;; File property caching
@@ -1889,9 +1898,7 @@ Runs the normal hooks `vc-before-checkin-hook' and `vc-checkin-hook'."
                      (vc-call-backend backend 'checkin
                                       files comment rev))
                    (mapc #'vc-delete-automatic-version-backups files)))
-       (if (and vc-async-checkin
-                ;; Backends which support `vc-async-checkin'.
-                (memq backend '(Git Hg)))
+       (if (and vc-async-checkin (memq backend vc-async-checkin-backends))
            ;; Rely on `vc-set-async-update' to update properties.
            (do-it)
          (message "Checking in %s..." (vc-delistify files))
