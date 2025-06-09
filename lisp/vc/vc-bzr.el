@@ -816,22 +816,24 @@ If LIMIT is non-nil, show no more than this many entries."
       (indent-region (match-end 0) (point-max) 2)
       (buffer-substring (match-end 0) (point-max)))))
 
+;; FIXME: Implement `vc-bzr-mergebase' and then delete this.
 (defun vc-bzr-log-incoming (buffer remote-location)
   (apply #'vc-bzr-command "missing" buffer 'async nil
 	 (list "--theirs-only" (and (not (string-empty-p remote-location))
                                     remote-location))))
 
 (defun vc-bzr-incoming-revision (remote-location)
-  (let* ((output
-          (with-output-to-string
-            (vc-bzr-command "missing" standard-output 1 nil
-                            "--log-format=long" "--show-ids"
-                            "--theirs-only" "-r-1.."
-                            (and (not (string-empty-p remote-location))
-		                 remote-location)))))
-    (and (string-match "^revision-id: \\(.+\\)$" output)
-         (concat "revid:" (match-string 1 output)))))
+  (with-temp-buffer
+    (vc-bzr-command "missing" t 1 nil
+                    "--log-format=long" "--show-ids"
+                    "--theirs-only" "-r-1.."
+                    (and (not (string-empty-p remote-location))
+		         remote-location))
+    (goto-char (point-min))
+    (and (re-search-forward "^revision-id: " nil t)
+         (buffer-substring (point) (pos-eol)))))
 
+;; FIXME: Implement `vc-bzr-mergebase' and then delete this.
 (defun vc-bzr-log-outgoing (buffer remote-location)
   (apply #'vc-bzr-command "missing" buffer 'async nil
 	 (list "--mine-only" (and (not (string-empty-p remote-location))

@@ -3237,11 +3237,14 @@ The type can be `list' (the default) or `sexp'.
 
 The `list' type uses the `list' thing defined in `treesit-thing-settings'.
 See `treesit-thing-at-point'.  With this type commands use syntax tables to
-navigate symbols and treesit definition to navigate lists.
+navigate symbols and treesit definitions to navigate lists.
 
 The `sexp' type uses the `sexp' thing defined in `treesit-thing-settings'.
-With this type commands use only the treesit definition of parser nodes,
-without distinction between symbols and lists."
+With this type commands use only the treesit definitions of parser nodes,
+without distinction between symbols and lists.  Since tree-sitter grammars
+could group node types in arbitrary ways, navigation by `sexp' might not
+match your expectations, and might produce different results in differnt
+treesit-based modes."
   (interactive "p")
   (if (not (treesit-thing-defined-p 'list (treesit-language-at (point))))
       (user-error "No `list' thing is defined in `treesit-thing-settings'")
@@ -3429,7 +3432,10 @@ This is a tree-sitter equivalent of `beginning-of-defun'.
 Behavior of this function depends on `treesit-defun-type-regexp'
 and `treesit-defun-skipper'.  If `treesit-defun-type-regexp' is
 not set, Emacs also looks for definition of defun in
-`treesit-thing-settings'."
+`treesit-thing-settings'.
+
+Whether this goes to the innermost nested defun or a top-level
+one is determined by the value of `treesit-defun-tactic'."
   (interactive "^p")
   (or (not (eq this-command 'treesit-beginning-of-defun))
       (eq last-command 'treesit-beginning-of-defun)
@@ -3630,14 +3636,15 @@ predicate as described in `treesit-thing-settings'."
   (treesit--thing-sibling pos thing nil))
 
 (defun treesit-thing-at (pos thing &optional strict)
-  "Return the smallest THING enclosing POS.
+  "Return the smallest node enclosing POS for THING.
 
-The returned node, if non-nil, must enclose POS, i.e., its start
-<= POS, its end > POS.  If STRICT is non-nil, the returned node's
-start must < POS rather than <= POS.
+The returned node, if non-nil, must enclose POS, i.e., its
+start <= POS, its end > POS.  If STRICT is non-nil, the returned
+node's start must be < POS rather than <= POS.
 
-THING should be a thing defined in `treesit-thing-settings', or
-it can be a predicate described in `treesit-thing-settings'."
+THING should be a thing defined in `treesit-thing-settings' for
+the current buffer's major mode, or it can be a predicate
+described in `treesit-thing-settings'."
   (let* ((cursor (treesit-node-at pos))
          (iter-pred (lambda (node)
                       (and (treesit-node-match-p node thing t)
@@ -3789,13 +3796,14 @@ function is called recursively."
     (if (eq counter 0) pos nil)))
 
 (defun treesit-thing-at-point (thing tactic)
-  "Return the THING at point, or nil if none is found.
+  "Return the node for THING at point, or nil if no THING is found at point.
 
 THING can be a symbol, a regexp, a predicate function, and more;
-see `treesit-thing-settings' for details.
+for details, see `treesit-thing-settings' as defined by the
+current buffer's major mode.
 
-Return the top-level THING if TACTIC is `top-level'; return the
-smallest enclosing THING as POS if TACTIC is `nested'."
+Return the top-level node for THING if TACTIC is `top-level'; return
+the smallest node enclosing THING at point if TACTIC is `nested'."
 
   (let ((node (treesit-thing-at (point) thing)))
     (if (eq tactic 'top-level)
