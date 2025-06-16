@@ -60,7 +60,11 @@ DEFINITION is anything that can be a key's definition:
     keymap has been created with a menu name, see `make-keymap'),
  or a cons (MAP . CHAR), meaning use definition of CHAR in keymap MAP,
  or an extended menu item definition.
- (See info node `(elisp)Extended Menu Items'.)"
+ (See info node `(elisp)Extended Menu Items'.)
+
+The `key-description' convenience function converts a simple
+string of characters to an equivalent form that is acceptable for
+COMMAND."
   (declare (compiler-macro (lambda (form) (keymap--compile-check key) form)))
   (keymap--check key)
   ;; If we're binding this key to another key, then parse that other
@@ -754,8 +758,10 @@ in the echo area.
         (dolist (def (plist-get repeat :enter))
           (push `(put ',def 'repeat-map ',variable-name) props))
         (dolist (def (plist-get repeat :continue))
-          (push `(put ',def 'repeat-continue
-                      (cons ',variable-name (get ',def 'repeat-continue)))
+          (push `(let ((val (get ',def 'repeat-continue)))
+                   (when (listp val)
+                     (put ',def 'repeat-continue
+                          (cons ',variable-name val))))
                 props))
         (while defs
           (pop defs)
