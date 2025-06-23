@@ -1454,13 +1454,19 @@ when printing the error message."
 	 (env (cdr (assq name list))))
     (or env
 	(let ((fn name))
-	  (while (and (symbolp fn)
-		      (fboundp fn)
-		      (or (symbolp (symbol-function fn))
-			  (consp (symbol-function fn))
+	  (while
+              (and (symbolp fn)
+		   (fboundp fn)
+                   (let ((s (symbol-function fn)))
+                     (and
+		      (or (symbolp s)
+			  (consp s)
 			  (and (not macro-p)
-			       (compiled-function-p (symbol-function fn)))))
-	    (setq fn (symbol-function fn)))
+                               (or (closurep s)
+			           (compiled-function-p s))))
+                      (progn
+	                (setq fn s)
+                        t)))))
           (let ((advertised (get-advertised-calling-convention
                              (if (and (symbolp fn) (fboundp fn))
                                  ;; Could be a subr.
@@ -1471,7 +1477,8 @@ when printing the error message."
               (if macro-p
                   `(macro lambda ,advertised)
                 `(lambda ,advertised)))
-             ((and (not macro-p) (compiled-function-p fn)) fn)
+             ((and (not macro-p) (or (closurep fn) (compiled-function-p fn)))
+              fn)
              ((not (consp fn)) nil)
              ((eq 'macro (car fn)) (cdr fn))
              (macro-p nil)
@@ -5159,7 +5166,8 @@ binding slots have been popped."
        (pcase-let*
            ;; `macro' is non-nil if it defines a macro.
            ;; `fun' is the function part of `arg' (defaults to `arg').
-           (((or (and (or `(cons 'macro ,fun) `'(macro . ,fun)) (let macro t))
+           (((or (and (or `(cons 'macro ,fun) `'(macro . ,(app (list 'quote) fun)))
+                      (let macro t))
                  (and (let fun arg) (let macro nil)))
              arg)
             ;; `lam' is the lambda expression in `fun' (or nil if not

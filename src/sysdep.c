@@ -30,7 +30,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <sys/random.h>
 #include <unistd.h>
 
-#include <boot-time.h>
 #include <c-ctype.h>
 #include <close-stream.h>
 #include <pathmax.h>
@@ -3454,6 +3453,21 @@ put_jiffies (Lisp_Object attrs, Lisp_Object propname,
   return Fcons (Fcons (propname, time_from_jiffies (ticks, hz, Qnil)), attrs);
 }
 
+/* Return the host uptime with resolution HZ if successful, otherwise nil.
+   Do not use get_boot_time, which returns a container's
+   boot time instead of the underlying host's boot time.  */
+static Lisp_Object
+get_host_uptime (Lisp_Object hz)
+{
+  /* clock_gettime is available in glibc 2.14+, Android, and musl libc.  */
+# if !defined __GLIBC__ || 2 < __GLIBC__ + (14 <= __GLIBC_MINOR__)
+  struct timespec upt;
+  if (0 <= clock_gettime (CLOCK_BOOTTIME, &upt))
+    return Ftime_convert (timespec_to_lisp (upt), hz);
+#endif
+  return Qnil;
+}
+
 # if defined GNU_LINUX || defined __ANDROID__
 #define MAJOR(d) (((unsigned)(d) >> 8) & 0xfff)
 #define MINOR(d) (((unsigned)(d) & 0xff) | (((unsigned)(d) & 0xfff00000) >> 12))
@@ -3670,12 +3684,11 @@ system_process_attributes (Lisp_Object pid)
 	      attrs = put_jiffies (attrs, Qcstime, cstime, hz);
 	      attrs = put_jiffies (attrs, Qctime, cstime + cutime, hz);
 
-	      struct timespec bt;
-	      if (get_boot_time (&bt) == 0)
+	      Lisp_Object uptime = get_host_uptime (hz);
+	      if (!NILP (uptime))
 		{
-		  Lisp_Object boot = Ftime_convert (timespec_to_lisp (bt), hz);
 		  Lisp_Object now = Ftime_convert (Qnil, hz);
-		  Lisp_Object uptime = Ftime_subtract (now, boot);
+		  Lisp_Object boot = Ftime_subtract (now, uptime);
 		  Lisp_Object tstart = time_from_jiffies (start, hz, hz);
 		  Lisp_Object lstart =
 		    Ftime_convert (Ftime_add (boot, tstart), Qnil);
