@@ -61,6 +61,13 @@ OS selection instead of terminal-specific keybindings.
 You can keep the old behavior by putting '(xterm-mouse-mode -1)' in your
 init file.
 
++++
+** 'site-start.el' is now loaded before the user's early init file.
+Previously the order was early-init.el, site-start.el and then the
+user's regular init file, but now site-start.el comes first.  This
+allows site administrators to customize things that can normally only be
+done from early-init.el, such as adding to 'package-directory-list'.
+
 
 * Changes in Emacs 31.1
 
@@ -426,6 +433,19 @@ This user option describes projects that should always be skipped by
 'project-remember-project'.
 
 ---
+*** New user option 'project-prune-zombie-projects'.
+This user option controls the automatic deletion of projects from
+'project-list-file' that cannot be accessed when prompting for a
+project.
+
+The value can be a predicate which takes one argument and should return
+non-nil if the project should be removed.  If set to nil, all the
+inaccessible projects will not be removed automatically.
+
+By default this is set to 'project-prune-zombies-default' function
+which removes all non-remote projects.
+
+---
 *** New command 'project-save-some-buffers' bound to 'C-x p C-x s'.
 This is like 'C-x s', but only for this project's buffers.
 
@@ -598,6 +618,11 @@ The new command 'fill-paragraph-semlf' fills a paragraph of text using
 sentence.  The new command 'fill-region-as-paragraph-semlf' fills a
 region of text using semantic linefeeds as if the region were a single
 paragraph.
+
++++
+** 'C-u C-x .' clears the fill prefix.
+You can now use 'C-u C-x .' to clear the fill prefix, similarly to how
+you could already use 'C-u C-x C-n' to clear the goal column.
 
 
 * Changes in Specialized Modes and Packages in Emacs 31.1
@@ -1054,6 +1079,15 @@ compatible.
 *** New user option 'recentf-show-messages'.
 'recentf-save-list' can print a message when saving the recentf list.
 The new option, if set to nil, suppresses this message.
+
+---
+*** New user option 'recentf-suppress-open-file-help'.
+By default, invoking 'recentf-open-files' displays a message saying what
+action clicking or typing RET on the item at point executes, and tabbing
+between items in the *Open Recent* buffer likewise displays such
+messages.  To suppress these messages, customize the user option
+'recentf-suppress-open-file-help' to non-nil.  The default value of this
+option is nil.
 
 ** Saveplace
 
@@ -1846,6 +1880,12 @@ If you customize this variable to non-nil, the 'g' command to refresh
 the VC Directory buffer also has the effect of the 'x' command.
 That is, typing 'g' refreshes the buffer and also hides items in the
 'up-to-date' and 'ignored' states.
+
+---
+*** New user option 'vc-dir-save-some-buffers-on-revert'.
+If you customize this variable to non-nil, Emacs will offer to save
+relevant buffers before generating the contents of a VC Directory buffer
+(like the third-party package Magit does with its status buffer).
 
 +++
 *** New user option 'vc-async-checkin' to enable async checkin operations.
