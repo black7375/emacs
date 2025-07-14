@@ -1144,8 +1144,7 @@ It is based on `log-edit-mode', and has Git-specific extensions."
 (defalias 'vc-git-async-checkins #'always)
 
 (defun vc-git-checkin (files comment &optional _rev)
-  (let* ((parent (current-buffer))
-         (file1 (or (car files) default-directory))
+  (let* ((file1 (or (car files) default-directory))
          (root (vc-git-root file1))
          (default-directory (expand-file-name root))
          (only (or (cdr files)
@@ -1273,11 +1272,9 @@ It is based on `log-edit-mode', and has Git-specific extensions."
                  (with-current-buffer buffer
                    (vc-run-delayed
                      (vc-compilation-mode 'git)
-                     (funcall post)
-                     (when (buffer-live-p parent)
-                       (with-current-buffer parent
-                         (run-hooks 'vc-checkin-hook)))))
-                 (vc-set-async-update buffer))
+                     (funcall post)))
+                 (vc-set-async-update buffer)
+                 (list 'async (get-buffer-process buffer)))
         (apply #'vc-git-command nil 0 files args)
         (funcall post)))))
 
@@ -1339,10 +1336,8 @@ It is based on `log-edit-mode', and has Git-specific extensions."
 	    (if (string= fn "")
 		(file-relative-name file (vc-git-root default-directory))
 	      (substring fn 0 -1)))))
-    (vc-git-command
-     buffer 0
-     nil
-     "cat-file" "blob" (concat (if rev rev "HEAD") ":" fullname))))
+    (vc-git-command buffer 0 nil "cat-file" "--filters"
+                    (concat (or rev "HEAD") ":" fullname))))
 
 (defun vc-git-find-ignore-file (file)
   "Return the git ignore file that controls FILE."

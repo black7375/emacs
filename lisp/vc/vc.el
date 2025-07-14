@@ -1081,24 +1081,26 @@ If any of FILES is actually a directory, then do the same for all
 buffers for files in that directory.
 SETTINGS is an association list of property/value pairs.  After
 executing FORM, set those properties from SETTINGS that have not yet
-been updated to their corresponding values."
+been updated to their corresponding values.
+Return the result of evaluating FORM."
   (declare (debug t))
-  `(let ((vc-touched-properties (list t))
-	 (flist nil))
-     (dolist (file ,files)
-       (if (file-directory-p file)
-	   (dolist (buffer (buffer-list))
-	     (let ((fname (buffer-file-name buffer)))
-	       (when (and fname (string-prefix-p file fname))
-		 (push fname flist))))
-	 (push file flist)))
-     ,form
-     (dolist (file flist)
-       (dolist (setting ,settings)
-         (let ((property (car setting)))
-           (unless (memq property vc-touched-properties)
-             (put (intern file vc-file-prop-obarray)
-                  property (cdr setting))))))))
+  (cl-with-gensyms (vc-touched-properties flist)
+    `(let ((,vc-touched-properties (list t))
+	   (,flist nil))
+       (prog2 (dolist (file ,files)
+                (if (file-directory-p file)
+	            (dolist (buffer (buffer-list))
+	              (let ((fname (buffer-file-name buffer)))
+	                (when (and fname (string-prefix-p file fname))
+		          (push fname ,flist))))
+	          (push file ,flist)))
+           ,form
+         (dolist (file ,flist)
+           (dolist (setting ,settings)
+             (let ((property (car setting)))
+               (unless (memq property ,vc-touched-properties)
+                 (put (intern file vc-file-prop-obarray)
+                      property (cdr setting))))))))))
 
 ;;; Code for deducing what fileset and backend to assume
 
@@ -1669,13 +1671,14 @@ from which to check out the file(s)."
 	  (find-file-other-window file))
 	(if (save-window-excursion
 	      (vc-diff-internal nil
-				(cons (car vc-fileset) (cons (cadr vc-fileset) (list file)))
+				(cons (car vc-fileset)
+                                      (cons (cadr vc-fileset) (list file)))
 				(vc-working-revision file) nil)
 	      (goto-char (point-min))
 	      (let ((inhibit-read-only t))
 		(insert
 		 (format "Changes to %s since last lock:\n\n" file)))
-	      (not (beep))
+	      (beep)
 	      (yes-or-no-p (concat "File has unlocked changes.  "
 				   "Claim lock retaining changes? ")))
 	    (progn (vc-call-backend backend 'steal-lock file)
@@ -1717,34 +1720,29 @@ first backend that could register the file is used."
     ;; possibility to register directories rather than files only, since
     ;; many VCS allow that as well.
     (dolist (fname files)
-      (let ((bname (get-file-buffer fname)))
-	(unless fname
-	  (setq fname buffer-file-name))
-	(when (vc-call-backend backend 'registered fname)
-	  (error "This file is already registered: %s" fname))
-	;; Watch out for new buffers of size 0: the corresponding file
-	;; does not exist yet, even though buffer-modified-p is nil.
-	(when bname
-	  (with-current-buffer bname
-	    (when (and (not (buffer-modified-p))
-		       (zerop (buffer-size))
-		       (not (file-exists-p buffer-file-name)))
-	      (set-buffer-modified-p t))
-	    (vc-buffer-sync)))))
+      (when (vc-call-backend backend 'registered fname)
+	(error "This file is already registered: %s" fname))
+      ;; Watch out for new buffers of size 0: the corresponding file
+      ;; does not exist yet, even though buffer-modified-p is nil.
+      (when-let* ((bname (get-file-buffer fname)))
+	(with-current-buffer bname
+	  (when (and (not (buffer-modified-p))
+		     (zerop (buffer-size))
+		     (not (file-exists-p buffer-file-name)))
+	    (set-buffer-modified-p t))
+	  (vc-buffer-sync))))
     (message "Registering %s... " files)
     (mapc #'vc-file-clearprops files)
     (vc-call-backend backend 'register files comment)
-    (mapc
-     (lambda (file)
-       (vc-file-setprop file 'vc-backend backend)
-       ;; FIXME: This is wrong: it should set `backup-inhibited' in all
-       ;; the buffers visiting files affected by this `vc-register', not
-       ;; in the current-buffer.
-       ;; (unless vc-make-backup-files
-       ;;   (setq-local backup-inhibited t))
-
-       (vc-resynch-buffer file t t))
-     files)
+    (dolist (fname files)
+      (vc-file-setprop fname 'vc-backend backend)
+      (when-let* ((bname (get-file-buffer fname)))
+        (with-current-buffer bname
+          (unless vc-make-backup-files
+            (setq-local backup-inhibited t))
+          (when vc-auto-revert-mode
+            (auto-revert-mode 1))))
+      (vc-resynch-buffer fname t t))
     (message "Registering %s... done" files)))
 
 (defun vc-register-with (backend)
@@ -2005,34 +2003,28 @@ have changed; continue with old fileset?" (current-buffer))))
         ;; NOQUERY parameter non-nil.
         (vc-buffer-sync-fileset (list backend files)))
       (when register (vc-register (list backend register)))
-      (cl-labels ((do-it ()
-                    ;; We used to change buffers to get local value of
-                    ;; `vc-checkin-switches', but the (singular) local
-                    ;; buffer is not well defined for filesets.
-                    (if patch-string
-                        (vc-call-backend backend 'checkin-patch
-                                         patch-string comment)
-                      (vc-call-backend backend 'checkin
-                                       files comment rev))
-                    (mapc #'vc-delete-automatic-version-backups files)))
+      (cl-flet ((do-it ()
+                  ;; We used to change buffers to get local value of
+                  ;; `vc-checkin-switches', but the (singular) local
+                  ;; buffer is not well defined for filesets.
+                  (prog1 (if patch-string
+                             (vc-call-backend backend 'checkin-patch
+                                              patch-string comment)
+                           (vc-call-backend backend 'checkin
+                                            files comment rev))
+                    (mapc #'vc-delete-automatic-version-backups files))))
         (if do-async
             ;; Rely on `vc-set-async-update' to update properties.
             (do-it)
-          (message "Checking in %s..." (vc-delistify files))
-          (with-vc-properties files (do-it)
-                              `((vc-state . up-to-date)
-                                (vc-checkout-time
-                                 . ,(file-attribute-modification-time
-			             (file-attributes file)))
-                                (vc-working-revision . nil)))
-          (message "Checking in %s...done" (vc-delistify files)))))
-
-    ;; FIXME: In the async case we need the hook to be added to the
-    ;; buffer with the checkin process, using `vc-run-delayed'.  Ideally
-    ;; the identity of that buffer would be exposed to this code,
-    ;; somehow, so we could always handle running the hook up here.
-    (and (not do-async) 'vc-checkin-hook)
-
+          (prog2 (message "Checking in %s..." (vc-delistify files))
+              (with-vc-properties files (do-it)
+                                  `((vc-state . up-to-date)
+                                    (vc-checkout-time
+                                     . ,(file-attribute-modification-time
+			                 (file-attributes file)))
+                                    (vc-working-revision . nil)))
+            (message "Checking in %s...done" (vc-delistify files))))))
+    'vc-checkin-hook
     backend
     patch-string)))
 
@@ -2761,12 +2753,7 @@ Unlike `vc-find-revision-save', doesn't save the buffer to the file."
                   ;; to not ignore 'enable-local-variables' when nil.
                   (normal-mode (not enable-local-variables)))
 	        (set-buffer-modified-p nil)
-                (setq buffer-read-only t)
-                (run-hooks 'read-only-mode-hook)
-                (when (and view-read-only
-                           (not view-mode)
-                           (not (eq (get major-mode 'mode-class) 'special)))
-                  (view-mode-enter))
+                (read-only-mode 1)
                 (setq failed nil))
 	    (when (and failed (unless buffer (get-file-buffer filename)))
 	      (with-current-buffer (get-file-buffer filename)
