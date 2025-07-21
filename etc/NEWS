@@ -229,6 +229,13 @@ that your popup interface uses for a more integrated experience.
 ('completion-preview-sort-function' was already present in Emacs 30.1,
 but as a plain Lisp variable, not a user option.)
 
+** Mouse
+
+---
+*** context-menu-mode now includes a "Send to..." menu item.
+The menu item enables sending current file(s) or region text to external
+(non-Emacs) applications or services.  See send-to.el for customisations.
+
 ** Windows
 
 +++
@@ -411,6 +418,12 @@ on the tab line to a different position.
 ---
 *** New command 'tab-line-close-other-tabs'.
 It is bound to the tab's context menu item "Close other tabs".
+
+---
+*** New user option 'tab-line-exclude-buffers'.
+This user option controls where 'tab-line-mode' should not be enabled in
+a buffer.  The value must be a condition which is passed to
+'buffer-match-p'.
 
 ** Project
 
@@ -2493,6 +2506,9 @@ instead, which gives the time offset as +/-hh or +/-hh:mm.  A designator
 "Z" for UTC time is also supported.  Less formal space-separated time
 formats, like "2025-06-04 13:21:00 EDT", without the ISO 8601 "T"
 separator, are also supported.
+
+---
+** The obsolete variable 'load-convert-to-unibyte' has been removed.
 
 
 * Lisp Changes in Emacs 31.1

@@ -2225,7 +2225,7 @@ barf_or_query_if_file_exists (Lisp_Object absname, bool known_to_exist,
    On success, return the read count, which is less than BUFSIZE at EOF.
    Return -1 on failure, setting errno and possibly setting BUF.  */
 static ptrdiff_t
-emacs_full_read (int fd, void *buf, ptrdiff_t bufsize)
+emacs_full_read (emacs_fd fd, void *buf, ptrdiff_t bufsize)
 {
   char *b = buf;
   ptrdiff_t nread = 0, r;
@@ -2406,7 +2406,7 @@ permissions.  */)
   if (emacs_fd_to_int (ifd) == -1
       || !clone_file (ofd, emacs_fd_to_int (ifd)))
     {
-      off_t newsize = 0;
+      MAYBE_UNUSED off_t newsize = 0;
 
 #ifndef MSDOS
       if (emacs_fd_to_int (ifd) != -1)
@@ -4038,9 +4038,9 @@ DEFUN ("insert-file-contents", Finsert_file_contents, Sinsert_file_contents,
        doc: /* Insert contents of file FILENAME after point.
 Returns list of absolute file name and number of characters inserted.
 If second argument VISIT is non-nil, the buffer's visited filename and
-last save file modtime are set, and it is marked unmodified.  If
-visiting and the file does not exist, visiting is completed before the
-error is signaled.
+last save file modtime are set, and it is marked unmodified.  Signal an
+error if FILENAME cannot be read or is a directory.  If visiting and the
+file does not exist, visiting is completed before the error is signaled.
 
 The optional third and fourth arguments BEG and END specify what portion
 of the file to insert.  These arguments count bytes in the file, not
@@ -4186,6 +4186,16 @@ by calling `format-decode', which see.  */)
     struct stat st;
     if (emacs_fd_fstat (fd, &st) < 0)
       report_file_error ("Input file status", orig_filename);
+
+    /* Normally there is no need for an S_ISDIR test here,
+       as the first 'read' syscall will fail with EISDIR.
+       However, for backwards compatibility to traditional Unix,
+       POSIX allows 'read' to succeed on directories.
+       So do an explicit S_ISDIR test now, so that callers can rely on
+       this function rejecting directories on all platforms.  */
+    if (S_ISDIR (st.st_mode))
+      report_file_errno ("Read error", orig_filename, EISDIR);
+
     regular = S_ISREG (st.st_mode) != 0;
     bool memory_object = S_TYPEISSHM (&st) || S_TYPEISTMO (&st);
 
@@ -4243,22 +4253,18 @@ by calling `format-decode', which see.  */)
 
   /* Check now whether the buffer will become too large,
      in the likely case where the file's length is not changing.
-     This saves a lot of needless work before a buffer overflow.  */
-  if (regular)
+     This saves a lot of needless work before a buffer overflow.
+     If LIKELY_END is nonnegative, it is likely where we will stop reading.
+     We could read more (or less), if the file grows (or shrinks).  */
+  off_t likely_end = min (end_offset, file_size_hint);
+  if (beg_offset < likely_end)
     {
-      /* The likely offset where we will stop reading.  We could read
-	 more (or less), if the file grows (or shrinks) as we read it.  */
-      off_t likely_end = min (end_offset, file_size_hint);
-
-      if (beg_offset < likely_end)
-	{
-	  ptrdiff_t buf_bytes
-	    = Z_BYTE - (!NILP (replace) ? ZV_BYTE - BEGV_BYTE  : 0);
-	  ptrdiff_t buf_growth_max = BUF_BYTES_MAX - buf_bytes;
-	  off_t likely_growth = likely_end - beg_offset;
-	  if (buf_growth_max < likely_growth)
-	    buffer_overflow ();
-	}
+      ptrdiff_t buf_bytes
+	= Z_BYTE - (!NILP (replace) ? ZV_BYTE - BEGV_BYTE  : 0);
+      ptrdiff_t buf_growth_max = BUF_BYTES_MAX - buf_bytes;
+      off_t likely_growth = likely_end - beg_offset;
+      if (buf_growth_max < likely_growth)
+	buffer_overflow ();
     }
 
   /* Prevent redisplay optimizations.  */
@@ -4463,7 +4469,8 @@ by calling `format-decode', which see.  */)
 		}
 
 	      ptrdiff_t bufpos = 0;
-	      while (bufpos < nread && same_at_start < same_at_end
+	      ptrdiff_t bufposlim = min (nread, same_at_end - same_at_start);
+	      while (bufpos < bufposlim
 		     && FETCH_BYTE (same_at_start) == read_buf[bufpos])
 		same_at_start++, bufpos++;
 	      /* If we found a discrepancy, stop the scan.  */
@@ -4485,10 +4492,10 @@ by calling `format-decode', which see.  */)
 	      goto handled;
 	    }
 	}
+      off_t same_at_start_pos = beg_offset + (same_at_start - BEGV_BYTE);
 
-      /* Count how many chars at the end of the file
-	 match the text at the end of the buffer.  But, if we have
-	 already found that decoding is necessary, don't waste time.  */
+      /* Find the end position, which is end_offset if given,
+	 the file's end otherwise.  */
 
       off_t endpos;
       if (!giveup_match_end)
@@ -4508,12 +4515,28 @@ by calling `format-decode', which see.  */)
 		  if (n < 0)
 		    report_file_error ("Read error", orig_filename);
 		  endpos += n;
+
+		  /* Give up if the file grew more than even the test read.  */
 		  giveup_match_end = n == sizeof read_buf;
+
 		  if (!giveup_match_end)
-		    file_size_hint = endpos;
+		    {
+		      file_size_hint = endpos;
+
+		      /* Shrink the file's head if the file shrank to
+			 be smaller than its head.  */
+		      if (endpos < same_at_start_pos)
+			{
+			  same_at_start_pos = endpos;
+			  same_at_start = endpos - beg_offset + BEGV_BYTE;
+			}
+		    }
 		}
 	    }
 	}
+
+      /* Count how many bytes in the file's end match the buffer's end.
+	 However, don't waste time if decoding is necessary.  */
 
       while (!giveup_match_end)
 	{
@@ -4522,11 +4545,20 @@ by calling `format-decode', which see.  */)
 
 	  /* At what file position are we now scanning?  */
 	  curpos = endpos - (ZV_BYTE - same_at_end);
-	  /* If the entire file matches the buffer tail, stop the scan.  */
-	  if (curpos == 0)
+
+	  /* How much can we scan in the next step?  Compare with poslim
+	     to prevent overlap of the matching head with the matching tail.
+	     The 'same_at_start_pos' limit prevents overlap in the buffer's
+	     head and tail, and the 'endpos - (same_at_end - same_at_start)'
+	     limit prevents overlap in the inserted file's head and tail.  */
+	  off_t poslim = max (same_at_start_pos,
+			      endpos - (same_at_end - same_at_start));
+	  /* Do not scan more than sizeof read_buf at a time, and stop
+	     the scan if it can go no more.  */
+	  trial = min (curpos - poslim, sizeof read_buf);
+	  if (trial == 0)
 	    break;
-	  /* How much can we scan in the next step?  */
-	  trial = min (curpos, sizeof read_buf);
+
 	  curpos = emacs_fd_lseek (fd, curpos - trial, SEEK_SET);
 	  if (curpos < 0)
 	    report_file_error ("Setting file position", orig_filename);
@@ -4546,9 +4578,7 @@ by calling `format-decode', which see.  */)
 	     the Emacs buffer.  */
 	  bufpos = nread;
 
-	  /* Compare with same_at_start to avoid counting some buffer text
-	     as matching both at the file's beginning and at the end.  */
-	  while (bufpos > 0 && same_at_end > same_at_start
+	  while (bufpos > 0
 		 && FETCH_BYTE (same_at_end - 1) == read_buf[bufpos - 1])
 	    same_at_end--, bufpos--;
 
@@ -4706,7 +4736,8 @@ by calling `format-decode', which see.  */)
 	 text.  */
 
       bufpos = 0;
-      while (bufpos < inserted && same_at_start < same_at_end
+      ptrdiff_t bufposlim = min (inserted, same_at_end - same_at_start);
+      while (bufpos < bufposlim
 	     && FETCH_BYTE (same_at_start) == decoded[bufpos])
 	same_at_start++, bufpos++;
 
@@ -4736,13 +4767,16 @@ by calling `format-decode', which see.  */)
 	       && ! CHAR_HEAD_P (FETCH_BYTE (same_at_start)))
 	  same_at_start--;
 
-      /* Scan this bufferful from the end, comparing with
-	 the Emacs buffer.  */
+      /* Scan this bufferful from the end, comparing with the Emacs
+	 buffer.  Compare with bufposlim to prevent overlap of the
+	 matching head with the matching tail.  The 'same_at_start -
+	 BEGV_BYTE' limit prevents overlap in the buffer's head and
+	 tail, and the 'inserted - (same_at_end - same_at_start)' limit
+	 prevents overlap in the inserted file's head and tail.  */
+      bufposlim = max (same_at_start - BEGV_BYTE,
+		       inserted - (same_at_end - same_at_start));
       bufpos = inserted;
-
-      /* Compare with same_at_start to avoid counting some buffer text
-	 as matching both at the file's beginning and at the end.  */
-      while (bufpos > 0 && same_at_end > same_at_start
+      while (bufposlim < bufpos
 	     && FETCH_BYTE (same_at_end - 1) == decoded[bufpos - 1])
 	same_at_end--, bufpos--;
 
@@ -4863,8 +4897,9 @@ by calling `format-decode', which see.  */)
 	else
 	  {
 	    buf = (char *) BEG_ADDR + PT_BYTE - BEG_BYTE + inserted;
-	    bufsize = min (min (gap_size, total - inserted), IO_BUFSIZE);
+	    bufsize = min (gap_size, IO_BUFSIZE);
 	  }
+	bufsize = min (bufsize, total - inserted);
 
 	if (!seekable && end_offset == TYPE_MAXIMUM (off_t))
 	  {

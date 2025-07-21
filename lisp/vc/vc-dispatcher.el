@@ -658,7 +658,7 @@ CONTEXT is that which `vc-buffer-context' returns."
 (defun vc-revert-buffer-internal (&optional arg no-confirm)
   "Revert buffer keeping point and the mark where the user expects them.
 Try to be clever in the face of changes due to expanded VCS
-keywords (cf., e.g., info node `(cvs)Keyword substitution').
+keywords (cf., e.g., Info node `(cvs)Keyword substitution').
 This is important for typeahead to work as expected.
 ARG and NO-CONFIRM are passed on to `revert-buffer'."
   (interactive "P")
@@ -679,7 +679,6 @@ ARG and NO-CONFIRM are passed on to `revert-buffer'."
 
 (defvar view-old-buffer-read-only)
 
-(defvar auto-revert-mode)
 (declare-function auto-revert-buffers "autorevert")
 
 (defun vc-resynch-window (file &optional keep noquery reset-vc-info)
@@ -703,7 +702,7 @@ editing!"
               ;; `global-auto-revert-mode' or `vc-auto-revert-mode')
               ;; then defer to that.  Otherwise we do our own
               ;; VC-specific reverting.
-              (if (and auto-revert-mode noquery)
+              (if (and (bound-and-true-p auto-revert-mode) noquery)
                   (auto-revert-buffers)
 	        (vc-revert-buffer-internal t noquery))
 
