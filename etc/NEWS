@@ -333,6 +333,10 @@ helps to restore window buffers across Emacs sessions.
 You can use this in 'display-buffer-alist' to match buffers displayed
 during the execution of particular commands.
 
+*** New command 'other-window-backward' ('C-x O').
+This moves in the opposite direction of 'other-window' and is for its
+default keybinding consistent with 'repeat-mode'.
+
 ** Frames
 
 +++
@@ -426,6 +430,11 @@ It is bound to the tab's context menu item "Close other tabs".
 This user option controls where 'tab-line-mode' should not be enabled in
 a buffer.  The value must be a condition which is passed to
 'buffer-match-p'.
+
+---
+*** New user option 'tab-line-close-modified-button-show'.
+With this user option, if non-nil (the default), the tab close button
+will change its appearance if the tab buffer has been modified.
 
 ** Project
 
@@ -1336,6 +1345,14 @@ This contains the list of regular expressions used to match "Re:" and
 international variants of it when modifying the Subject field in
 replies.
 
+** Imap
+
+---
+*** 'imap-authenticate' can now use PLAIN authentication.
+"AUTH=PLAIN" support is auto-enabled if the IMAP server supports it.  Pass
+a specific authentication type to 'imap-authenticate' or remove 'plain'
+from 'imap-authenticators' if you do not wish to use "AUTH=PLAIN".
+
 ** Rmail
 
 +++
@@ -1808,6 +1825,13 @@ restart Emacs.
 
 ---
 *** Support of 'electric-layout-mode' added.
+
+---
+*** DEL now deletes the text in the active region when point is between indentation.
+The command 'python-indent-dedent-line-backspace' (by default bound to
+'DEL') now deletes the text in the region and deactivates the mark if
+Transient Mark mode is enabled, the mark is active, and prefix argument
+is 1.
 
 ** Tmm Menubar
 
@@ -2446,7 +2470,7 @@ Use the byte-compiler instead; it provides more and more useful warnings.
 ** Newsticker
 
 ---
-*** New user option 'newsticker-hide-old-feed-header-in-newsticker-buffer'.
+*** New user option 'newsticker-hide-old-feed-header'.
 It controls whether to automatically hide the header of feeds whose
 items are all old or obsolete in the plainview *newsticker* buffer.
 This is only visually interesting if the content of those feeds are also
@@ -2459,6 +2483,14 @@ The new commands 'newsticker-hide-old-feed-header' and
 'newsticker-show-old-feed-header', bound to 'h h' and 's h' keys,
 respectively, hide and show the headers of feeds whose items are all old
 or obsolete.
+
+** CPerl mode
+
+*** Syntax of Perl up to version 5.42 is supported.
+
+CPerl mode creates imenu entries for ":writer" generated accessors and
+recognizes the new functions "all" and "any".
+See https://perldoc.perl.org/5.42.0/perldelta for details.
 
 
 * New Modes and Packages in Emacs 31.1
@@ -2496,9 +2528,6 @@ enabled for files named "go.work".
 
 ** The 'rx' category name 'chinese-two-byte' must now be spelled correctly.
 An old alternative name (without the first 'e') has been removed.
-
-+++
-** 'read-directory-name' now accepts an optional PREDICATE argument.
 
 +++
 ** 'text-property-default-nonsticky' is now buffer-local.
@@ -2818,6 +2847,9 @@ This function by default returns the value of the corresponding user
 option, but can optionally return the equivalent of 'exec-suffixes' from
 a remote host.  It must be used in conjunction with the function
 'exec-path'.
+
++++
+** 'read-directory-name' now accepts an optional PREDICATE argument.
 
 
 * Changes in Emacs 31.1 on Non-Free Operating Systems

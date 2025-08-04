@@ -2532,7 +2532,9 @@ be visible in the echo area."
 If a buffer exists visiting FILENAME, return that one, but
 verify that the file has not changed since visited or saved.
 The buffer is not selected, just returned to the caller.
-Optional second arg NOWARN non-nil means suppress any warning messages.
+Optional second arg NOWARN non-nil means suppress any warning messages,
+and also don't verify the that the file has not been changed since
+last visited or saved.
 Optional third arg RAWFILE non-nil means the file is read literally.
 Optional fourth arg WILDCARDS non-nil means do wildcard processing
 and visit all the matching files.  When wildcards are actually
@@ -3248,6 +3250,7 @@ ARC\\|ZIP\\|LZH\\|LHA\\|ZOO\\|[JEW]AR\\|XPI\\|RAR\\|CBR\\|7Z\\|SQUASHFS\\)\\'" .
     ;; and after the .scm.[0-9] and CVS' <file>.<rev> patterns too.
     ("\\.[1-9]\\'" . nroff-mode)
     ;; Image file types probably supported by `image-convert'.
+    ("\\.avif\\'" . image-mode)
     ("\\.art\\'" . image-mode)
     ("\\.avs\\'" . image-mode)
     ("\\.bmp\\'" . image-mode)
@@ -3287,7 +3290,6 @@ ARC\\|ZIP\\|LZH\\|LHA\\|ZOO\\|[JEW]AR\\|XPI\\|RAR\\|CBR\\|7Z\\|SQUASHFS\\)\\'" .
     ("\\.six\\'" . image-mode)
     ("\\.tga\\'" . image-mode)
     ("\\.wbmp\\'" . image-mode)
-    ("\\.webp\\'" . image-mode)
     ("\\.wmf\\'" . image-mode)
     ("\\.wpg\\'" . image-mode)
     ("\\.xcf\\'" . image-mode)

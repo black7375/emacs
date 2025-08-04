@@ -2807,7 +2807,7 @@ dump_obarray (struct dump_context *ctx, Lisp_Object object)
 static dump_off
 dump_buffer (struct dump_context *ctx, const struct buffer *in_buffer)
 {
-#if CHECK_STRUCTS && !defined HASH_buffer_23EB984887
+#if CHECK_STRUCTS && !defined HASH_buffer_E5E54A8C3F
 # error "buffer changed. See CHECK_STRUCTS comment in config.h."
 #endif
   struct buffer munged_buffer = *in_buffer;
@@ -5346,7 +5346,7 @@ dump_read_all (int fd, void *buf, size_t bytes_to_read)
   size_t bytes_read = 0;
   while (bytes_read < bytes_to_read)
     {
-      int chunk_to_read = min (bytes_to_read - bytes_read, MAX_RW_COUNT);
+      int chunk_to_read = min (bytes_to_read - bytes_read, SYS_BUFSIZE_MAX);
       ssize_t chunk = read (fd, (char *) buf + bytes_read, chunk_to_read);
       if (chunk < 0)
         return chunk;
