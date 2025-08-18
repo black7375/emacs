@@ -452,7 +452,8 @@ Calls REPORT-FN directly.  Requires tidy."
 
    ;; jsdoc is not mandatory for js-ts-mode, so we respect this by
    ;; adding jsdoc range rules only when jsdoc is available.
-   (when (treesit-ensure-installed 'jsdoc)
+   (when (and (fboundp 'treesit-language-available-p)
+              (treesit-language-available-p 'jsdoc t))
      (treesit-range-rules
       :embed 'jsdoc
       :host 'javascript
@@ -586,9 +587,11 @@ Powered by tree-sitter."
 ;; Add some extra parents.
 (derived-mode-add-parents 'mhtml-ts-mode '(css-mode js-mode))
 
-(when (and (treesit-ready-p 'html t) (treesit-ready-p 'javascript t) (treesit-ready-p 'css t))
-  (add-to-list
-   'auto-mode-alist '("\\.[sx]?html?\\(\\.[a-zA-Z_]+\\)?\\'" . mhtml-ts-mode)))
+;;;###autoload
+(when (treesit-available-p)
+  (defvar treesit-major-mode-remap-alist)
+  (add-to-list 'treesit-major-mode-remap-alist
+               '(mhtml-mode . mhtml-ts-mode)))
 
 (provide 'mhtml-ts-mode)
 ;;; mhtml-ts-mode.el ends here
