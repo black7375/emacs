@@ -1696,6 +1696,9 @@ Return non-nil if PROJECT is not a remote project."
      (t
       (complete-with-action action buffers string pred)))))
 
+(define-completion-category 'project-buffer '(buffer)
+  "Completion category for buffers in a given project.")
+
 (defun project--read-project-buffer ()
   (let* ((pr (project-current t))
          (current-buffer (current-buffer))
@@ -1736,7 +1739,8 @@ Return non-nil if PROJECT is not a remote project."
            (project--buffers-completion-table buffers-alist)
            predicate nil nil nil
            other-name))
-         (buffer (assoc-default result buffers-alist #'equal result)))
+         (buffer (or (assoc-default result buffers-alist)
+                     result)))
     ;; XXX: This check hardcodes the default buffer-belonging relation
     ;; which `project-buffers' is allowed to override.  Straighten
     ;; this up sometime later.  Or not.  Since we can add a method

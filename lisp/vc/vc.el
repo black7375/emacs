@@ -1280,20 +1280,6 @@ If the value is t, the backend is deduced in all modes."
                  (const :tag "All" t))
   :version "30.1")
 
-(defun vc-deduce-backend ()
-  (cond ((derived-mode-p 'vc-dir-mode)   vc-dir-backend)
-	((derived-mode-p 'log-view-mode) log-view-vc-backend)
-	((derived-mode-p 'log-edit-mode) log-edit-vc-backend)
-	((derived-mode-p 'diff-mode)     diff-vc-backend)
-	((or (eq vc-deduce-backend-nonvc-modes t)
-	     (derived-mode-p vc-deduce-backend-nonvc-modes))
-	 (ignore-errors (vc-responsible-backend default-directory)))
-	(vc-mode (vc-backend buffer-file-name))))
-
-(declare-function vc-dir-current-file "vc-dir" ())
-(declare-function vc-dir-deduce-fileset "vc-dir" (&optional state-model-only-files))
-(declare-function dired-vc-deduce-fileset "dired-aux" (&optional state-model-only-files not-state-changing))
-
 (defvar-local vc-buffer-overriding-fileset nil
   "Specialized, static value for `vc-deduce-fileset' for this buffer.
 If non-nil, this should be a list of length 2 or 5.
@@ -1306,6 +1292,21 @@ STATE-MODEL-ONLY-FILES argument to `vc-deduce-fileset' is nil.")
 Lisp code which sets this should also set `vc-buffer-overriding-fileset'
 such that the buffer's local variables also specify a VC backend,
 rendering the value of this variable unambiguous.")
+
+(defun vc-deduce-backend ()
+  (cond ((car vc-buffer-overriding-fileset))
+        ((derived-mode-p 'vc-dir-mode)   vc-dir-backend)
+        ((derived-mode-p 'log-view-mode) log-view-vc-backend)
+        ((derived-mode-p 'log-edit-mode) log-edit-vc-backend)
+        ((derived-mode-p 'diff-mode)     diff-vc-backend)
+        ((or (eq vc-deduce-backend-nonvc-modes t)
+             (derived-mode-p vc-deduce-backend-nonvc-modes))
+         (ignore-errors (vc-responsible-backend default-directory)))
+        (vc-mode (vc-backend buffer-file-name))))
+
+(declare-function vc-dir-current-file "vc-dir" ())
+(declare-function vc-dir-deduce-fileset "vc-dir" (&optional state-model-only-files))
+(declare-function dired-vc-deduce-fileset "dired-aux" (&optional state-model-only-files not-state-changing))
 
 (defun vc-deduce-fileset (&optional not-state-changing
 				    allow-unregistered
@@ -1647,7 +1648,18 @@ from which to check out the file(s)."
           ;; In the case there actually are any unregistered files then
           ;; `vc-deduce-backend', via `vc-only-files-state-and-model',
           ;; has already prompted the user to approve registering them.
-	  (let ((register (cl-remove-if #'vc-backend fileset-only-files)))
+          ;;
+          ;; FIXME: We should be able to use `vc-backend' instead of
+          ;; `vc-registered' here given that `vc-deduce-backend' just
+          ;; determined a state for all of the files.  However, there
+          ;; are case(s) where the cached information is out-of-date.
+          ;; For example, if we used C-x v v on a directory in *vc-dir*
+          ;; and thereby newly registered files within that directory,
+          ;; only that directory's name will have been passed to
+          ;; `vc-register', and so `vc-backend' will still consider them
+          ;; unregistered, even though `vc-dir-deduce-fileset' will
+          ;; return `added' for their states.
+	  (let ((register (cl-remove-if #'vc-registered fileset-only-files)))
             (if (not verbose)
 	        (vc-checkin ready-for-commit backend nil nil nil nil register)
 	      (let* ((revision (read-string "New revision or backend: "))

@@ -172,6 +172,11 @@ can be overridden for different completion categories by customizing
 "*Completions*" for all minibuffers, or nil to suppress this for all
 minibuffers.
 
+---
+*** Support for completion category inheritance.
+You can now define completion categories that inherit properties from
+existing categories, using the new function 'define-completion-category'.
+
 +++
 *** Support for updating "*Completions*" as you type.
 If the "*Completions*" buffer is displayed, it will now be updated as
@@ -2250,6 +2255,16 @@ Backend authors should implement the 'incoming-revision' and 'mergebase'
 backend functions instead.  These are jointly sufficient to support the
 'C-x v I' and 'C-x v O' commands.
 
+---
+*** Marking revisions in Log View now works more like other modes.
+Previously, 'm' toggled whether the current revision was marked, and
+didn't advance point.  Now 'm' only adds marks, 'u' removes marks, and
+both advance point, like how marking works in Dired and VC-Dir.
+You can get back the old behavior with something like this:
+
+    (with-eval-after-load 'log-view
+      (keymap-set log-view-mode-map "m" #'log-view-toggle-mark-entry))
+
 ** Diff mode
 
 +++
@@ -2586,6 +2601,13 @@ The tabulated listings produced by 'flymake-show-buffer-diagnostics' and
 'flymake-show-project-diagnostics' now automatically adjust their column
 widths based on content, optimizing display space and readability.
 
+*** New user option 'elisp-flymake-byte-compile-executable'.
+This allows customizing the Emacs executable used for Flymake byte
+compilation in emacs-lisp-mode.  This option should be set when editing
+Lisp code which will run with a different Emacs version than the running
+Emacs, such as code from an older or newer version of Emacs.  This will
+provide more accurate warnings from byte compilation.
+
 ** SQLite
 
 +++
@@ -2727,7 +2749,12 @@ files.  If tree-sitter is properly set-up by the user, it can be
 enabled for files named "go.work".
 
 ** New package 'lua-mode'.
-The 'lua-mode' package from Non-GNU ELPA is now included in Emacs.
+The 'lua-mode' package from NonGNU ELPA is now included in Emacs.
+
+** New library 'timeout'.
+This library provides functions to throttle or debounce Emacs Lisp
+functions.  This is useful for corralling overeager code that is slow
+and blocks Emacs, or does not provide ways to limit how often it runs.
 
 
 * Incompatible Lisp Changes in Emacs 31.1

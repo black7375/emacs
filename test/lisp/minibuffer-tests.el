@@ -332,6 +332,21 @@
                   "" '("fooxbar" "fooybar") nil 0)
                  '("foobar" . 3))))
 
+(ert-deftest completion-pcm-test-anydelim ()
+  ;; After each delimiter is a special wildcard which matches any
+  ;; sequence of delimiters.
+  (should (equal (completion-pcm-try-completion
+                  "-x" '("-_.x" "-__x") nil 2)
+                 '("-_x" . 3))))
+
+(ert-deftest completion-pcm-bug4219 ()
+  ;; With `completion-ignore-case', try-completion should change the
+  ;; case of existing text when the completions have different casing.
+  (should (equal
+           (let ((completion-ignore-case t))
+             (completion-pcm-try-completion "a" '("ABC" "ABD") nil 1))
+           '("AB" . 2))))
+
 (ert-deftest completion-substring-test-1 ()
   ;; One third of a match!
   (should (equal
@@ -774,6 +789,47 @@
     (should (equal (completion--selected-candidate) "test:b"))
     (execute-kbd-macro (kbd "RET"))
     (should (equal (buffer-string) "test:b"))))
+
+(ert-deftest completion-category-inheritance ()
+  (let ((completion-category-defaults
+         '((cat (display-sort-function . foo))
+           (dog (display-sort-function . bar)
+                (group-function        . baz)
+                (annotation-function   . qux)
+                (styles                basic))
+           (fel (annotation-function   . spam))
+           (testtesttest (styles substring))))
+        (origt (get 'testtesttest 'completion-category-parents))
+        (origc (get 'cat 'completion-category-parents)))
+    (unwind-protect
+        (progn
+          (put 'testtesttest 'completion-category-parents '(cat dog))
+          (put 'cat 'completion-category-parents '(fel))
+          ;; Value from first parent.
+          (should (eq
+                   (completion-metadata-get '((category . testtesttest))
+                                            'display-sort-function)
+                   'foo))
+          ;; Value from parent of first parent, not from second parent.
+          (should (eq
+                   (completion-metadata-get '((category . testtesttest))
+                                            'annotation-function)
+                   'spam))
+          ;; Value from second parent.
+          (should (eq
+                   (completion-metadata-get '((category . testtesttest))
+                                            'group-function)
+                   'baz))
+          ;; Property specified directly, takes precedence.
+          (should (equal
+                   (completion-metadata-get '((category . testtesttest))
+                                            'styles)
+                   '(substring)))
+          ;; Not specified and not inherited.
+          (should-not (completion-metadata-get '((category . testtesttest))
+                                               'affixation-function)))
+      (put 'cat 'completion-category-parents origc)
+      (put 'testtesttest 'completion-category-parents origt))))
 
 (provide 'minibuffer-tests)
 ;;; minibuffer-tests.el ends here
