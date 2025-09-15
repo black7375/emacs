@@ -63,11 +63,6 @@
 
 ;;; Code:
 
-(require 'tramp-compat)
-(require 'tramp-message)
-(require 'tramp-integration)
-(require 'trampver)
-
 ;; Pacify byte-compiler.
 (require 'cl-lib)
 (declare-function file-notify-rm-watch "filenotify")
@@ -106,8 +101,9 @@
   ;; TODO: Once (autoload-macro expand) is available in all supported
   ;; Emacs versions (Emacs 31.1+), this can be eliminated:
   ;; Backward compatibility for autoload-macro declare form.
-  (unless (assq 'autoload-macro macro-declarations-alist)
-    (push '(autoload-macro ignore) macro-declarations-alist))
+  (eval-and-compile
+    (unless (assq 'autoload-macro macro-declarations-alist)
+      (push '(autoload-macro ignore) macro-declarations-alist)))
 
   (defmacro tramp--with-startup (&rest body)
     "Schedule BODY to be executed at the end of tramp.el."
@@ -123,6 +119,11 @@
     (add-to-list
      'defun-declarations-alist
      (list 'tramp-suppress-trace #'tramp-byte-run--set-suppress-trace))))
+
+(require 'tramp-compat)
+(require 'tramp-message)
+(require 'tramp-integration)
+(require 'trampver)
 
 ;;; User Customizable Internal Variables:
 
@@ -2760,7 +2761,9 @@ remote file names."
 	       (cons tramp-file-name-regexp #'tramp-file-name-handler))
   (put #'tramp-file-name-handler 'safe-magic t)
 
-  (tramp-register-crypt-file-name-handler)
+  ;; Don't fail during bootstrap before `tramp-loaddefs.el' is built.
+  (when (fboundp 'tramp-register-crypt-file-name-handler)
+    (tramp-register-crypt-file-name-handler))
 
   (add-to-list 'file-name-handler-alist
 	       (cons tramp-completion-file-name-regexp
@@ -2771,7 +2774,9 @@ remote file names."
        (mapcar #'car tramp-completion-file-name-handler-alist))
 
   ;; After unloading, `tramp-archive-enabled' might not be defined.
-  (when (bound-and-true-p tramp-archive-enabled)
+  (when (and (bound-and-true-p tramp-archive-enabled)
+             ;; Don't burp during boostrap when `tramp-loaddefs.el' isn't built.
+             (boundp 'tramp-archive-file-name-regexp))
     (add-to-list 'file-name-handler-alist
 	         (cons tramp-archive-file-name-regexp
 		       #'tramp-archive-file-name-handler))
@@ -5342,6 +5347,18 @@ should be set connection-local.")
 	 (or (not (stringp buffer)) (not (tramp-tramp-file-p buffer)))
 	 (or (not (stringp stderr)) (not (tramp-tramp-file-p stderr))))))
 
+;; This function is used by tramp-*-handle-make-process and
+;; tramp-sh-handle-process-file to filter local environment variables
+;; that should not be propagated remotely.  Users can override this
+;; function if necessary, for example, to ensure that a specific
+;; environment variable is applied to remote processes, whether it
+;; exists locally or not.
+(defun tramp-local-environment-variable-p (arg)
+  "Return non-nil if ARG exists in default `process-environment'.
+Tramp does not propagate local environment variables in remote
+processes."
+  (member arg (default-toplevel-value 'process-environment)))
+
 (defun tramp-handle-make-process (&rest args)
   "An alternative `make-process' implementation for Tramp files."
   (tramp-skeleton-make-process args nil nil
@@ -5360,9 +5377,7 @@ should be set connection-local.")
 	   (env (dolist (elt process-environment env)
 		  (when (and
 			 (string-search "=" elt)
-			 (not
-			  (member
-			   elt (default-toplevel-value 'process-environment))))
+			 (not (tramp-local-environment-variable-p elt)))
 		    (setq env (cons elt env)))))
 	   ;; Add remote path if exists.
 	   (env (if-let* ((sh-file-name-handler-p)
