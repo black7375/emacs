@@ -253,10 +253,21 @@ that your popup interface uses for a more integrated experience.
 ('completion-preview-sort-function' was already present in Emacs 30.1,
 but as a plain Lisp variable, not a user option.)
 
+---
+*** New mode 'minibuffer-nonselected-mode'.
+This mode enabled by default directs the attention to the active
+minibuffer window using the 'minibuffer-nonselected' face in case
+when the minibuffer window is no longer selected, but the minibuffer
+is still waiting for input.
+
 ** Mouse
 
+*** New mode 'mouse-shift-adjust-mode' extends selection with 'S-<mouse-1>'.
+When enabled, you can use the left mouse button with the <Shift> modifier
+to extend the boundaries of the active region by dragging the mouse pointer.
+
 ---
-*** 'context-menu-mode now' includes a "Send to..." menu item.
+*** 'context-menu-mode' now includes a "Send to..." menu item.
 The menu item enables sending current file(s) or region text to external
 (non-Emacs) applications or services.  See send-to.el for customisations.
 
@@ -554,14 +565,6 @@ project, during completion.  That makes some items shorter.
 The category defaults are the same as for 'buffer' but any user
 customizations would need to be re-added.
 
-** Registers
-
-*** New functions 'buffer-to-register' and 'file-to-register'.
-These allow users to interactively store file and buffers in registers.
-Killed buffers stored in a register using 'buffer-to-register' are
-automatically converted to a file-query value if the buffer was visiting
-a file.
-
 ** IDLWAVE has been moved to GNU ELPA.
 The version bundled with Emacs is out-of-date, and is now marked as
 obsolete.  Use 'M-x list-packages' to install the 'idlwave' package from
@@ -784,9 +787,20 @@ with finer grained control.
 
 ** Register
 
++++
+*** New functions 'buffer-to-register' and 'file-to-register'.
+These allow users to interactively store file and buffers in registers.
+Killed buffers stored in a register using 'buffer-to-register' are
+automatically converted to a file-query value if the buffer was visiting
+a file.
+
+---
 *** The "*Register Preview*" buffer shows only suitable registers.
 That was already the case for the "fancy" UI but is now also true in
 the default UI you get, i.e., when 'register-use-preview' is 'traditional'.
+
+---
+*** The "*Register Preview*" buffer shows sorted items.
 
 ** Tree-sitter
 
@@ -955,9 +969,36 @@ at point to explore.
 
 ** Hideshow
 
++++
 *** New user option 'hs-display-lines-hidden'.
-If this option is non-nil, Hideshow displays the number of hidden
-lines next to the ellipsis.
+If this option is non-nil, Hideshow displays the number of hidden lines
+next to the ellipsis.  By default this is disabled.
+
++++
+*** New user option 'hs-show-indicators'.
+This user option determines if hideshow should display indicators to
+show and toggle the block hiding.  If non-nil, the indicators are enabled.
+
+By default this is disabled.
+
+*** New user option 'hs-indicator-maximum-buffer-size'.
+This user option limits the display of hideshow indicators to buffers
+that are not too large.  By default, buffers larger than 2MB have the
+indicators disabled; the value of nil will activate the indicators
+regardless of the buffer size.
+
++++
+*** New user option 'hs-indicator-type'.
+This user option determine which indicator type should be used for the
+block indicators.
+
+The possible values can be: 'fringe', display the indicators in the
+fringe (the default); 'margin', display the indicators in the margin;
+nil, display the indicators at end-of-line.
+
+The new icons 'hs-indicator-show' and 'hs-indicator-hide', can be used
+for customize the indicators appearance, only if 'hs-indicator-type' is
+set to 'margin' or nil.
 
 ** C-ts mode
 
@@ -967,6 +1008,12 @@ By default, this is nil, and the Doxygen comment blocks in C/C++ sources
 are highlighted like other comments.  When non-nil, Doxygen comment
 blocks are syntax-highlighted if the Doxygen grammar library is
 available.
+
+** Csharp-ts-mode
+
+*** Renamed feature in 'treesit-font-lock-feature-list'
+The feature 'property' has been renamed to 'attribute', since this is
+what it is called in the general C# community.
 
 ** Go-ts mode
 
@@ -1214,6 +1261,11 @@ For better Wayland support, the pgtk toolkit exposes a new
 are browsed from a PGTK frame.  For other frames, we fall back to the
 default URL launch function.  This change allows us to properly raise
 browser windows under Wayland using the xdg_activation_v1 protocol.
+
+*** 'RET' can visit URLs in read-only buffers.
+In some keymaps such as 'ansi-osc-hyperlink-map', 'browse-url-button-map',
+'goto-address-highlight-keymap', 'bug-reference-map' it's possible now
+to visit URLs by typing just 'RET' instead of 'C-c RET' in read-only buffers.
 
 *** Removed support for some obsolete web browsers.
 Conkeror (obsolete since Emacs 28.1), gnome-moz-remote (obsolete since
@@ -2072,8 +2124,14 @@ other working trees:
 - 'C-x v w c': Add a new working tree.
 - 'C-x v w w': Visit this file in another working tree.
 - 'C-x v w s': Like 'C-x p p' but limited to other working trees.
+- 'C-x v w a': Copy or move fileset changes to another working tree.
+- 'C-x v w A': Copy or move all changes to another working tree.
 - 'C-x v w x': Delete a working tree you no longer need.
 - 'C-x v w R': Relocate a working tree to another file name.
+
+The new user option 'vc-no-confirm-moving-changes' controls whether
+'C-x v w a' and 'C-x v w A' ask for confirmation when moving changes
+between working trees.  The default is to ask for confirmation.
 
 In addition, Lisp programs that extend VC can invoke the new backend
 functions to obtain a list of other working trees, and to add, remove
@@ -2525,6 +2583,12 @@ frame and be interpreted as a command.
 This specifies in which major modes should the 'global-hl-line-mode' be
 switched on.  The default is t, which means enable it in all major
 modes.
+
+---
+*** New value 'all' for the user option 'global-hl-line-sticky-flag'.
+It updates the line highlighting in all windows and buffers,
+unlike the value t that updates only windows that display
+the current buffer.
 
 ---
 *** New user option 'display-fill-column-indicator-warning'.

@@ -88,9 +88,9 @@ when `global-hl-line-sticky-flag' is non-nil.")
 	 (dolist (buffer (buffer-list))
 	   (with-current-buffer buffer
 	     (when (overlayp hl-line-overlay)
-	       (overlay-put hl-line-overlay 'face hl-line-face))))
-	 (when (overlayp global-hl-line-overlay)
-	   (overlay-put global-hl-line-overlay 'face hl-line-face))))
+	       (overlay-put hl-line-overlay 'face hl-line-face))
+	     (when (overlayp global-hl-line-overlay)
+	       (overlay-put global-hl-line-overlay 'face hl-line-face))))))
 
 (defcustom hl-line-sticky-flag t
   "Non-nil means the HL-Line mode highlight appears in all windows.
@@ -116,9 +116,22 @@ For that, use `global-hl-line-sticky-flag'."
 (defcustom global-hl-line-sticky-flag nil
   "Non-nil means the Global HL-Line mode highlight appears in all windows.
 Otherwise Global Hl-Line mode will highlight only in the selected
-window.  Setting this variable takes effect the next time you use
+window.
+
+The value t affects only the case when the current buffer is displayed
+in several windows - then the current line of the selected window
+is indicated in non-selected windows.
+
+If the value is `all', the Global HL-Line mode affects all windows.
+This means that even when point moves in a non-selected window
+that displays another buffer, the new position will be updated
+to highlight the current line of other buffers.
+
+Setting this variable takes effect the next time you use
 the command `global-hl-line-mode' to turn Global Hl-Line mode on."
-  :type 'boolean
+  :type '(choice (const :tag "Disable" nil)
+                 (const :tag "Enable for buffer in multiple windows" t)
+                 (const :tag "Enable and update in all windows" all))
   :version "24.1"
   :group 'hl-line)
 
@@ -256,9 +269,12 @@ on `post-command-hook'."
         ;; In case `kill-all-local-variables' is called.
         (add-hook 'change-major-mode-hook #'global-hl-line-unhighlight)
         (global-hl-line-highlight-all)
-	(add-hook 'post-command-hook #'global-hl-line-highlight))
+        (add-hook 'post-command-hook (if (eq global-hl-line-sticky-flag 'all)
+                                         #'global-hl-line-highlight-all
+                                       #'global-hl-line-highlight)))
     (global-hl-line-unhighlight-all)
     (remove-hook 'post-command-hook #'global-hl-line-highlight)
+    (remove-hook 'post-command-hook #'global-hl-line-highlight-all)
     (remove-hook 'change-major-mode-hook #'global-hl-line-unhighlight)))
 
 (defun global-hl-line-highlight ()
@@ -294,10 +310,12 @@ on `post-command-hook'."
   "Maybe deactivate the Global-Hl-Line overlay on the current line.
 Specifically, when `global-hl-line-sticky-flag' is nil deactivate
 all such overlays in all buffers except the current one."
+  (setq global-hl-line-overlays
+        (seq-remove (lambda (ov) (not (overlay-buffer ov)))
+                    global-hl-line-overlays))
   (mapc (lambda (ov)
 	  (let ((ovb (overlay-buffer ov)))
             (when (and (not global-hl-line-sticky-flag)
-                       (bufferp ovb)
                        (not (eq ovb (current-buffer)))
                        (not (minibufferp)))
 	      (with-current-buffer ovb
