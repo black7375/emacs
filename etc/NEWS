@@ -216,6 +216,23 @@ different values for completion-affecting variables like
 applies for the styles configuration in 'completion-category-overrides'
 and 'completion-category-defaults'.
 
++++++
+*** Navigating "*Completions*" now accommodates 'completions-format'.
+When 'completions-format' is set to 'vertical', typing 'n', '<TAB>' or
+'M-<down>' in the "*Completions*" buffer (the latter also in the
+minibuffer) now moves point to the completion candidate in the next line
+in the current column, and wraps to the next column when typed on the
+last completion candidate of the current column.  Likewise, typing 'p',
+'S-<TAB>' or 'M-<up>' moves point to the completion candidate in the
+previous line or wraps to the previous column.  Previously, these keys
+ignored the vertical format, i.e., moved point only to the item in the
+same line of the next or previous column, in accordance with the default
+horizontal format.  In vertical format, typing '<left>' and '<right>' in
+the "*Completions*" buffer (and when 'minibuffer-visible-completions' is
+non-nil, also in the minibuffer) moves point only within the current
+line, analogously to how, in horizontal format, '<down>' and '<up>' move
+point only within the current column.
+
 ---
 *** Selected completion candidate is preserved across "*Completions*" updates.
 When point is on a completion candidate in the "*Completions*" buffer
@@ -270,6 +287,16 @@ to extend the boundaries of the active region by dragging the mouse pointer.
 *** 'context-menu-mode' now includes a "Send to..." menu item.
 The menu item enables sending current file(s) or region text to external
 (non-Emacs) applications or services.  See send-to.el for customisations.
+
+---
+*** The mouse now drags lines in character increments again.
+Dragging a horizontal or vertical line like the mode line or the lines
+dividing side-by-side windows now by default happens in increments of
+the corresponding frame's character size again.  This is the behavior
+described in the manual and was the default behavior before
+'window-resize-pixelwise' was added for Emacs 24.1.  To drag in pixel
+increments as with Emcas 24 through Emacs 30 you now have to set
+'window-resize-pixelwise' to t.
 
 ** Windows
 
@@ -719,6 +746,12 @@ To use this, add a list to both electric pair user options: '("/*" . "*/")'.
 
 You can also specify to insert an extra space after the first string
 pair: '("/*" " */" t)'.
+
+---
+** New user option 'electric-indent-actions'.
+This user options specifies a list of actions to reindent.  The possible
+elements for this list are: 'yank', reindent the yanked text;
+'before-save', indent the whole buffer before saving it.
 
 +++
 ** You can now use 'M-~' during 'C-x s' ('save-some-buffers').
@@ -1590,6 +1623,16 @@ Predefined values include visiting the file in Emacs, jumping to the
 file in Dired, or opening the file with an external program.  You can
 also provide a custom function.
 
+---
+*** Rmail now detects email messages from suspicious sender addresses.
+If the "From" header of a message contains a suspicious email address,
+Rmail will now highlight it in a distinct face and provide a 'help-echo'
+tooltip explaining the reason.  (What exactly is considered as
+suspicious email addresses is determined by the function
+'textsec-suspicious-p', which see.)  This is controlled by the new user
+option 'rmail-detect-suspicious-headers', whose default value is
+non-nil; customize to nil to disable the check.
+
 ** Message
 
 +++
@@ -1600,6 +1643,17 @@ honored if it was already set.
 
 +++
 *** 'message-strip-subject-re' now matches case-insensitively.
+
+** Sendmail
+
+---
+*** Sending an email via 'sendmail' checks for suspicious addressees.
+The command 'mail-send', used to send email in Mail mode, now checks the
+addressees for suspicious email addresses.  If such addresses are found,
+the command will show them and the reason they are considered
+suspicious, and will request a confirmation before sending the message.
+This follows the behavior of Message mode, and affects users who
+customize 'mail-user-agent' to the value 'sendmail-user-agent'.
 
 ** SHR
 
@@ -2935,6 +2989,19 @@ The display optimization where the combination 'TAB' characters +
 by default and controlled by this variable; it can be set to non-nil
 to keep the old behavior.  This change is to accomodate screen
 readers.
+
+---
+** 'next-completion' and 'previous-completion' now use 'completions-format'.
+Previously, these commands only took horizontal format into account;
+now, they call either '{next,previous}-line-completion' or the new
+commands '{next,previous}-column-completion', depending on the value of
+'completions-format'.  The latter two commands improve and extend the
+previous implementations of '{next,previous}-completion', which better
+reflect that they only take the (default) horizontal completions format
+into account.  Any external code using '{next,previous}-completion' that
+assumes the previous implementation must be adjusted accordingly; see
+'minibuffer-next-completion' for an example of such an adjustment in
+Emacs core.
 
 +++
 ** A thread's current buffer can now be killed.

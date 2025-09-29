@@ -1122,8 +1122,9 @@ It is based on `log-edit-mode', and has Git-specific extensions."
        ("Sign-Off" . ,(boolean-arg-fn "--signoff")))
      comment)))
 
-(defmacro vc-git--with-apply-temp-to-staging (temp &rest body)
-  (declare (indent 1) (debug (symbolp body)))
+(cl-defmacro vc-git--with-apply-temp
+    ((temp &optional buffer okstatus &rest args) &body body)
+  (declare (indent 1))
   `(let ((,temp (make-nearby-temp-file ,(format "git-%s" temp))))
      (unwind-protect (progn ,@body
                             ;; This uses `file-local-name' to strip the
@@ -1131,7 +1132,9 @@ It is based on `log-edit-mode', and has Git-specific extensions."
                             ;; because we've had at least one problem
                             ;; report where relativizing the file name
                             ;; meant that Git failed to find it.
-                            (vc-git-command nil 0 nil "apply" "--cached"
+                            (vc-git-command ,buffer ,(or okstatus 0)
+                                            nil "apply"
+                                            ,@(or args '("--cached"))
                                             (file-local-name ,temp)))
        (delete-file ,temp))))
 
@@ -1144,7 +1147,7 @@ For a regular checkin, FILES is the list of files to check in.
 To check in a patch, PATCH-STRING is the patch text.
 It is an error to supply both or neither."
   (unless (xor files patch-string)
-    (error "Invalid call to `vc-hg--checkin'"))
+    (error "Invalid call to `vc-git--checkin'"))
   (let* ((file1 (or (car files) default-directory))
          (root (vc-git-root file1))
          (default-directory (expand-file-name root))
@@ -1235,7 +1238,7 @@ It is an error to supply both or neither."
                 ;; to have the Unix EOL format, because Git expects
                 ;; that, even on Windows.
                 (or pcsw vc-git-commits-coding-system) 'unix)))
-          (vc-git--with-apply-temp-to-staging patch
+          (vc-git--with-apply-temp (patch)
             (with-temp-file patch
               (insert patch-string)))))
       (when to-stash (vc-git--stash-staged-changes to-stash)))
@@ -1246,10 +1249,49 @@ It is an error to supply both or neither."
            (lambda ()
              (when (and msg-file (file-exists-p msg-file))
                (delete-file msg-file))
+             ;; If PATCH-STRING didn't come from C-x v = or C-x v D, we
+             ;; now need to update the working tree to include the
+             ;; changes from the commit we just created.
+             ;; If there are conflicts we want to favor the working
+             ;; tree's version and the version from the commit will just
+             ;; show up in the diff of uncommitted changes.
+             ;;
+             ;; 'git apply --3way --ours' is the way Git provides to
+             ;; achieve this.  This requires that the index match the
+             ;; working tree and also implies the --index option, which
+             ;; means applying the changes to the index in addition to
+             ;; the working tree.  These are both okay here because
+             ;; before doing this we know the index is empty (we just
+             ;; committed) and so we can just make use of it and reset
+             ;; afterwards.
+             (when patch-string
+               (vc-git-command nil 0 nil "add" "--all")
+               (with-temp-buffer
+                 (vc-git--with-apply-temp (patch t 1 "--3way")
+                   (with-temp-file patch
+                     (insert patch-string)))
+                 ;; We could delete the following if we could also pass
+                 ;; --ours to git-apply, but that is only available in
+                 ;; recent versions of Git.  --3way is much older.
+                 (cl-loop
+                  initially (goto-char (point-min))
+                  ;; git-apply doesn't apply Git's usual quotation and
+                  ;; escape rules for printing file names so we can do
+                  ;; this simple regexp processing.
+                  ;; (Passing -z does not affect the relevant output.)
+                  while (re-search-forward "^U " nil t)
+                  collect (buffer-substring-no-properties (point)
+                                                          (pos-eol))
+                  into paths
+                  finally (when paths
+                            (vc-git-command nil 0 paths
+                                            "checkout" "--ours"))))
+               (vc-git-command nil 0 nil "reset"))
              (when to-stash
-               (vc-git--with-apply-temp-to-staging cached
+               (vc-git--with-apply-temp (cached)
                  (with-temp-file cached
-                   (vc-git-command t 0 nil "stash" "show" "-p")))))))
+                   (vc-git-command t 0 nil "stash" "show" "-p")))
+               (vc-git-command nil 0 nil "stash" "drop")))))
       (when msg-file
         (let ((coding-system-for-write
                (or pcsw vc-git-commits-coding-system)))
@@ -1390,7 +1432,7 @@ REV is ignored."
                 (unwind-protect
                     (progn
                       (vc-git-command nil 0 nil "read-tree" "HEAD")
-                      ;; See `vc-git--with-apply-temp-to-staging'
+                      ;; See `vc-git--with-apply-temp'
                       ;; regarding use of `file-local-name'.
                       (vc-git-command nil 0 nil "apply" "--cached"
                                       (file-local-name cached))
@@ -2132,6 +2174,25 @@ This requires git 1.8.4 or later, for the \"-L\" option of \"git log\"."
     (vc-git-command standard-output 1 nil
                     "log" "--max-count=1" "--pretty=format:%B" rev)))
 
+(defun vc-git-cherry-pick-comment (_files rev reverse)
+  ;; Don't just call `vc-git-get-change-comment' in order to make one
+  ;; fewer call out to Git.  We have to resolve REV because even if it's
+  ;; already a hash it may be an abbreviated one.
+  (let (comment)
+    (with-temp-buffer
+      (vc-git-command t 0 nil "log" "-n1" "--pretty=format:%H%n%B" rev)
+      (goto-char (point-min))
+      (setq rev (buffer-substring-no-properties (point) (pos-eol)))
+      (forward-line 1)
+      (setq comment (buffer-substring-no-properties (point) (point-max))))
+    (if reverse
+        (format "Summary: Revert \"%s\"\n\nThis reverts commit %s.\n"
+                (car (split-string comment "\n" t
+                                   split-string-default-separators))
+                rev)
+      (format "Summary: %s\n(cherry picked from commit %s)\n"
+              comment rev))))
+
 (defun vc-git--assert-allowed-rewrite (rev)
   (when (and (not (and vc-allow-rewriting-published-history
                        (not (eq vc-allow-rewriting-published-history 'ask))))
@@ -2250,26 +2311,39 @@ Rebase may --autosquash your other squash!/fixup!/amend!; proceed?")))
 
 (defun vc-git-prepare-patch (rev)
   (with-current-buffer (generate-new-buffer " *vc-git-prepare-patch*")
-    (vc-git-command
-     t 0 '()  "format-patch"
-     "--no-numbered" "--stdout"
-     ;; From gitrevisions(7): ^<n> means the <n>th parent
-     ;; (i.e.  <rev>^ is equivalent to <rev>^1). As a
-     ;; special rule, <rev>^0 means the commit itself and
-     ;; is used when <rev> is the object name of a tag
-     ;; object that refers to a commit object.
-     (concat rev "^.." rev))
-    (let (subject)
-      ;; Extract the subject line
-      (goto-char (point-min))
-      (search-forward-regexp "^Subject: \\(.+\\)")
-      (setq subject (match-string 1))
-      ;; Jump to the beginning for the patch
-      (search-forward-regexp "\n\n")
-      ;; Return the extracted data
-      (list :subject subject
-            :buffer (current-buffer)
-            :body-start (point)))))
+    (vc-git-command t 0 nil "format-patch"
+                    "--no-numbered" "--stdout" "-n1" rev)
+    (condition-case _
+        (let (subject body-start patch-start patch-end)
+          (goto-char (point-min))
+          (re-search-forward "^Subject: \\(.*\\)")
+          (setq subject (match-string 1))
+          (while (progn (forward-line 1)
+                        (looking-at "[\s\t]\\(.*\\)"))
+            (setq subject (format "%s %s" subject (match-string 1))))
+          (goto-char (point-min))
+          (re-search-forward "\n\n")
+          (setq body-start (point))
+          (if ;; If the user has added any of these to
+              ;; `vc-git-diff-switches' then they expect to see the
+              ;; diffstat in *vc-diff* buffers.
+              (cl-intersection '("--stat"
+                                 "--patch-with-stat"
+                                 "--compact-summary")
+                               (vc-switches 'git 'diff)
+                               :test #'equal)
+              (progn (re-search-forward "^---$")
+                     (setq patch-start (pos-bol 2)))
+            (re-search-forward "^diff --git a/")
+            (setq patch-start (pos-bol)))
+          (re-search-forward "^-- $")
+          (setq patch-end (pos-bol))
+          (list :subject subject
+                :body-start body-start
+                :patch-start patch-start
+                :patch-end patch-end
+                :buffer (current-buffer)))
+      (search-failed (error "git-format-patch output parse failure")))))
 
 ;; grep-compute-defaults autoloads grep.
 (declare-function grep-read-regexp "grep" ())
