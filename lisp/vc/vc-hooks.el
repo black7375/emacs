@@ -26,6 +26,11 @@
 ;; This is the preloaded portion of VC.  It takes care of VC-related
 ;; activities that are done when you visit a file, so that vc.el itself
 ;; is loaded only when you use a VC command.  See commentary of vc.el.
+;;
+;; The noninteractive hooks into the rest of Emacs are:
+;; - `vc-refresh-state' in `find-file-hook'
+;; - `vc-kill-buffer-hook' in `kill-buffer-hook'
+;; - `vc-after-save' which is called by `basic-save-buffer'.
 
 ;;; Code:
 
@@ -916,9 +921,9 @@ In the latter case, VC mode is deactivated for this buffer."
 			       (not (equal buffer-file-name truename))
 			       (vc-backend truename))))
 	  (cond ((not link-type) nil)	;Nothing to do.
-		((eq vc-follow-symlinks nil)
-		 (message
-		  "Warning: symbolic link to %s-controlled source file" link-type))
+		((not vc-follow-symlinks)
+		 (message "Warning: symbolic link to %s-controlled source file"
+                          link-type))
 		((or (not (eq vc-follow-symlinks 'ask))
 		     ;; Assume we cannot ask, default to yes.
 		     noninteractive
@@ -965,6 +970,7 @@ In the latter case, VC mode is deactivated for this buffer."
 ;; in the menu because they don't exist yet when the menu is built.
 ;; (autoload 'vc-prefix-map "vc" nil nil 'keymap)
 (defvar-keymap vc-prefix-map
+  :prefix t
   "a"   #'vc-update-change-log
   "b c" #'vc-create-branch
   "b l" #'vc-print-branch-log
@@ -1003,7 +1009,6 @@ In the latter case, VC mode is deactivated for this buffer."
   "w R" #'vc-move-working-tree
   "w a" #'vc-apply-to-other-working-tree
   "w A" #'vc-apply-root-to-other-working-tree)
-(fset 'vc-prefix-map vc-prefix-map)
 (define-key ctl-x-map "v" 'vc-prefix-map)
 
 (defvar-keymap vc-incoming-prefix-map

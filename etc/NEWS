@@ -1168,6 +1168,15 @@ at run-time for the use of the associated deprecated features.
 '(setq eieio-backward-compatibility t)' can be used to recover
 the previous silence.
 
+** ELisp mode
+
++++
+*** Semantic highlighting support for Emacs Lisp.
+'emacs-lisp-mode' can now use code analysis to highlight more symbols
+more accurately.  Customize the new user option
+'elisp-fontify-semantically' to non-nil to enable this feature, and see
+the Info node "(emacs) Semantic Font Lock" for more information.
+
 ** Text mode
 
 ---
@@ -3309,6 +3318,12 @@ a remote host.  It must be used in conjunction with the function
 ** JSON parse error line and column are now obsolete.
 The column number is no longer available; the line number will be
 removed in next Emacs release.
+
++++
+** defvar-keymap can now take a ':prefix t' option.
+This is an abbreviation for using the name of the keymap as the prefix
+command name.  E.g. (defvar-keymap foo-map :prefix t) is equivalent to
+(defvar-keymap foo-map :prefix 'foo-map).
 
 
 * Changes in Emacs 31.1 on Non-Free Operating Systems
