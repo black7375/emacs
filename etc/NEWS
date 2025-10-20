@@ -327,13 +327,13 @@ deleted implicitly by functions like 'kill-buffer', 'bury-buffer' and
 +++
 *** Buffer-local window change functions run in their buffers now.
 Running the buffer-local version of each of the abnormal hooks
-'window-buffer-change-functions', 'window-size-change-functions'
+'window-buffer-change-functions', 'window-size-change-functions',
 'window-selection-change-functions' and 'window-state-change-functions'
 will make the respective buffer temporarily current for running the
-hook.'
+hook.
 
 +++
-*** 'window-buffer-change-functions' is run for removed buffer too.
+*** 'window-buffer-change-functions' is run for removed buffers too.
 The buffer-local version of 'window-buffer-change-functions' may be run
 twice now: Once for the buffer removed from the respective window and
 once for the buffer now shown in that window.
@@ -412,6 +412,13 @@ during the execution of particular commands.
 *** New command 'other-window-backward' ('C-x O').
 This moves in the opposite direction of 'other-window' and is for its
 default keybinding consistent with 'repeat-mode'.
+
++++
+*** New functions 'combine-windows' and 'uncombine-window'.
+'combine-windows' is useful to make a new parent window for several
+adjacent windows and subsequently operate on that parent.
+'uncombine-window' can then be used to restore the window configuration
+to the state it had before running 'combine-windows'.
 
 ** Frames
 
@@ -1168,7 +1175,7 @@ at run-time for the use of the associated deprecated features.
 '(setq eieio-backward-compatibility t)' can be used to recover
 the previous silence.
 
-** ELisp mode
+** Emacs Lisp mode
 
 +++
 *** Semantic highlighting support for Emacs Lisp.
@@ -1883,6 +1890,11 @@ default, "sudo".
 *** 'tramp-file-name-with-method' can now be set as connection-local variable.
 
 +++
+*** New optional connection methods "surs" and "sudors".
+These connection methods are similar to "su" and "sudo", but they use
+the modern 'su-rs' and 'sudo-rs' commands.
+
++++
 *** Connection method "kubernetes" supports now optional namespace.
 The host name for Kubernetes connections can be of kind
 [CONTAINER.]POD[%NAMESPACE], in order to specify the namespace to be
@@ -2497,6 +2509,9 @@ version-list of a given package symbol.  These functions provide public
 interfaces for external tools to query information about built-in
 packages.
 
+---
+*** Uninstalling a package now removes its directory from 'load-path'.
+
 ** Rcirc
 
 +++
@@ -2776,6 +2791,10 @@ code, message or one-liner message) appear in each output destination.
 The tabulated listings produced by 'flymake-show-buffer-diagnostics' and
 'flymake-show-project-diagnostics' now automatically adjust their column
 widths based on content, optimizing display space and readability.
+
+*** New value 'auto' of user option 'flymake-indicator-type'.
+This value set by default tries to use fringes if possible,
+otherwise falls back to margins.
 
 *** New user option 'elisp-flymake-byte-compile-executable'.
 This allows customizing the Emacs executable used for Flymake byte
@@ -3320,10 +3339,10 @@ The column number is no longer available; the line number will be
 removed in next Emacs release.
 
 +++
-** defvar-keymap can now take a ':prefix t' option.
+** 'defvar-keymap' can now take a ':prefix t' option.
 This is an abbreviation for using the name of the keymap as the prefix
-command name.  E.g. (defvar-keymap foo-map :prefix t) is equivalent to
-(defvar-keymap foo-map :prefix 'foo-map).
+command name.  E.g., '(defvar-keymap foo-map :prefix t)' is equivalent
+to '(defvar-keymap foo-map :prefix 'foo-map)'.
 
 
 * Changes in Emacs 31.1 on Non-Free Operating Systems

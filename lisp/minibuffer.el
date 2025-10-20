@@ -2316,7 +2316,8 @@ Runs of equal candidate strings are eliminated.  GROUP-FUN is a
 		     ;; Windows can't show less than 3 lines anyway.
 		     (max 1 (/ (length strings) 2))))
 	   (colwidth (/ wwidth columns))
-	   (lines (or completions-max-height (frame-height))))
+	   (lines (or completions-max-height
+                      (frame-height (window-frame window)))))
       (unless (or tab-stop-list (null completion-tab-width)
                   (zerop (mod colwidth completion-tab-width)))
         ;; Align to tab positions for the case
@@ -2346,10 +2347,7 @@ Runs of equal candidate strings are eliminated.  GROUP-FUN is a
       (when track-eob
         (with-selected-window window
           (goto-char (point-max))
-          (previous-completion 1)
-          (recenter -1)
-          (when cursor-face-highlight-mode
-            (redisplay--update-cursor-face-highlight window))))))
+          (recenter -1)))))
   (remove-hook 'window-scroll-functions
                'completion--lazy-insert-strings-on-scroll t))
 
@@ -4766,7 +4764,7 @@ the same set of elements."
                   ;; `prefix' only wants to include the fixed part before the
                   ;; wildcard, not the result of growing that fixed part.
                   (when (seq-some (lambda (elem) (eq elem 'prefix)) wildcards)
-                    (setq prefix fixed))
+                    (setq prefix (substring prefix 0 (length fixed))))
                   (push prefix res)
                   ;; Push all the wildcards in this stretch, to preserve `point' and
                   ;; `star' wildcards before ELEM.
@@ -5657,17 +5655,24 @@ Used by `minibuffer-nonselected-mode'.")
 (defun minibuffer--nonselected-check (_frame)
   "Check if active minibuffer window is no longer selected.
 Use overlay to highlight its contents when another window is selected.
-But don't highlight when the *Completions* window is selected."
+But don't highlight when the *Completions* window is selected or the
+buffer-local value of `completion-reference-buffer' in the selected
+window's buffer equals the buffer of the active minibuffer window."
   (let* ((active-minibuffer-window (active-minibuffer-window))
 	 (active-minibuffer (when active-minibuffer-window
 			      (window-buffer active-minibuffer-window))))
     (cond
      ((or (not active-minibuffer-window)
 	  (eq active-minibuffer-window (selected-window))
-	  (equal (buffer-name (window-buffer)) "*Completions*"))
+	  (equal (buffer-name (window-buffer)) "*Completions*")
+	  (eq (buffer-local-value
+	       'completion-reference-buffer (window-buffer))
+	      active-minibuffer))
       ;; When there's no active minibuffer window or either the
-      ;; minibuffer or *the Completions* window is selected, remove the
-      ;; overlay if it exists.
+      ;; minibuffer or the *Completions* window is selected or the
+      ;; buffer-local value of 'completion-reference-buffer' in the
+      ;; selected window's buffer equals the buffer of the active
+      ;; minibuffer window, remove the overlay if it exists.
       (when minibuffer--nonselected-overlay
 	(delete-overlay minibuffer--nonselected-overlay)))
      ((not minibuffer--nonselected-overlay)
