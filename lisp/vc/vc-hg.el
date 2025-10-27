@@ -1549,10 +1549,8 @@ This runs the command \"hg summary\"."
          (nreverse result))
        "\n"))))
 
-(defun vc-hg-incoming-revision (upstream-location &optional _refresh)
-  (let* ((upstream-location (if (string-empty-p upstream-location)
-                              "default"
-                            upstream-location))
+(defun vc-hg-incoming-revision (&optional upstream-location _refresh)
+  (let* ((upstream-location (or upstream-location "default"))
          ;; Use 'hg identify' like this, and not 'hg incoming', because
          ;; this will give a sensible answer regardless of whether the
          ;; incoming revision has been pulled yet.
@@ -1833,6 +1831,13 @@ Cannot relocate first working tree because this would break other working trees"
       ;; The additional line is indeed separated from the original
       ;; comment by just one line break, for 'hg graft'.
       (format "Summary: %s\n(grafted from %s)\n" comment long))))
+
+(defun vc-hg-revision-published-p (rev)
+  "Whether REV has been pushed such that it is public history.
+Always has to fetch, like `vc-hg-incoming-revision' does."
+  (with-temp-buffer
+    (vc-hg-command t 0 nil "log" (format "--rev=outgoing() and %s" rev))
+    (bobp)))
 
 (provide 'vc-hg)
 

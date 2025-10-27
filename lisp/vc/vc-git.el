@@ -70,7 +70,7 @@
 ;; - get-change-comment (files rev)                OK
 ;; HISTORY FUNCTIONS
 ;; * print-log (files buffer &optional shortlog start-revision limit)   OK
-;; * incoming-revision (upstream-location &optional refresh)   OK
+;; * incoming-revision (&optional upstream-location refresh)   OK
 ;; - log-search (buffer pattern)                   OK
 ;; - log-view-mode ()                              OK
 ;; - show-log-entry (revision)                     OK
@@ -985,7 +985,10 @@ or an empty string if none."
   "Return the existing branches, as a list of strings.
 The car of the list is the current branch."
   (with-temp-buffer
-    (vc-git--call nil t "branch")
+    ;; 'git branch' is a porcelain command whose output could change in
+    ;; the future.
+    (vc-git--call nil t "for-each-ref"
+                  "--format=%(HEAD) %(refname:short)" "refs/heads/")
     (goto-char (point-min))
     (let (current-branch branches)
       (while (not (eobp))
@@ -1741,13 +1744,11 @@ If LIMIT is a non-empty string, use it as a base revision."
                               start-revision))
 		'("--")))))))
 
-(defun vc-git-incoming-revision (upstream-location &optional refresh)
-  (let ((rev (if (string-empty-p upstream-location)
-		 "@{upstream}"
-	       upstream-location)))
+(defun vc-git-incoming-revision (&optional upstream-location refresh)
+  (let ((rev (or upstream-location "@{upstream}")))
     (when (or refresh (null (vc-git--rev-parse rev)))
       (vc-git-command nil 0 nil "fetch"
-                      (and (not (string-empty-p upstream-location))
+                      (and upstream-location
                            ;; Extract remote from "remote/branch".
                            (replace-regexp-in-string "/.*" ""
                                                      upstream-location))))
@@ -2207,27 +2208,40 @@ This requires git 1.8.4 or later, for the \"-L\" option of \"git log\"."
       (format "Summary: %s\n(cherry picked from commit %s)\n"
               comment rev))))
 
+(defun vc-git-revision-published-p (rev)
+  "Whether we think REV has been pushed such that it is public history.
+Considers only the current branch.  Does not fetch."
+  (let ((branch (vc-git--current-branch)))
+    ;; 'git branch --contains' is a porcelain command whose output could
+    ;; change in the future.
+    (unless (zerop (vc-git-command nil 1 nil "merge-base"
+                                   "--is-ancestor" rev branch))
+      (error "Revision %s does not exist on branch %s" rev branch))
+    (and
+     ;; BRANCH has an upstream.
+     (with-temp-buffer
+       (vc-git--out-ok "config" "--get"
+                       (format "branch.%s.merge" branch)))
+     ;; REV is not outgoing.
+     (not (cl-member rev
+                     (split-string
+                      (with-output-to-string
+                        (vc-git-command standard-output 0 nil "log"
+                                        "--pretty=format:%H"
+                                        "@{upstream}..HEAD")))
+                     :test #'string-prefix-p)))))
+
 (defun vc-git--assert-allowed-rewrite (rev)
   (when (and (not (and vc-allow-rewriting-published-history
                        (not (eq vc-allow-rewriting-published-history 'ask))))
-             ;; Check there is an upstream.
-             (with-temp-buffer
-               (vc-git--out-ok "config" "--get"
-                               (format "branch.%s.merge"
-                                       (vc-git--current-branch)))))
-    (let ((outgoing (split-string
-                     (with-output-to-string
-                       (vc-git-command standard-output 0 nil "log"
-                                       "--pretty=format:%H"
-                                       "@{upstream}..HEAD")))))
-      (unless (or (cl-member rev outgoing :test #'string-prefix-p)
-                  (and (eq vc-allow-rewriting-published-history 'ask)
+             (vc-git-revision-published-p rev)
+             (not (and (eq vc-allow-rewriting-published-history 'ask)
                        (yes-or-no-p
                         (format "\
 Commit %s appears published; allow rewriting history?"
-                                rev))))
-        (user-error "\
-Will not rewrite likely-public history; see option `vc-allow-rewriting-published-history'")))))
+                                rev)))))
+    (user-error "Will not rewrite likely-public history; \
+see option `vc-allow-rewriting-published-history'")))
 
 (defun vc-git-modify-change-comment (files rev comment)
   (vc-git--assert-allowed-rewrite rev)
