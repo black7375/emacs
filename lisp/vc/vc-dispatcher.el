@@ -378,22 +378,47 @@ Intended to be used as the value of `vc-filter-command-function'."
           (nconc (cdr edited) (and files-separator-p '("--"))))))
 
 ;;;###autoload
-(defun vc-do-command (buffer okstatus command file-or-list &rest flags)
-  "Execute a slave command, notifying user and checking for errors.
-Output from COMMAND goes to BUFFER, or the current buffer if
-BUFFER is t.  If the destination buffer is not already current,
-set it up properly and erase it.  The command is considered
-successful if its exit status does not exceed OKSTATUS (if
-OKSTATUS is nil, that means to ignore error status, if it is
-`async', that means not to wait for termination of the
-subprocess; if it is t it means to ignore all execution errors).
+(defun vc-do-command (destination okstatus command file-or-list &rest flags)
+  "Execute an inferior command, notifying user and checking for errors.
+
+DESTINATION specifies what to do with COMMAND's output.  It can be a
+buffer or the name of a buffer to insert output there, t to mean the
+current buffer, or nil to discard output.
+DESTINATION can also have the form (REAL-BUFFER STDERR-FILE); in that
+case, REAL-BUFFER says what to do with standard output, as above, while
+STDERR-FILE says what to do with standard error in the child.
+STDERR-FILE may only be nil which means to discard standard error
+output or t which means to mix it with standard output.
+If the destination for standard output is a buffer that is not the
+current buffer, set up the buffer properly and erase it.
+
+OKSTATUS `async' means not to wait for termination of the subprocess and
+return the process object.  Otherwise, OKSTATUS determines when to
+signal an error instead of returning a numeric exit status or signal
+description string.  OKSTATUS an integer means to signal an error if the
+command's exit status exceeds that value or the command is killed by a
+signal, nil means to signal an error only if the command is killed by a
+signal, and t means never to signal an error.
+
 FILE-OR-LIST is the name of a working file; it may be a list of
 files or be nil (to execute commands that don't expect a file
 name or set of files).  If an optional list of FLAGS is present,
-that is inserted into the command line before the filename.
-
-Return the return value of the slave command in the synchronous
-case, and the process object in the asynchronous case."
+that is inserted into the command line before the filename."
+  ;; STDERR-FILE is limited to nil or t, instead of also supporting
+  ;; putting stderr output into a buffer or file, because of how we
+  ;; support both synchronous and asynchronous execution.
+  ;; `call-process' supports STDERR-FILE being a file name but not a
+  ;; buffer, while `make-process' with `:file-handler' non-nil supports
+  ;; putting stderr output in a buffer but not in a file (see Info node
+  ;; `(elisp) Asynchronous Processes' for this detail).  I.e. the only
+  ;; options supported by both `call-process' and `make-process' are
+  ;; discarding stderr output or mixing it with stdout.
+  (cl-assert (or (atom destination)
+                 (and (length= destination 2)
+                      (memq (cadr destination) '(t nil))))
+             nil
+             "Invalid DESTINATION argument to `vc-do-command': %s"
+             destination)
   (pcase-let (;; Keep entire commands in *Messages* but avoid resizing the
               ;; echo area.  Messages in this function are formatted in
               ;; a such way that the important parts are at the beginning,
@@ -402,13 +427,17 @@ case, and the process object in the asynchronous case."
               (vc-inhibit-message
                (or (eq vc-command-messages 'log)
                    (eq (selected-window) (active-minibuffer-window))))
+
               (`(,command ,file-or-list ,flags)
                (funcall vc-filter-command-function
-                        command file-or-list flags)))
+                        command file-or-list flags))
+              ((or `(,stdout ,stderr) (and stdout (let stderr t)))
+               destination))
     (save-current-buffer
-      (unless (or (eq buffer t)
-                  (eq (current-buffer) (get-buffer buffer)))
-        (vc-setup-buffer buffer))
+      (unless (or (memq stdout '(t nil))
+                  (eq (current-buffer) (get-buffer stdout)))
+        (vc-setup-buffer stdout)
+        (setq stdout t))
       (when vc-tor
         (push command flags)
         (setq command "torsocks"))
@@ -439,18 +468,24 @@ case, and the process object in the asynchronous case."
               (w32-quote-process-args t))
           (if (eq okstatus 'async)
               ;; Run asynchronously.
-              (let ((proc
-                     (let (process-connection-type)
-                       (apply #'start-file-process command
-                              (current-buffer) command squeezed))))
+              (let* ((stderr-buf
+                      (and (not stderr)
+                           (generate-new-buffer " *temp*" t)))
+                     (proc
+                      (make-process :name command
+                                    :buffer (and stdout (current-buffer))
+                                    :command (cons command squeezed)
+                                    :connection-type 'pipe
+                                    :filter #'vc-process-filter
+                                    :sentinel #'ignore
+                                    :stderr stderr-buf
+                                    :file-handler t)))
+                (when stderr-buf
+                  (vc-run-delayed (kill-buffer stderr-buf)))
                 (when vc-command-messages
                   (let ((inhibit-message vc-inhibit-message))
                     (message "Running in background: %s"
                              full-command)))
-                ;; Get rid of the default message insertion, in case
-                ;; we don't set a sentinel explicitly.
-                (set-process-sentinel proc #'ignore)
-                (set-process-filter proc #'vc-process-filter)
                 (setq status proc)
                 (when vc-command-messages
                   (vc-run-delayed
@@ -463,8 +498,8 @@ case, and the process object in the asynchronous case."
               (let ((inhibit-message vc-inhibit-message))
                 (message "Running in foreground: %s" full-command)))
             (let ((buffer-undo-list t))
-              (setq status (apply #'process-file
-                                  command nil t nil squeezed)))
+              (setq status (apply #'process-file command nil
+                                  (list stdout stderr) nil squeezed)))
             (when (and (not (eq t okstatus))
                        (or (not (integerp status))
                            (and okstatus (< okstatus status))))
@@ -509,9 +544,26 @@ of a buffer, which is created.
 ROOT should be the directory in which the command should be run.
 The process object is returned.
 Display the buffer in some window, but don't select it."
-  (let ((dir default-directory)
-	(inhibit-read-only t)
-        proc)
+  (letrec ((dir default-directory)
+           (start-time) (proc)
+           (finished-fun
+            (lambda (proc _msg)
+              (cond ((not (buffer-live-p buffer))
+                     (remove-function (process-sentinel proc)
+                                      finished-fun))
+                    ((not (eq (process-status proc) 'run))
+                     (remove-function (process-sentinel proc)
+                                      finished-fun)
+                     (with-current-buffer buffer
+                       (save-excursion
+                         (goto-char (process-mark proc))
+                         (let ((inhibit-read-only t))
+                           (insert
+                            (format "Finished in %.2f seconds\n"
+                                    (time-to-seconds
+                                     (time-since start-time))))
+                           (set-marker (process-mark proc)
+                                       (point))))))))))
     (setq buffer (get-buffer-create buffer))
     (if (get-buffer-process buffer)
 	(error "Another VC action on %s is running" root))
@@ -520,6 +572,7 @@ Display the buffer in some window, but don't select it."
       (let* (;; Run in the original working directory.
              (default-directory dir)
              (orig-fun vc-filter-command-function)
+             (inhibit-read-only t)
              (vc-filter-command-function
               (lambda (&rest args)
                 (cl-destructuring-bind (&whole args cmd _ flags)
@@ -544,7 +597,9 @@ Display the buffer in some window, but don't select it."
                         (insert flag))))
                   (insert "'...\n")
                   args))))
-	(setq proc (apply #'vc-do-command t 'async command nil args))))
+	(setq start-time (current-time)
+              proc (apply #'vc-do-command t 'async command nil args))))
+    (add-function :after (process-sentinel proc) finished-fun)
     (vc--display-async-command-buffer buffer)
     proc))
 
@@ -870,7 +925,8 @@ DIFF-FUNCTION is `log-edit-diff-function' for the Log Edit buffer."
           ;; `log-edit-show-files' and `log-edit-maybe-show-diff' which
           ;; don't make sense if the user is not going to do any
           ;; editing, and can cause unexpected window layout changes.
-          (log-edit-hook (and (not immediate) log-edit-hook)))
+          (log-edit-hook (and (not immediate)
+                              (require 'log-edit) log-edit-hook)))
       (vc-log-edit files mode backend diff-function))
     (make-local-variable 'vc-log-after-operation-hook)
     (when after-hook
