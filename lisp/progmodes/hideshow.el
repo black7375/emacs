@@ -469,15 +469,17 @@ info node `(elisp)Overlays'."
   :version "28.1")
 
 (defcustom hs-cycle-filter nil
-  "Control where \\`TAB' cycles the visibility.
-This option controls where on a line where a block begins, typing
-the key sequences bound to the visibility-cycling commands like
-`hs-toggle-hiding' will invoke those commands.  When t, you can invoke
-these commands by typing \\`TAB' anywhere on a headline.  Customizing
-this option to other values can make those bindings be in effect only at
-specific positions on the headline, like only at the line's beginning or
-line's end.  This allows these keys to be bound to their usual commands,
-as determined by the major mode, elsewhere on the headlines."
+  "Control where typing a \\`TAB' cycles the visibility.
+This option determines on which parts of a line where a block
+begins \\`TAB' will be bound to visibility-cycling commands such
+as `hs-toggle-hiding'.  The value t means you can type \\`TAB'
+anywhere on a headline.  The value nil means \\`TAB' always has its
+usual binding.  The value can also be a function of no arguments,
+then \\`TAB' will invoke the visibility-cycling commands where that
+function returns non-nil.  For example, if the value is `bolp',
+those commands will be invoked at the headline's beginning.
+This allows to preserve the usual bindings, as determined by the
+major mode, elsewhere on the headlines."
   :type `(choice (const :tag "Nowhere" nil)
                  (const :tag "Everywhere on the headline" t)
                  (const :tag "At block beginning"
@@ -750,6 +752,15 @@ block at point."
     (when-let* ((block (hs-block-positions)))
       (apply #'hs-hideable-region-p block))))
 
+(defun hs--discard-overlay-before-changes (o &rest _r)
+  "Remove overlay O before changes.
+Intended to be used in `modification-hooks', `insert-in-front-hooks' and
+`insert-behind-hooks'."
+  (let ((beg (overlay-start o))
+        (end (overlay-end o)))
+    (delete-overlay o)
+    (hs--refresh-indicators beg end)))
+
 (defun hs-make-overlay (b e kind &optional b-offset e-offset)
   "Return a new overlay in region defined by B and E with type KIND.
 KIND is either `code' or `comment'.  Optional fourth arg B-OFFSET
@@ -776,13 +787,20 @@ to call with the newly initialized overlay."
                   'highlight
                   'help-echo "mouse-1: show hidden lines"
                   'keymap '(keymap (mouse-1 . hs-toggle-hiding))))
+    ;; Internal properties
     (overlay-put ov 'hs kind)
     (overlay-put ov 'hs-b-offset b-offset)
     (overlay-put ov 'hs-e-offset e-offset)
+    ;; Isearch integration
     (when (or (eq io t) (eq io kind))
       (overlay-put ov 'isearch-open-invisible 'hs-isearch-show)
       (overlay-put ov 'isearch-open-invisible-temporary
                    'hs-isearch-show-temporary))
+    ;; Remove overlay after modifications
+    (overlay-put ov 'modification-hooks    '(hs--discard-overlay-before-changes))
+    (overlay-put ov 'insert-in-front-hooks '(hs--discard-overlay-before-changes))
+    (overlay-put ov 'insert-behind-hooks   '(hs--discard-overlay-before-changes))
+
     (when hs-set-up-overlay (funcall hs-set-up-overlay ov))
     (hs--refresh-indicators b e)
     ov))
@@ -792,34 +810,39 @@ to call with the newly initialized overlay."
 This returns a list with the current code block beginning and end
 positions.  This does nothing if there is not a code block at current
 point."
-  (save-match-data
-    (save-excursion
-      (when (funcall hs-looking-at-block-start-predicate)
-        (let ((mdata (match-data t))
-              (header-end (match-end 0))
-              block-beg block-end)
-          ;; `block-start' is the point at the end of the block
-          ;; beginning, which may need to be adjusted
-          (save-excursion
-            (when hs-adjust-block-beginning-function
-              (goto-char (funcall hs-adjust-block-beginning-function header-end)))
-            (setq block-beg (line-end-position)))
-          ;; `block-end' is the point at the end of the block
-          (hs-forward-sexp mdata 1)
-          (setq block-end
-                (cond ((and (stringp hs-block-end-regexp)
-                            (looking-back hs-block-end-regexp nil))
-                       (match-beginning 0))
-                      ((functionp hs-block-end-regexp)
-                       (funcall hs-block-end-regexp)
-                       (match-beginning 0))
-                      (t (point))))
-          ;; adjust block end (if needed)
-          (when hs-adjust-block-end-function
+  ;; `catch' is used here if the search fails due unbalanced parentheses
+  ;; or any other unknown error caused in `hs-forward-sexp'.
+  (catch 'hs-sexp-error
+    (save-match-data
+      (save-excursion
+        (when (funcall hs-looking-at-block-start-predicate)
+          (let ((mdata (match-data t))
+                (header-end (match-end 0))
+                block-beg block-end)
+            ;; `block-start' is the point at the end of the block
+            ;; beginning, which may need to be adjusted
+            (save-excursion
+              (when hs-adjust-block-beginning-function
+                (goto-char (funcall hs-adjust-block-beginning-function header-end)))
+              (setq block-beg (line-end-position)))
+            ;; `block-end' is the point at the end of the block
+            (condition-case _
+                (hs-forward-sexp mdata 1)
+              (scan-error (throw 'hs-sexp-error nil)))
             (setq block-end
-                  (or (funcall hs-adjust-block-end-function block-beg)
-                      block-end)))
-          (list block-beg block-end))))))
+                  (cond ((and (stringp hs-block-end-regexp)
+                              (looking-back hs-block-end-regexp nil))
+                         (match-beginning 0))
+                        ((functionp hs-block-end-regexp)
+                         (funcall hs-block-end-regexp)
+                         (match-beginning 0))
+                        (t (point))))
+            ;; adjust block end (if needed)
+            (when hs-adjust-block-end-function
+              (setq block-end
+                    (or (funcall hs-adjust-block-end-function block-beg)
+                        block-end)))
+            (list block-beg block-end)))))))
 
 (defun hs--make-indicators-overlays (beg)
   "Helper function to make the indicators overlays."
@@ -1175,8 +1198,11 @@ region (point MAXP)."
 	    (not (nth 8 (syntax-ppss)))) ; not inside comments or strings
       (if (> arg 1)
 	  (hs-hide-level-recursive (1- arg) minp maxp)
-	(goto-char (match-beginning hs-block-start-mdata-select))
-	(hs-hide-block-at-point t))))
+        ;; `hs-hide-block-at-point' already moves the cursor, but if it
+        ;; fails, return to the previous position where we were.
+	(unless (and (goto-char (match-beginning hs-block-start-mdata-select))
+	             (hs-hide-block-at-point t))
+            (goto-char (match-end hs-block-start-mdata-select))))))
   (goto-char maxp))
 
 (defmacro hs-life-goes-on (&rest body)
