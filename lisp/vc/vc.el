@@ -2147,10 +2147,15 @@ have changed; continue with old fileset?" (current-buffer))))
                                               patch-string comment)
                            (vc-call-backend backend 'checkin
                                             files comment rev))
-                    (mapc #'vc-delete-automatic-version-backups files))))
+                    (mapc #'vc-delete-automatic-version-backups files)))
+                (done-msg ()
+                  (message "Checking in %s...done" (vc-delistify files))))
         (if do-async
             ;; Rely on `vc-set-async-update' to update properties.
-            (do-it)
+            (let ((ret (do-it)))
+              (when (eq (car-safe ret) 'async)
+                (vc-exec-after #'done-msg nil (cadr ret)))
+              ret)
           (prog2 (message "Checking in %s..." (vc-delistify files))
               (with-vc-properties files (do-it)
                                   `((vc-state . up-to-date)
@@ -2158,7 +2163,7 @@ have changed; continue with old fileset?" (current-buffer))))
                                      . ,(file-attribute-modification-time
 			                 (file-attributes file)))
                                     (vc-working-revision . nil)))
-            (message "Checking in %s...done" (vc-delistify files))))))
+            (done-msg)))))
     'vc-checkin-hook
     backend
     patch-string)))
@@ -2726,7 +2731,7 @@ Output goes to the buffer BUFFER, which defaults to *vc-diff*.
 BUFFER, if non-nil, should be a buffer or a buffer name.
 Return t if the buffer had changes, nil otherwise."
   (unless buffer
-    (setq buffer "*vc-diff*"))
+    (setq buffer (get-buffer-create "*vc-diff*")))
   (let* ((files (cadr vc-fileset))
 	 (messages (cons (format "Finding changes in %s..."
                                  (vc-delistify files))
@@ -2789,7 +2794,6 @@ Return t if the buffer had changes, nil otherwise."
                      (if async 'async 1) "diff" file
                      (append (vc-switches nil 'diff) `(,(null-device)))))))
         (setq files (nreverse filtered))))
-    (vc-call-backend (car vc-fileset) 'diff files rev1 rev2 buffer async)
     (set-buffer buffer)
     ;; Make the *vc-diff* buffer read only, the diff-mode key
     ;; bindings are nicer for read only buffers. pcl-cvs does the
@@ -2801,6 +2805,7 @@ Return t if the buffer had changes, nil otherwise."
     (setq-local revert-buffer-function
                 (lambda (_ignore-auto _noconfirm)
                   (vc-diff-internal async vc-fileset rev1 rev2 verbose)))
+    (vc-call-backend (car vc-fileset) 'diff files rev1 rev2 buffer async)
     (if (and (zerop (buffer-size))
              (not (get-buffer-process (current-buffer))))
         ;; Treat this case specially so as not to pop the buffer.

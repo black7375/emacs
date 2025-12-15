@@ -1798,7 +1798,6 @@ AS_IF([test $gl_gcc_warnings = no],
   nw="$nw -Wformat-overflow=2"      # False alarms due to GCC bug 110333
   nw="$nw -Woverlength-strings"     # Not a problem these days
   nw="$nw -Wvla"                    # Emacs uses <vla.h>.
-  nw="$nw -Wunused-const-variable=2" # lisp.h declares const objects.
   nw="$nw -Winline"                 # OK to ignore 'inline'
   nw="$nw -Wstrict-overflow"        # OK to optimize assuming that
                                     # signed overflow has undefined behavior
@@ -3226,31 +3225,6 @@ to configure.])
    fi
 fi
 
-# Configure gnulib.
-#
-# Do this after any CC or CFLAGS changes that affect Gnulib,
-# and before any tests that depend on gnulib tests,
-# e.g., the system_malloc=no test below.
-#
-# Do not affect CFLAGS or LIBS permanently.
-# Instead, temporarily revert them to their pre-pkg-config values,
-# because gnulib needs to work with both src (which uses the
-# pkg-config stuff) and lib-src (which does not).  For example, gnulib
-# may need to determine whether CLOCK_TIME_LIB should contain -lrt,
-# and it therefore needs to run in an environment where LIBS does not
-# already contain -lrt merely because 'pkg-config --libs' printed '-lrt'
-# for some package unrelated to lib-src.
-SAVE_CFLAGS=$CFLAGS
-SAVE_LIBS=$LIBS
-CFLAGS=$pre_PKG_CONFIG_CFLAGS
-LIBS="$LIB_PTHREAD $pre_PKG_CONFIG_LIBS"
-gl_ASSERT_NO_GNULIB_POSIXCHECK
-gl_ASSERT_NO_GNULIB_TESTS
-gl_EEMALLOC
-gl_INIT
-CFLAGS=$SAVE_CFLAGS
-LIBS=$SAVE_LIBS
-
 # Does the opsystem file prohibit the use of the GNU malloc?
 # Assume not, until told otherwise.
 GNU_MALLOC=yes
@@ -3301,6 +3275,23 @@ if test "$emacs_cv_struct_alignment" = yes; then
     [Define to 1 if 'struct __attribute__ ((aligned (N)))' aligns the
      structure to an N-byte boundary.])
 fi
+
+dnl Work around a glitch if aclocal is invoked outside of autogen.sh.
+dnl Such an invocation generates an aclocal.m4 that lacks m4/stdalign.m4.
+dnl The following hack checks the otherwise-uninvolved macro gl_STDALIGN_H
+dnl so that the hack itself does not generate a diagnostic.
+m4_divert_push([KILL])
+m4_ifdef([gl_STDALIGN_H], [], [m4_include([m4/stdalign.m4])])
+m4_divert_pop([KILL])
+
+dnl Check for alignas now rather than waiting for gl_INIT to do it,
+dnl as the system_malloc=no test below needs $gl_cv_header_working_stdalign_h.
+dnl Do not simply call gl_INIT here, as the ac_cv_func_pthread_sigmask=yes
+dnl assignment below affects how gl_INIT works.
+dnl Instead, call gl_ALIGNASOF, the only part of gl_INIT needed here.
+dnl Then make gl_ALIGNASOF a no-op so gl_INIT does not duplicate its code.
+gl_ALIGNASOF
+AC_DEFUN([gl_ALIGNASOF])
 
 system_malloc=yes
 
@@ -7383,6 +7374,24 @@ AH_VERBATIM([FORTIFY_SOUR],
 if test "$with_features" = no && test "$enable_acl" != yes; then
   enable_acl=no
 fi
+
+# Configure gnulib.  Although this does not affect CFLAGS or LIBS permanently,
+# it temporarily reverts them to their pre-pkg-config values,
+# because gnulib needs to work with both src (which uses the
+# pkg-config stuff) and lib-src (which does not).  For example, gnulib
+# may need to determine whether CLOCK_TIME_LIB should contain -lrt,
+# and it therefore needs to run in an environment where LIBS does not
+# already contain -lrt merely because 'pkg-config --libs' printed '-lrt'
+# for some package unrelated to lib-src.
+SAVE_CFLAGS=$CFLAGS
+SAVE_LIBS=$LIBS
+CFLAGS=$pre_PKG_CONFIG_CFLAGS
+LIBS="$LIB_PTHREAD $pre_PKG_CONFIG_LIBS"
+gl_ASSERT_NO_GNULIB_POSIXCHECK
+gl_ASSERT_NO_GNULIB_TESTS
+gl_INIT
+CFLAGS=$SAVE_CFLAGS
+LIBS=$SAVE_LIBS
 
 # Set up libgmp on Android.  Make sure to override what gnulib has
 # found.

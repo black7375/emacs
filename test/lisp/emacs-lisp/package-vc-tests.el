@@ -43,6 +43,9 @@
 (require 'ert-x)
 (require 'ert)
 
+;; Silence byte-compiler
+(defvar message-auto-save-directory)
+
 (defvar package-vc-tests-preserve-artefacts nil
   "When non-nil preserve temporary files and buffers produced by tests.
 Each test produces a new temporary directory for each package under
@@ -91,47 +94,47 @@ the package.  Otherwise each entry is in a form of PKG."
         (list
          ;; checkout and install with `package-vc-install' (on ELPA)
          (test-package-def
-          test-package-1 package-user-dir nil
+          test-package-one package-user-dir nil
           package-vc-tests-install-from-elpa)
          ;; checkout and install with `package-vc-install' (not on ELPA)
          (test-package-def
-          test-package-2 package-user-dir nil
+          test-package-two package-user-dir nil
           package-vc-tests-install-from-spec)
          ;; checkout with `package-vc-checktout' and install with
          ;; `package-vc-install-from-checkout' (on ELPA)
          (test-package-def
-          test-package-3 package-vc-tests-dir nil
+          test-package-three package-vc-tests-dir nil
           package-vc-tests-checkout-from-elpa-install-from-checkout)
          ;; checkout with git and install with
          ;; `package-vc-install-from-checkout'
          (test-package-def
-          test-package-4 package-vc-tests-dir nil
+          test-package-four package-vc-tests-dir nil
           package-vc-tests-checkout-with-git-install-from-checkout)
          ;; sources in "lisp" sub directory, checkout and install with
          ;; `package-vc-install' (not on ELPA)
          (test-package-def
-          test-package-5 package-user-dir "lisp"
+          test-package-five package-user-dir "lisp"
           package-vc-tests-install-from-spec)
          ;; sources in "lisp" sub directory, checkout with git and
          ;; install with `package-vc-install-from-checkout'
          (test-package-def
-          test-package-6 package-vc-tests-dir "lisp"
+          test-package-six package-vc-tests-dir "lisp"
           package-vc-tests-checkout-with-git-install-from-checkout)
          ;; sources in "src" sub directory, checkout and install with
          ;; `package-vc-install' (on ELPA)
          (test-package-def
-          test-package-7 package-user-dir "src"
+          test-package-seven package-user-dir "src"
           package-vc-tests-install-from-elpa)
          ;; sources in "src" sub directory, checkout with
          ;; `package-vc-checktout' and install with
          ;; `package-vc-install-from-checkout' (on ELPA)
          (test-package-def
-          test-package-8 package-vc-tests-dir nil
+          test-package-eight package-vc-tests-dir nil
           package-vc-tests-checkout-from-elpa-install-from-checkout)
          ;; sources in "custom-dir" sub directory, checkout and install
          ;; with `package-vc-install' (on ELPA)
          (test-package-def
-          test-package-9  package-user-dir "custom-dir"
+          test-package-nine package-user-dir "custom-dir"
           package-vc-tests-install-from-elpa))))))
 
 ;; TODO: add test for deleting packages, with asserting
@@ -152,7 +155,8 @@ When LISP-DIR is non-nil place the NAME file under LISP-DIR."
                                     (: ".in" string-end)) )
                             (lambda (mat)
                               (if (string= mat "SUFFIX") suffix ""))
-                            in-file)))
+                            in-file
+                            :fixedcase)))
                  (file-name-concat lisp-dir file))))
     (unless (zerop (call-process
                     "sed" (expand-file-name in-file resource-dir)
@@ -168,7 +172,13 @@ If LISP-DIR is non-nil place sources of the package in LISP-DIR."
          (repo-dir (expand-file-name (file-name-concat "repo" name)
                                      package-vc-tests-dir)))
     (make-directory (expand-file-name (or lisp-dir ".") repo-dir) t)
-    (let ((default-directory repo-dir))
+    (let ((default-directory repo-dir)
+          (process-environment
+           (append (list
+                    (format "EMAIL=%s@example.com" name)
+                    (format "GIT_AUTHOR_NAME=%s" name)
+                    (format "GIT_COMMITTER_NAME=%s" name))
+                   process-environment)))
       (vc-git-command nil 0 nil "init" "-b" "master")
       (package-vc-tests-add
        suffix "test-package-SUFFIX-lib-v0.1.el.in" lisp-dir)
@@ -391,22 +401,24 @@ names."
   ;; in directory package-vc-resources.  Before executing body make sure
   ;; that:
   ;;
-  ;; - `package' has been initialised, and there are no
-  ;;   `package-archives' defined
-  (let* ((package-archives (unless package--initialized
-                             (let (package-archives)
-                               (package-initialize)
-                               (package-vc--archives-initialize))
-                             nil))
-         ;; - create a temporary location for packages and test files
-         (package-vc-tests-dir
+  (let* ((package-vc-tests-dir
           (expand-file-name
            (make-temp-file "package-vc-tests-"
                            t
                            (format-time-string "-%Y%m%d.%H%M%S.%3N"))))
-         ;; - packages are installed into a test directory
+         ;; - packages are installed into test directory
          (package-user-dir (expand-file-name "elpa"
                                              package-vc-tests-dir))
+         ;; - keyring is saved in test directory
+         (package-gnupghome-dir (expand-file-name "gnupg"
+                                                  package-user-dir))
+         ;; - `package' has been initialised, and there are no
+         ;;   `package-archives' defined
+         (package-archives (unless package--initialized
+                             (let (package-archives)
+                               (package-initialize)
+                               (package-vc--archives-initialize))
+                             nil))
          ;; - define test packages, their checkout locations, lisp
          ;;   directories, and install functions
          (package-vc-tests-packages (package-vc-tests-packages))
@@ -476,12 +488,7 @@ names."
          ;; - don't register projects
          (package-vc-register-as-project nil)
          ;; - allow build commands
-         (package-vc-allow-build-commands t)
-         ;; - FIXME: something sets `default-directory' to last
-         ;;   checkout directory after `package-vc-checkout', which
-         ;;   causes problems when this function deletes the temporary
-         ;;   directory after body execution.
-         (default-directory package-vc-tests-dir))
+         (package-vc-allow-build-commands t))
     (funcall function)))
 
 (defun package-vc-tests-environment-tear-down (pkg)
@@ -524,21 +531,31 @@ when PKG matches `package-vc-tests-preserve-artefacts'."
          (delq nil
                (mapcar (lambda (type)
                          (get-buffer
-                          (package-vc-tests-log-buffer-name type
-                                                            pkg)))
+                          (package-vc-tests-log-buffer-name pkg
+                                                            type)))
                        '(doc make)))))
     (if (or (memq package-vc-tests-preserve-artefacts `(t ,pkg))
             (and (listp package-vc-tests-preserve-artefacts)
                  (memq pkg package-vc-tests-preserve-artefacts)))
-        (message
-         "package-vc-tests: preserving temporary directory: %s%s"
-         package-vc-tests-dir
-         (and buffers (format " and buffers: %s" buffers)))
+        (let ((buffers
+               (mapconcat (lambda (buffer)
+                            (with-current-buffer buffer
+                              (let* ((old-name (buffer-name))
+                                     (new-name (make-temp-name
+                                                (string-trim old-name))))
+                                (rename-buffer new-name)
+                                (concat old-name " -> " new-name))))
+                          buffers
+                          ", ")))
+          (message
+           "package-vc-tests: preserving temporary directory: %s%s"
+           package-vc-tests-dir
+           (and buffers (format " and buffers: %s" buffers))))
       (delete-directory package-vc-tests-dir t)
       (dolist (buffer buffers)
         (kill-buffer buffer)))))
 
-(defun package-vc-with-installed-tests (pkg function)
+(defun package-vc-tests-with-installed (pkg function)
   "Call FUNCTION with PKG installed in a test environment.
 FUNCTION should have no arguments."
   (package-vc-with-tests-environment
@@ -588,7 +605,8 @@ Make checkout with `package-vc-checkout'."
     (push (list (package-vc-tests-load-history-marker 'install-begin))
           load-history)
     (should (eq t
-                (package-vc-install-from-checkout checkout-dir)))
+                (with-suppressed-warnings ((obsolete package-vc-install-from-checkout))
+                  (package-vc-install-from-checkout checkout-dir))))
     (push (list (package-vc-tests-load-history-marker 'install-end))
           load-history)
     (let ((extras (package-desc-extras (package-vc-tests-package-desc pkg t))))
@@ -604,8 +622,8 @@ Make checkout with git(1)."
     (push (list (package-vc-tests-load-history-marker 'install-begin))
           load-history)
     (should (eq t
-                (package-vc-install-from-checkout checkout-dir
-                                                  (symbol-name pkg))))
+                (with-suppressed-warnings ((obsolete package-vc-install-from-checkout))
+                  (package-vc-install-from-checkout checkout-dir (symbol-name pkg)))))
     (push (list (package-vc-tests-load-history-marker 'install-end))
           load-history)
     (let ((extras (package-desc-extras (package-vc-tests-package-desc pkg t))))
@@ -670,7 +688,7 @@ car of ARGS (a symbol) to name of the package."
               :file-name ,file
               :body
               (lambda ()
-                (package-vc-with-installed-tests
+                (package-vc-tests-with-installed
                  ',pkg (funcall ,fn ',pkg))
                 nil)))
          tests)))
@@ -932,7 +950,8 @@ car of ARGS (a symbol) to name of the package."
 
 (package-vc-test-deftest prepare-patch (pkg)
   ;; Ensure `vc-prepare-patch' respects subject from function argument
-  (let ((vc-prepare-patches-separately nil))
+  (let ((message-auto-save-directory package-vc-tests-dir)
+        (vc-prepare-patches-separately nil))
     (package-vc-prepare-patch (package-vc-tests-package-desc pkg t)
                               "test-subject"
                               (cdr package-vc-tests-repository))
@@ -970,7 +989,7 @@ car of ARGS (a symbol) to name of the package."
                       (substring
                        (cadr package-vc-tests-repository)
                        0 7))
-                     (one-or-more any)
+                     (one-or-more anychar)
                      "Second commit"
                      line-end)))
     (should (bufferp incoming-buffer))

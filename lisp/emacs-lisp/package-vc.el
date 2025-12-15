@@ -329,7 +329,7 @@ asynchronously."
         (replace-regexp-in-string
          "-pkg\\.el\\'" ".el"
          (file-name-nondirectory pkg-file))
-        "  -*- no-byte-compile: t -*-\n"
+        "  -*- no-byte-compile: t; lexical-binding: t -*-\n"
         (prin1-to-string
          (nconc
           (list 'define-package
@@ -407,7 +407,7 @@ prepared."
   (let ((default-directory (package-vc--checkout-dir pkg-desc))
         (target (plist-get pkg-spec :make))
         (cmd (plist-get pkg-spec :shell-command))
-        (buf (format " *package-vc make %s*" (package-desc-name pkg-desc)))
+        (buf (format " *package-vc make: %s*" (package-desc-name pkg-desc)))
         (makexe (or package-vc-make-program
                     (seq-find #'executable-find '("gmake" "make")))))
     (when (or cmd target)
@@ -585,7 +585,7 @@ building documentation and marking the package as installed."
       (unless (file-equal-p lisp-dir pkg-dir)
         (write-region
          (concat
-          ";; Autoload indirection for package-vc\n\n"
+          ";; Autoload indirection for package-vc -*- lexical-binding: t -*-\n\n"
           (prin1-to-string
            ;; The indirection is just a single load statement to the
            ;; actual file (we don't want to use symbolic links due to
@@ -631,7 +631,7 @@ building documentation and marking the package as installed."
     (dolist (elc-file (directory-files-recursively
                        lisp-dir
                        (rx string-start
-                           (not ".") (zero-or-more any) ".elc"
+                           (not ".") (zero-or-more anychar) ".elc"
                            string-end)
                        nil
                        (lambda (dir)
@@ -1022,7 +1022,7 @@ one created by `package-vc-checkout'.  If invoked interactively with a
 prefix argument, prompt the user for the NAME of the package to set up.
 If the optional argument INTERACTIVE is non-nil (as happens
 interactively), DIR must be an absolute file name."
-  (declare (obsolete "Use the User Lisp directory instead." "30.1"))
+  (declare (obsolete "use the User Lisp directory instead." "31.1"))
   (interactive (let ((dir (expand-file-name (read-directory-name "Directory: "))))
                  (list dir (and current-prefix-arg
                                 (let ((base (file-name-base

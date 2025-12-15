@@ -57,11 +57,7 @@
 ;;
 ;; Add the following to your init file:
 ;;
-;;     (require 'hideshow)
-;;     (add-hook 'X-mode-hook #'hs-minor-mode)       ; other modes similarly
-;;
-;;     ;; For use-package users:
-;;     (use-package hideshow :hook (X-mode . hs-minor-mode))
+;;     (add-hook 'X-mode-hook #'hs-minor-mode) ; other modes similarly
 ;;
 ;; where X = {emacs-lisp,c,c++,perl,...}.  You can also manually toggle
 ;; hideshow minor mode by typing `M-x hs-minor-mode'.  After hideshow is
@@ -118,9 +114,10 @@
 ;;     (defun ttn-hs-hide-level-2 ()
 ;;       (when (funcall hs-looking-at-block-start-predicate)
 ;;         (hs-hide-level 2)))
-;;     (setq-mode-local java-mode ; This requires the mode-local package
-;;                      hs-hide-all-non-comment-function
-;;                      'ttn-hs-hide-level-2)
+;;     (add-hook 'java-mode-hook
+;;               (lambda ()
+;;                 (setq-local hs-hide-all-non-comment-function
+;;                             #'ttn-hs-hide-level-2)))
 ;;
 ;; Hideshow works with incremental search (isearch) by setting the variable
 ;; `hs-headline', which is the line of text at the beginning of a hidden
@@ -441,7 +438,9 @@ then \\`TAB' will invoke the visibility-cycling commands where that
 function returns non-nil.  For example, if the value is `bolp',
 those commands will be invoked at the headline's beginning.
 This allows to preserve the usual bindings, as determined by the
-major mode, elsewhere on the headlines."
+major mode, elsewhere on the headlines.
+Currently it affects only the command `hs-toggle-hiding' by default,
+but it can be easily replaced with the command `hs-cycle'."
   :type `(choice (const :tag "Nowhere" nil)
                  (const :tag "Everywhere on the headline" t)
                  (const :tag "At block beginning"
@@ -817,7 +816,7 @@ and `hs-block-end-regexp'."
             (goto-char (match-beginning hs-block-start-mdata-select))
             (condition-case _
                 (funcall hs-forward-sexp-function 1)
-              (scan-error (throw 'hs-sexp-error nil)))
+              (scan-error (throw 'hs--block-exit nil)))
             ;; `end' is the point at the end of the block
             (setq end (cond ((not adjust-end) (point))
                             ((and (stringp hs-block-end-regexp)
@@ -1428,7 +1427,7 @@ only blocks which are that many levels below the level of point."
             (message "Hide %d level" level))
            (t
             (let* (hs-allow-nesting
-                   (block (hs-block-positions nil :ad-end))
+                   (block (hs-block-positions :ad-beg :ad-end))
                    (ov (seq-find
                         (lambda (o)
                           (and (eq (overlay-get o 'invisible) 'hs)))
@@ -1439,7 +1438,8 @@ only blocks which are that many levels below the level of point."
                 (hs-hide-block)
                 (message "Hide block and nested blocks"))
                ;; Hide the children blocks if the parent block is hidden
-               ((= (overlay-end ov) (cadr block))
+               ((and (= (overlay-start ov) (car block))
+                     (= (overlay-end ov) (cadr block)))
                 (apply #'hs-hide-level-recursive 1 block)
                 (message "Hide first nested blocks"))
                ;; Otherwise show all in the parent block, we cannot use
@@ -1500,13 +1500,26 @@ Key bindings:
           (when (and (not (display-graphic-p))
                      (eq hs-indicator-type 'fringe))
             (setq-local hs-indicator-type 'margin))
+          (when (eq hs-indicator-type 'margin)
+            (setq-local left-margin-width (1+ left-margin-width))
+            (setq-local fringes-outside-margins t)
+            ;; Force display of margins
+            (when (eq (current-buffer) (window-buffer))
+              (set-window-buffer nil (window-buffer))))
           (jit-lock-register #'hs--add-indicators)))
 
     (remove-from-invisibility-spec '(hs . t))
     (remove-overlays nil nil 'hs-indicator t)
     (remove-overlays nil nil 'invisible 'hs)
     (when hs-show-indicators
-      (jit-lock-unregister #'hs--add-indicators))))
+      (jit-lock-unregister #'hs--add-indicators)
+      (when (and (eq hs-indicator-type 'margin)
+                 (< 0 left-margin-width))
+        (setq-local left-margin-width (1- left-margin-width))
+        (kill-local-variable 'fringes-outside-margins)
+        ;; Force removal of margins
+        (when (eq (current-buffer) (window-buffer))
+          (set-window-buffer nil (window-buffer)))))))
 
 
 ;;;; that's it
