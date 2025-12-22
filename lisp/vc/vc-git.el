@@ -299,7 +299,7 @@ Good example of file name that needs this: \"test[56].xx\".")
          ;; with other backend's `vc-*-registered' functions which are
          ;; quieter in the case that the VCS isn't installed.  So check
          ;; up here that git(1) is available.  See also bug#18481.
-         (executable-find vc-git-program)
+         (executable-find vc-git-program t)
          (with-temp-buffer
            (let* (process-file-side-effects
                   ;; Do not use the `file-name-directory' here: git-ls-files
@@ -1891,7 +1891,7 @@ This requires git 1.8.4 or later, for the \"-L\" option of \"git log\"."
   ;; but since Git is one of the two backends that support this operation
   ;; so far, it's hard to tell; hg doesn't need this.
   (with-temp-buffer
-    (vc-call-backend 'git 'diff (list file) "HEAD" nil (current-buffer))
+    (vc-call-backend 'Git 'diff (list file) "HEAD" nil (current-buffer))
     (goto-char (point-min))
     (let ((last-offset 0)
           (from-offset nil)

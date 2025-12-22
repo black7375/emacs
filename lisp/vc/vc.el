@@ -647,6 +647,7 @@
 ;;   function is defined for this backend and that symbol, or a symbolic
 ;;   name involving that symbol, is passed to this function as REV, this
 ;;   function may return a symbolic name.
+;;   The implementation should respect the value of vc-use-short-revision.
 ;;
 ;;   Possible future extension: make REV an optional argument, and if
 ;;   nil, default it to FILE's working revision.
@@ -662,6 +663,7 @@
 ;;
 ;;   Return the revision number that follows REV for FILE, or nil if no such
 ;;   revision exists.
+;;   The implementation should respect the value of vc-use-short-revision.
 ;;
 ;; - log-edit-mode ()
 ;;
@@ -2794,18 +2796,25 @@ Return t if the buffer had changes, nil otherwise."
                      (if async 'async 1) "diff" file
                      (append (vc-switches nil 'diff) `(,(null-device)))))))
         (setq files (nreverse filtered))))
-    (set-buffer buffer)
-    ;; Make the *vc-diff* buffer read only, the diff-mode key
-    ;; bindings are nicer for read only buffers. pcl-cvs does the
-    ;; same thing.
-    (setq buffer-read-only t)
-    (diff-mode)
-    (setq-local diff-vc-backend (car vc-fileset))
-    (setq-local diff-vc-revisions (list rev1 rev2))
-    (setq-local revert-buffer-function
-                (lambda (_ignore-auto _noconfirm)
-                  (vc-diff-internal async vc-fileset rev1 rev2 verbose)))
+    (with-current-buffer buffer
+      ;; Make the *vc-diff* buffer read only, the diff-mode key
+      ;; bindings are nicer for read only buffers. pcl-cvs does the
+      ;; same thing.
+      (setq buffer-read-only t)
+      ;; Set the major mode and some local variables before calling into
+      ;; the backend.  This means that the backend can itself set local
+      ;; variables and enable minor modes in BUFFER if it wants to.
+      ;; Call into the backend with the old current buffer, though, so
+      ;; that its operation can be influenced by local variables in that
+      ;; buffer (some discussion in bug#80005).
+      (diff-mode)
+      (setq-local diff-vc-backend (car vc-fileset))
+      (setq-local diff-vc-revisions (list rev1 rev2))
+      (setq-local revert-buffer-function
+                  (lambda (_ignore-auto _noconfirm)
+                    (vc-diff-internal async vc-fileset rev1 rev2 verbose))))
     (vc-call-backend (car vc-fileset) 'diff files rev1 rev2 buffer async)
+    (set-buffer buffer)
     (if (and (zerop (buffer-size))
              (not (get-buffer-process (current-buffer))))
         ;; Treat this case specially so as not to pop the buffer.
@@ -3099,8 +3108,9 @@ global binding."
                       ;;                           'revision-granularity)
                       ;;          'repository)
                       ;;      (ignore-errors
-                      ;;        (vc-symbolic-working-revision (caadr fileset)))
-                      (vc-symbolic-working-revision (caadr fileset))
+                      ;;        (vc-symbolic-working-revision (caadr fileset)
+                      ;;                                      backend)))
+                      (vc-symbolic-working-revision (caadr fileset) backend)
                       (called-interactively-p 'interactive))))
 
 ;; For the following two commands, the default meaning for
@@ -4484,10 +4494,8 @@ file names."
   (dolist (file file-or-files)
     (let ((buf (get-file-buffer file))
           (backend (vc-backend file)))
-      (unless backend
-        (error "File %s is not under version control"
-               (file-name-nondirectory file)))
-      (unless (vc-find-backend-function backend 'delete-file)
+      (unless (or (not backend)
+                  (vc-find-backend-function backend 'delete-file))
         (error "Deleting files under %s is not supported in VC" backend))
       (when (and buf (buffer-modified-p buf))
         (error "Please save or undo your changes before deleting %s" file))
@@ -4510,11 +4518,13 @@ file names."
         (with-current-buffer (or buf (find-file-noselect file))
           (let ((backup-inhibited nil))
 	    (backup-buffer))))
-      ;; Bind `default-directory' so that the command that the backend
-      ;; runs to remove the file is invoked in the correct context.
-      (let ((default-directory (file-name-directory file)))
-        (vc-call-backend backend 'delete-file file))
-      ;; If the backend hasn't deleted the file itself, let's do it for him.
+      (when backend
+        ;; Bind `default-directory' so that the command that the backend
+        ;; runs to remove the file is invoked in the correct context.
+        (let ((default-directory (file-name-directory file)))
+          (vc-call-backend backend 'delete-file file)))
+      ;; For the case of unregistered files, or if the backend didn't
+      ;; actually delete the file.
       (when (file-exists-p file) (delete-file file))
       ;; Forget what VC knew about the file.
       (vc-file-clearprops file)
