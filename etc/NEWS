@@ -306,7 +306,7 @@ to extend the boundaries of the active region by dragging the mouse pointer.
 ---
 *** 'context-menu-mode' now includes a "Send to..." menu item.
 The menu item enables sending current file(s) or region text to external
-(non-Emacs) applications or services.  See send-to.el for customisations.
+(non-Emacs) applications or services.  See send-to.el for customizations.
 
 ---
 *** The mouse now drags lines in character increments again.
@@ -315,7 +315,7 @@ dividing side-by-side windows now by default happens in increments of
 the corresponding frame's character size again.  This is the behavior
 described in the manual and was the default behavior before
 'window-resize-pixelwise' was added for Emacs 24.1.  To drag in pixel
-increments as with Emcas 24 through Emacs 30 you now have to set
+increments as with Emacs 24 through Emacs 30 you now have to set
 'window-resize-pixelwise' to t.
 
 ** Windows
@@ -504,6 +504,11 @@ current-buffer's mode line.  The default is to show the mode line of
 every buffer.
 
 ** Tab Bars and Tab Lines
+
+---
+*** New command 'merge-tabs'.
+'merge-tabs' merges all windows from two tabs into one of these tabs
+and closes the other tab.
 
 ---
 *** New abnormal hook 'tab-bar-auto-width-functions'.
@@ -1114,6 +1119,10 @@ convention.  Also, the ':match?' predicate can now take the regexp as
 either the first or second argument, so it works with both tree-sitter
 convention (regexp arg second) and Emacs convention (regexp arg first).
 
++++
+** Track-changes
+*** New variable 'track-changes-undo-only' to distinguish undo changes.
+
 ** Hideshow
 
 +++
@@ -1534,7 +1543,7 @@ If 'page-delimiters' is set in 'whitespace-style', or the new minor mode
 'whitespace-page-delimiters-mode' is on, the page delimiter characters
 ('^L') are displayed as a pretty horizontal line that spans the entire
 width of the window.  The new 'whitespace-page-delimiter' face can be
-used to customize the appearence.
+used to customize the appearance.
 
 ** Bookmark
 
@@ -1971,6 +1980,10 @@ for docstrings where symbols 'nil' and 't' are in quotes.
 In most cases, having it enabled leads to a large amount of false
 positives.
 
+*** New file-local variable 'lisp-indent-local-overrides'
+This variable can be used to locally override the indent specification
+of symbols.
+
 ** IELM
 
 ---
@@ -2368,7 +2381,7 @@ The hardcoded '^' shortcut gets you back to the previous menu.
 ---
 *** New user option 'tmm-shortcut-inside-entry'.
 When non-nil, highlight the character shortcut in the menu entry's
-string instead of preprending it and 'tmm-mid-prompt' to said entry.
+string instead of prepending it and 'tmm-mid-prompt' to said entry.
 
 ** Foldout
 
@@ -2413,6 +2426,25 @@ appearance of the list can be customized with the new faces
 'mpc-table-key' and 'mpc-table-value'.
 
 ** VC
+
++++
+*** Printing root branch logs has moved to 'C-x v b L'.
+Previously the command to print the root log for a branch was bound to
+'C-x v b l'.  It has now been renamed from 'vc-print-branch-log' to
+'vc-print-root-branch-log', and bound to 'C-x v b L'.  This is more
+consistent with the rest of the 'C-x v' keymap, and makes room for a new
+fileset-specific branch log command.
+
+To undo this change you can use
+
+    (keymap-global-set "C-x v b l" #'vc-print-root-branch-log)
+    (with-eval-after-load 'vc-dir
+      (keymap-set vc-dir-mode-map "b l" #'vc-print-root-branch-log))
+
++++
+*** New command 'C-x v b l' ('vc-print-fileset-branch-log').
+This command prints the log of VC changes to the current fileset on
+another branch.
 
 +++
 *** New commands to handle repositories with multiple working trees.
@@ -2822,7 +2854,7 @@ used to write notes.
 ---
 *** New handler that appends remember data in directory.
 The 'remember-append-in-data-directory' handler appends remember data in
-a file, that file being choosen by the user through the minibuffer.
+a file, that file being chosen by the user through the minibuffer.
 
 ---
 *** New prefix map for remember commands.
@@ -3433,7 +3465,7 @@ on GNU/Linux systems.
 The display optimization where the combination 'TAB' characters +
 'BACKSPACE' is used to move to a position on a TTY frame is now disabled
 by default and controlled by this variable; it can be set to non-nil
-to keep the old behavior.  This change is to accomodate screen
+to keep the old behavior.  This change is to accommodate screen
 readers.
 
 ---

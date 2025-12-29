@@ -1986,7 +1986,7 @@ do_switch_frame (Lisp_Object frame, int track, int for_deletion, Lisp_Object nor
      the one you're actually typing in.  */
 
   /* FIXME/tty: I don't understand this.  (The comment above is from
-     Jim BLandy 1993 BTW, and the frame_ancestor_p from 2017.)
+     Jim Blandy 1993 BTW, and the frame_ancestor_p from 2017.)
 
      Setting the last event frame to nil leads to switch-frame events
      being generated even if they normally wouldn't be because the frame
@@ -3433,13 +3433,14 @@ visible ancestor of FRAME instead.  */)
   if (FRAME_WINDOW_P (f) && FRAME_TERMINAL (f)->frame_visible_invisible_hook)
     FRAME_TERMINAL (f)->frame_visible_invisible_hook (f, false);
 
-  if (is_tty_child_frame (f) && EQ (frame, selected_frame))
+  if (is_tty_child_frame (f))
     {
       SET_FRAME_VISIBLE (f, false);
-      /* If FRAME is a tty child frame and the selected frame, we have
-	 to select another frame instead.  Use the first visible
-	 ancestor as returned by 'mru_rooted_frame'.  */
-      Fselect_frame (mru_rooted_frame (f), Qnil);
+      if (EQ (frame, selected_frame))
+	/* If FRAME is a tty child frame and the selected frame, we have
+	   to select another frame instead.  Use the first visible
+	   ancestor as returned by 'mru_rooted_frame'.  */
+	Fselect_frame (mru_rooted_frame (f), Qnil);
     }
 
   /* Make menu bar update for the Buffers and Frames menus.  */
@@ -4560,7 +4561,7 @@ FRAME must be a live frame and defaults to the selected one.
 
 WIDTH and HEIGHT must be positive integers and specify the new pixel
 width and height of FRAME's text area in pixels.  If WIDTH or HEIGHT do
-not secify a value that is a multiple of FRAME's character sizes, you
+not specify a value that is a multiple of FRAME's character sizes, you
 may have to set `frame-resize-pixelwise' to a non-nil value in order to
 get the exact size in pixels.
 
