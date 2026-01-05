@@ -1,6 +1,6 @@
 ;;; subr-tests.el --- Tests for subr.el  -*- lexical-binding:t -*-
 
-;; Copyright (C) 2015-2025 Free Software Foundation, Inc.
+;; Copyright (C) 2015-2026 Free Software Foundation, Inc.
 
 ;; Author: Oleh Krehel <ohwoeowho@gmail.com>,
 ;;         Nicolas Petton <nicolas@petton.fr>
@@ -1608,6 +1608,36 @@ final or penultimate step during initialization."))
   (should (equal (split-string "ABC" "" t)
                  '("A" "B" "C")))
   )
+
+(ert-deftest subr-string-trim-left ()
+  (should (equal (string-trim-left "") ""))
+  (should (equal (string-trim-left " \t\n\r") ""))
+  (should (equal (string-trim-left " \t\n\ra") "a"))
+  (should (equal (string-trim-left "a \t\n\r") "a \t\n\r"))
+  (should (equal (string-trim-left "" "") ""))
+  (should (equal (string-trim-left "a" "") "a"))
+  (should (equal (string-trim-left "aa" "a*") ""))
+  (should (equal (string-trim-left "ba" "a*") "ba"))
+  (should (equal (string-trim-left "aa" "a*?") "aa"))
+  (should (equal (string-trim-left "aa" "a+?") "a")))
+
+(ert-deftest subr-string-trim-right ()
+  (should (equal (string-trim-right "") ""))
+  (should (equal (string-trim-right " \t\n\r") ""))
+  (should (equal (string-trim-right " \t\n\ra") " \t\n\ra"))
+  (should (equal (string-trim-right "a \t\n\r") "a"))
+  (should (equal (string-trim-right "" "") ""))
+  (should (equal (string-trim-right "a" "") "a"))
+  (should (equal (string-trim-right "aa" "a*") ""))
+  (should (equal (string-trim-right "ab" "a*") "ab"))
+  (should (equal (string-trim-right "aa" "a*?") "")))
+
+(ert-deftest subr-string-trim ()
+  (should (equal (string-trim " \t\r abc\t\n \t") "abc"))
+  (should (equal (string-trim "::abc;;" nil nil) "::abc;;"))
+  (should (equal (string-trim "::abc;;" nil ";+") "::abc"))
+  (should (equal (string-trim "::abc;;" ":+" nil) "abc;;"))
+  (should (equal (string-trim "::abc;;" ":+" ";+") "abc")))
 
 (defun subr--identity (x) x)
 

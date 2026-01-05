@@ -1,6 +1,6 @@
 ;;; vc.el --- drive a version-control system from within Emacs  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992-1998, 2000-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1992-1998, 2000-2026 Free Software Foundation, Inc.
 
 ;; Author: FSF (see below for full credits)
 ;; Maintainer: emacs-devel@gnu.org
@@ -180,6 +180,13 @@
 ;;   To provide more backend specific functionality for `vc-dir'
 ;;   the following functions might be needed: `dir-extra-headers',
 ;;   `dir-printer', and `extra-dir-menu'.
+;;
+;;   NOTE: project.el includes a similar method `project-list-files'
+;;   that has a slightly different return value and performance
+;;   trade-offs.  If you want to use it in your code and it suits your
+;;   needs better than `dir-status-files', consider contacting the
+;;   development list about changes or having it promoted to the core
+;;   VC.  See also `vc-dir-status-files'.
 ;;
 ;; - dir-extra-headers (dir)
 ;;
@@ -630,10 +637,13 @@
 ;;
 ;; - ignore-completion-table (directory)
 ;;
-;;   Return the completion table for files ignored by the current
+;;   Return the list of patterns for files ignored by the current
 ;;   version control system, e.g., the entries in `.gitignore' and
 ;;   `.bzrignore'.  The default behavior is to read the contents of
 ;;   the file returned by the `find-ignore-file' function.
+;;
+;;   NOTE: The return value should be a list of strings, not a general
+;;   completion table value, despite what the name implies.
 ;;
 ;; - find-ignore-file (file)
 ;;
@@ -3970,6 +3980,29 @@ shown log style is available via `vc-log-short-style'."
                            working-revision nil limit)))
 
 ;;;###autoload
+(defun vc-print-change-log ()
+  "Show in another window the VC change history of the current fileset.
+With a \\[universal-argument] prefix argument, prompt for a branch \
+or revision to log
+instead of the working revision, and a number specifying the maximum
+number of revisions to show; the default is `vc-log-show-limit'.
+You can also use a numeric prefix argument to specify this.
+
+This is like `vc-print-log' but with an alternative prefix argument that
+some users might prefer for interactive usage."
+  (declare (interactive-only vc-print-log))
+  (interactive)
+  (if current-prefix-arg
+      (let ((branch
+             (vc--read-branch-to-log t))
+            (vc-log-show-limit
+             (if (equal current-prefix-arg '(4))
+                 (vc--read-limit)
+               (prefix-numeric-value current-prefix-arg))))
+        (vc-print-fileset-branch-log branch))
+    (vc-print-log)))
+
+;;;###autoload
 (defun vc-print-root-log (&optional limit revision)
   "Show in another window VC change history of the current VC controlled tree.
 If LIMIT is non-nil, it should be a number specifying the maximum
@@ -4002,13 +4035,39 @@ with its diffs (if the underlying VCS backend supports that)."
       ;; the mode line isn't helpful.
       (setq vc-parent-buffer-name nil))))
 
-(defun vc--read-branch-to-log (&optional files)
+;;;###autoload
+(defun vc-print-root-change-log ()
+  "Show in another window the VC change history of the whole tree.
+With a \\[universal-argument] prefix argument, prompt for a branch \
+or revision to log
+instead of the working revision, and a number specifying the maximum
+number of revisions to show; the default is `vc-log-show-limit'.
+You can also use a numeric prefix argument to specify this.
+
+This is like `vc-root-print-log' but with an alternative prefix argument
+that some users might prefer for interactive usage."
+  (declare (interactive-only vc-print-root-log))
+  (interactive)
+  (if current-prefix-arg
+      (let ((branch
+             (vc--read-branch-to-log))
+            (vc-log-show-limit
+             (if (equal current-prefix-arg '(4))
+                 (vc--read-limit)
+               (prefix-numeric-value current-prefix-arg))))
+        (vc-print-root-branch-log branch))
+    (vc-print-root-log)))
+
+(defun vc--read-branch-to-log (&optional fileset)
   "Read the name of a branch to log.
-FILES, if supplied, should be a list of file names."
-  (let ((branch (vc-read-revision "Branch to log: " files)))
+FILESET, if non-nil, means to pass the current VC fileset to
+`vc-read-revision'."
+  (let ((branch (vc-read-revision "Branch to log: "
+                                  (and fileset
+                                       (cadr (vc-deduce-fileset t))))))
     (when (string-empty-p branch)
       (user-error "No branch specified"))
-    (list branch)))
+    branch))
 
 ;;;###autoload
 (defun vc-print-fileset-branch-log (branch)
@@ -4021,7 +4080,7 @@ starting at that revision.  Tags and remote references also work."
   ;; used to prompt for a LIMIT argument like \\`C-x v l' has.  Though
   ;; now we have "Show 2X entries" and "Show unlimited entries" that
   ;; might be a waste of the prefix argument to this command.  --spwhitton
-  (interactive (vc--read-branch-to-log (cadr (vc-deduce-fileset t))))
+  (interactive (list (vc--read-branch-to-log t)))
   (let ((fileset (vc-deduce-fileset t)))
     (vc-print-log-internal (car fileset) (cadr fileset) branch t
                            (and (plusp vc-log-show-limit)
@@ -4035,7 +4094,7 @@ In addition to logging branches, for VCS for which it makes sense you
 can specify a revision ID instead of a branch name to produce a log
 starting at that revision.  Tags and remote references also work."
   ;; Prefix argument conserved; see previous command.  --spwhitton
-  (interactive (vc--read-branch-to-log))
+  (interactive (list (vc--read-branch-to-log)))
   (vc--with-backend-in-rootdir "VC branch log"
     (vc-print-log-internal backend (list rootdir) branch t
                            (and (plusp vc-log-show-limit)
@@ -4053,8 +4112,9 @@ starting at that revision.  Tags and remote references also work."
 
 (defun vc--maybe-read-upstream-location ()
   (and current-prefix-arg
-       (read-string "Upstream location/branch (empty for default): " nil
-                    'vc-remote-location-history)))
+       (let ((res (read-string "Upstream location/branch (empty for default): "
+                               nil 'vc-remote-location-history)))
+         (and (not (string-empty-p res)) res))))
 
 (defun vc--incoming-revision (backend &optional upstream-location refresh)
   ;; Some backends don't support REFRESH and so always behave as though

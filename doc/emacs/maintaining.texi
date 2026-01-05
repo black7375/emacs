@@ -1,5 +1,5 @@
 @c This is part of the Emacs manual., Abbrevs, This is part of the Emacs manual., Top
-@c Copyright (C) 1985--1987, 1993--1995, 1997, 1999--2025 Free Software
+@c Copyright (C) 1985--1987, 1993--1995, 1997, 1999--2026 Free Software
 @c Foundation, Inc.
 @c See file emacs.texi for copying conditions.
 @node Maintaining
@@ -2322,7 +2322,9 @@ Using this variable you can add more ignore patterns to the project, to
 exclude more files from the project's file listing.  The value is a list
 of glob strings.  They can match both regular files and directories.  To
 anchor an entry to the project root, start it with @code{./}.  To match
-directories only, end it with @code{/}.
+directories only, end it with @code{/}.  When this variable has
+directory-local value, it will only be applied to the corresponding
+directory subtree.
 @end defopt
 
 @defopt project-vc-name
@@ -2486,7 +2488,7 @@ between them.
 end of the change log file.  Here is an example:
 
 @smallexample
-Copyright 1997--1998, 2025 Free Software Foundation, Inc.
+Copyright 1997--1998, 2025--2026 Free Software Foundation, Inc.
 Copying and distribution of this file, with or without modification, are
 permitted provided the copyright notice and this notice are preserved.
 @end smallexample

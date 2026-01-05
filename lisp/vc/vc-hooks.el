@@ -1,6 +1,6 @@
 ;;; vc-hooks.el --- Preloaded support for version control  -*- lexical-binding:t -*-
 
-;; Copyright (C) 1992-1996, 1998-2025 Free Software Foundation, Inc.
+;; Copyright (C) 1992-1996, 1998-2026 Free Software Foundation, Inc.
 
 ;; Author: FSF (see vc.el for full credits)
 ;; Maintainer: emacs-devel@gnu.org
@@ -1018,8 +1018,8 @@ In the latter case, VC mode is deactivated for this buffer."
   "O"   #'vc-log-outgoing
   "M L" #'vc-log-mergebase
   "M D" #'vc-diff-mergebase
-  "B =" #'vc-diff-outgoing-base
-  "B D" #'vc-root-diff-outgoing-base
+  "o =" #'vc-diff-outgoing-base
+  "o D" #'vc-root-diff-outgoing-base
   "m"   #'vc-merge
   "r"   #'vc-retrieve-tag
   "s"   #'vc-create-tag
