@@ -2778,9 +2778,7 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
   delete_all_child_windows (f->root_window);
   fset_root_window (f, Qnil);
 
-  block_input ();
-  Vframe_list = Fdelq (frame, Vframe_list);
-  unblock_input ();
+  Vframe_list = delq_no_quit (frame, Vframe_list);
   SET_FRAME_VISIBLE (f, false);
 
   /* Allow the vector of menu bar contents to be freed in the next
@@ -4525,10 +4523,11 @@ DEFUN ("set-frame-position", Fset_frame_position,
        doc: /* Set position of FRAME to (X, Y).
 FRAME must be a live frame and defaults to the selected one.  X and Y,
 if positive, specify the coordinate of the left and top edge of FRAME's
-outer frame in pixels relative to an origin (0, 0) of FRAME's display.
-If any of X or Y is negative, it specifies the coordinates of the right
-or bottom edge of the outer frame of FRAME relative to the right or
-bottom edge of FRAME's display.  */)
+outer frame in pixels relative to an origin (0, 0) of FRAME's display
+or, if FRAME is a child frame, its parent frame.  If any of X or Y is
+negative, it specifies the coordinates of the right or bottom edge of
+the outer frame of FRAME relative to the right or bottom edge of FRAME's
+display or parent frame.  */)
   (Lisp_Object frame, Lisp_Object x, Lisp_Object y)
 {
   struct frame *f = decode_live_frame (frame);
