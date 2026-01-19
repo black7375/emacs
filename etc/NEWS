@@ -199,6 +199,13 @@ different completion categories by customizing
 be updated as you type, or nil to suppress this always.  Note that for
 large or inefficient completion tables this can slow down typing.
 
++++
+*** New optional value of 'minibuffer-visible-completions'.
+If the value of this option is 'up-down', only the '<up>' and '<down>'
+arrow keys move point between candidates shown in the "*Completions*"
+buffer display, while '<right>' and '<left>' arrows move point in the
+minibuffer window.
+
 ---
 *** 'RET' chooses the completion selected with 'M-<up>/M-<down>'.
 If a completion candidate is selected with 'M-<up>' or 'M-<down>',
@@ -500,6 +507,14 @@ These are useful if you need to detect a cloned frame or undeleted frame
 in hooks like 'after-make-frame-functions' and
 'server-after-make-frame-hook'.
 
+---
+*** Frames now have unique ids and the new function 'frame-id'.
+Each non-tooltip frame is assigned a unique integer id.  This allows you
+to unambiguously identify frames even if they share the same name or
+title.  When 'undelete-frame-mode' is enabled, each deleted frame's id
+is stored for resurrection.  The function 'frame-id' returns a frame's
+id (in C, use the frame struct member 'id').
+
 ** Mode Line
 
 +++
@@ -683,6 +698,12 @@ project, during completion.  That makes some items shorter.
 *** 'project-switch-buffer' uses 'project-buffer' as completion category.
 The category defaults are the same as for 'buffer' but any user
 customizations would need to be re-added.
+
++++
+*** 'project-mode-line' can now show project name only for local files.
+If the value of 'project-mode-line' is 'non-remote', project name and
+the Project menu will be shown on the mode line only for projects with
+local files.
 
 ** Help
 
@@ -927,6 +948,11 @@ same keys to which 'undo' is globally bound, 'C-/', 'C-_' and 'C-x u'.
 These commands did not previously accept a prefix argument.
 Now a numeric prefix argument specifies a repeat count, just like it
 already did for 'undo'.
+
+** New minor mode 'center-line-mode'.
+This mode keeps modified lines centered horizontally according to the
+value of 'fill-column', by calling 'center-line' on each non-empty line
+of the modified region.
 
 
 * Changes in Specialized Modes and Packages in Emacs 31.1
@@ -2039,6 +2065,14 @@ When you kill the IELM process with 'C-c C-c', the input history is now
 saved to the file specified by 'ielm-history-file-name', just like when
 you exit the Emacs session or kill the IELM buffer.
 
+---
+*** New value 'point' for user option 'ielm-dynamic-return'.
+When 'ielm-dynamic-return' is set to 'point', typing 'RET' has dynamic
+behavior based on whether point is inside an sexp.  While point is
+inside an sexp typing 'RET' inserts a newline, and otherwise Emacs
+proceeds with evaluating the expression.  This is useful when
+'electric-pair-mode', or a similar automatic pairing mode, is enabled.
+
 ** DocView
 
 ---
@@ -2068,6 +2102,14 @@ option 'doc-view-djvused-program'.
 *** The default value of 'ispell-help-timeout' has changed.
 The default value is now 30 seconds, as the old value was too short to
 allow reading the help text.
+
++++
+*** Ispell can now save spelling corrections as abbrevs.
+In the Ispell command loop, type 'C-u' immediately before selecting a
+replacement to toggle whether that correction will be saved as a global
+abbrev expansion for its misspelling.  The new user option
+'ispell-save-corrections-as-abbrevs' determines whether abbrev saving
+is enabled by default.
 
 ** Flyspell
 
@@ -2660,8 +2702,8 @@ relevant buffers before generating the contents of a VC Directory buffer
 *** New commands to report incoming and outgoing diffs.
 'vc-root-diff-incoming' and 'vc-root-diff-outgoing' report diffs of all
 the changes that would be pulled and would be pushed, respectively.
-They are the diff analogues of the existing commands 'vc-log-incoming'
-and 'vc-log-outgoing'.
+They are the diff analogues of the existing commands
+'vc-root-log-incoming' and 'vc-root-log-outgoing'.
 
 In particular, 'vc-root-diff-outgoing' is useful as a way to preview
 your push and ensure that all and only the changes you intended to
@@ -2684,9 +2726,9 @@ If this is customized to non-nil, 'C-x v I' and 'C-x v O' become prefix
 commands, such that the new incoming and outgoing commands have global
 bindings:
 
-- 'C-x v I L' is bound to 'vc-log-incoming'
+- 'C-x v I L' is bound to 'vc-root-log-incoming'
 - 'C-x v I D' is bound to 'vc-root-diff-incoming'
-- 'C-x v O L' is bound to 'vc-log-outgoing'
+- 'C-x v O L' is bound to 'vc-root-log-outgoing'
 - 'C-x v O D' is bound to 'vc-root-diff-outgoing'.
 
 +++
@@ -2783,6 +2825,13 @@ already have, consider replacing the default global bindings, like this:
 ---
 *** New command alias 'vc-restore' for 'vc-revert'.
 
+---
+*** The 'diff-restrict-view' command is disabled by default.
+This command is Diff mode's specialized 'narrow-to-region'.
+'narrow-to-region' has long been disabled by default, so for
+consistency, 'diff-restrict-view' is now too.
+To enable it again, use 'M-x enable-command'.
+
 ** Package
 
 +++
@@ -2852,7 +2901,7 @@ The user option 'package-review-policy' can configure which packages
 the user should be allowed to review before any processing takes place.
 The package review can include reading the downloaded source code,
 presenting a diff between the downloaded code and a previous
-installation or displaying a changelog.
+installation or displaying a ChangeLog.
 
 ** Rcirc
 
@@ -3713,11 +3762,20 @@ without marking it as automatically buffer-local.
 ** The obsolete face attribute ':reverse-video' has been removed.
 Use ':inverse-video' instead.
 
+** D-Bus
+
 +++
-** Support interactive D-Bus authorization.
+*** Support interactive D-Bus authorization.
 A new ':authorizable t' parameter has been added to 'dbus-call-method'
 and 'dbus-call-method-asynchronously' to allow the user to interactively
 authorize the invoked D-Bus method (for example via polkit).
+
++++
+*** New D-Bus functions to support systemd inhibitor locks.
+The functions 'dbus-make-inhibitor-lock', 'dbus-close-inhibitor-lock'
+and 'dbus-registered-inhibitor-locks' implement acquiring and releasing
+systemd inhibitor locks.  See the Info node "(dbus) Inhibitor Locks" for
+details.
 
 ** The customization group 'wp' has been removed.
 It has been obsolete since Emacs 26.1.  Use the group 'text' instead.
@@ -3889,12 +3947,21 @@ When the theme is set on PGTK, Android, or MS-Windows systems,
 variable 'toolkit-theme' as either symbol 'dark' or 'light', but may be
 extended to encompass other toolkit-specific symbols in the future.
 
+** Progress reporter
+
 +++
-** Progress reporter callbacks.
+*** Progress reporter callbacks.
 'make-progress-reporter' now accepts optional arguments UPDATE-CALLBACK,
 called on progress steps, and DONE-CALLBACK, called when the progress
 reporter is done.  See the 'make-progress-reporter' docstring for a full
 specification of these new optional arguments.
+
++++
+*** Progress reporter context.
+'make-progress-reporter' now accepts the optional argument CONTEXT,
+which if it is the symbol 'async', inhibits updates in the echo area
+when it is busy.  This is useful, for example, if you want to monitor progress
+of an inherently asynchronous command such as 'compile'.
 
 ** Binary format specifications '%b' and '%B' added.
 These produce the binary representation of a number.
