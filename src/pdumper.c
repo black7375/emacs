@@ -2808,7 +2808,7 @@ dump_obarray (struct dump_context *ctx, Lisp_Object object)
 static dump_off
 dump_buffer (struct dump_context *ctx, const struct buffer *in_buffer)
 {
-#if CHECK_STRUCTS && !defined HASH_buffer_E5E54A8C3F
+#if CHECK_STRUCTS && !defined HASH_buffer_418DFE6359
 # error "buffer changed. See CHECK_STRUCTS comment in config.h."
 #endif
   struct buffer munged_buffer = *in_buffer;
@@ -5650,7 +5650,7 @@ pdumper_set_emacs_execdir (char *emacs_executable)
   eassert (p > emacs_executable);
 
 #if HAVE_NS && !NS_SELF_CONTAINED
-  if (strcmp (basename (emacs_executable), "Emacs") == 0)
+  if (strcmp (p, "Emacs") == 0)
     {
       /* This is the Emacs executable from the non-self-contained app
 	 bundle which can be anywhere on the system.  Fortunately, the

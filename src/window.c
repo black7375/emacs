@@ -5894,11 +5894,11 @@ resize_mini_window_apply (struct window *w, int delta)
  * line of text.
  */
 void
-grow_mini_window (struct window *w, int delta)
+grow_mini_window (struct window *w, int delta, int unit)
 {
   struct frame *f = XFRAME (w->frame);
   int old_height = window_body_height (w, WINDOW_BODY_IN_PIXELS);
-  int min_height = FRAME_LINE_HEIGHT (f);
+  int min_height = unit;
 
   eassert (MINI_WINDOW_P (w));
 
@@ -5926,7 +5926,7 @@ grow_mini_window (struct window *w, int delta)
 	resize_mini_window_apply (w, -XFIXNUM (grow));
     }
   FRAME_WINDOWS_FROZEN (f)
-    = window_body_height (w, WINDOW_BODY_IN_PIXELS) > FRAME_LINE_HEIGHT (f);
+    = window_body_height (w, WINDOW_BODY_IN_PIXELS) > unit;
 }
 
 /**
@@ -5936,11 +5936,10 @@ grow_mini_window (struct window *w, int delta)
  * line of text.
  */
 void
-shrink_mini_window (struct window *w)
+shrink_mini_window (struct window *w, int unit)
 {
   struct frame *f = XFRAME (w->frame);
-  int delta = (window_body_height (w, WINDOW_BODY_IN_PIXELS)
-	       - FRAME_LINE_HEIGHT (f));
+  int delta = (window_body_height (w, WINDOW_BODY_IN_PIXELS) - unit);
 
   eassert (MINI_WINDOW_P (w));
 
@@ -5959,10 +5958,10 @@ shrink_mini_window (struct window *w)
   else if (delta < 0)
     /* delta can be less than zero after adding horizontal scroll
        bar.  */
-    grow_mini_window (w, -delta);
+    grow_mini_window (w, -delta, unit);
 
   FRAME_WINDOWS_FROZEN (f)
-    = window_body_height (w, WINDOW_BODY_IN_PIXELS) > FRAME_LINE_HEIGHT (f);
+    = window_body_height (w, WINDOW_BODY_IN_PIXELS) > unit;
 }
 
 DEFUN ("resize-mini-window-internal", Fresize_mini_window_internal,
@@ -8677,13 +8676,27 @@ Note that any element except the first one in the returned vector may be
 
 #ifdef HAVE_WINDOW_SYSTEM
   struct frame *f = XFRAME (WINDOW_FRAME (w));
+  struct glyph *phys_cursor_glyph = get_phys_cursor_glyph (w);
+
   if (FRAME_WINDOW_P (f))
     {
       phys_cursor_width = w->phys_cursor_width;
       phys_cursor_height = w->phys_cursor_height;
       phys_cursor_ascent = w->phys_cursor_ascent;
     }
+
+  /* If on a stretch glyph, and `x-stretch-cursor' is nil, use the
+     canonical character width instead, except for (H)BAR cursors.
+     This mimics what the various *term.c backends do in their
+     *_draw_stretch_glyph methods.  */
+  if (phys_cursor_glyph
+      && phys_cursor_glyph->type == STRETCH_GLYPH
+      && !(w->phys_cursor_type == BAR_CURSOR
+	  || w->phys_cursor_type == HBAR_CURSOR)
+      && !x_stretch_cursor_p)
+    phys_cursor_width = min (FRAME_COLUMN_WIDTH (f), phys_cursor_width);
 #endif
+
   return CALLN (Fvector,
                 w->cursor_type,
                 make_fixnum (w->phys_cursor.x),

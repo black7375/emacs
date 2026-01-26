@@ -774,7 +774,11 @@ attached."
               (delete-directory pkg-dir t)
               (throw 'review-failed pkg-desc))
              (?d
-              (diff (package-desc-dir old-desc) pkg-dir (cdr package-review-diff-command) t)
+              (display-buffer
+               (diff-no-select
+                (package-desc-dir old-desc) pkg-dir (cdr package-review-diff-command) t
+                (get-buffer-create (format "*Package Review Diff: %s*"
+                                           (package-desc-full-name pkg-desc)))))
               t)
              (?m
               (require 'diff)             ;for `diff-no-select'
@@ -4694,8 +4698,10 @@ DESC must be a `package-desc' object."
   (let ((url (cdr (assoc :url (package-desc-extras desc)))))
     (unless url
       (user-error "No website for %s" (package-desc-name desc)))
-    (if secondary
-        (funcall browse-url-secondary-browser-function url)
+    (let ((browse-url-browser-function
+           (if secondary
+               browse-url-secondary-browser-function
+             browse-url-browser-function)))
       (browse-url url))))
 
 (declare-function ietf-drums-parse-address "ietf-drums"

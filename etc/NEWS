@@ -82,6 +82,13 @@ other directory on your system.  You can also invoke the
 
 * Changes in Emacs 31.1
 
++++
+** 'line-spacing' now supports specifying spacing above the line.
+Previously, only spacing below the line could be specified.  The variable
+can now be set to a cons cell to specify spacing both above and below
+the line, which allows for vertically centering text.
+
++++
 ** 'prettify-symbols-mode' attempts to ignore undisplayable characters.
 Previously, such characters would be rendered as, e.g., white boxes.
 
@@ -507,13 +514,17 @@ These are useful if you need to detect a cloned frame or undeleted frame
 in hooks like 'after-make-frame-functions' and
 'server-after-make-frame-hook'.
 
----
 *** Frames now have unique ids and the new function 'frame-id'.
 Each non-tooltip frame is assigned a unique integer id.  This allows you
 to unambiguously identify frames even if they share the same name or
 title.  When 'undelete-frame-mode' is enabled, each deleted frame's id
 is stored for resurrection.  The function 'frame-id' returns a frame's
 id (in C, use the frame struct member 'id').
+
+*** New commands 'select-frame-by-id', 'undelete-frame-by-id'.
+The command 'select-frame-by-id' selects a frame by ID and undeletes it
+if deleted.  The command 'undelete-frame-by-id' undeletes a frame by its
+ID.  When called interactively, both functions prompt for an ID.
 
 ** Mode Line
 
@@ -539,9 +550,10 @@ every buffer.
 ** Tab Bars and Tab Lines
 
 ---
-*** New command 'merge-tabs'.
-'merge-tabs' merges all windows from two tabs into one of these tabs
-and closes the other tab.
+*** New commands 'split-tab' and 'merge-tabs'.
+'split-tab' moves a specified number of windows from an existing tab
+to a newly-created tab.  'merge-tabs' merges all windows from two tabs
+into one of these tabs and closes the other tab.
 
 ---
 *** New abnormal hook 'tab-bar-auto-width-functions'.
@@ -1328,6 +1340,12 @@ available.
 Now method chaining is indented by 8 spaces rather than 4, and this
 option controls how much is indented for method chaining.
 
+** JSON-ts mode
+
+*** New command 'json-ts-jq-path-at-point'.
+This command copies the path of the JSON element at point to the
+kill-ring, formatted for use with the 'jq' utility.
+
 ** PHP-ts mode
 
 ---
@@ -1378,6 +1396,13 @@ associated to a remote PHP file, show the remote PHP ini files.
 *** New user option 'rust-ts-mode-fontify-number-suffix-as-type'.
 Rust number literals may have an optional type suffix.  When this option
 is non-nil, this suffix is fontified using 'font-lock-type-face'.
+
+** YAML-ts mode
+
+---
+*** New user option 'yaml-ts-mode-yamllint-options'.
+Additional options for 'yamllint' the command used for Flymake's YAML
+support.
 
 ** EIEIO
 
@@ -2585,8 +2610,15 @@ cloning, or prompts for that, too.
 When the argument is non-nil, the function switches to a buffer visiting
 the directory into which the repository was cloned.
 
++++
+*** 'vc-revert' is now bound to '@' in VC-Dir.
+
++++
+*** 'vc-revert' is now additionally bound to 'C-x v @'.
+This is in addition to 'C-x v u'.
+
 ---
-*** 'C-x v u' ('vc-revert') now works on directories listed in VC Directory.
+*** 'vc-revert' now works on directories listed in VC Directory.
 Reverting a directory means reverting changes to all files inside it.
 
 +++
@@ -3630,6 +3662,11 @@ and other similar functions.
 
 
 * Lisp Changes in Emacs 31.1
+
++++
+** New function 'garbage-collect-heapsize'.
+Same as 'garbage-collect' but just returns the info from the last GC
+without performing a collection.
 
 +++
 ** Improve 'replace-region-contents' to accept more forms of sources.
