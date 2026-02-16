@@ -62,7 +62,7 @@ You can keep the old behavior by putting '(xterm-mouse-mode -1)' in your
 init file.
 
 +++
-** 'site-start.el' is now loaded before the user's early init file.
+** site-start.el is now loaded before the user's early init file.
 Previously, the order was early-init.el, site-start.el and then the
 user's regular init file, but now site-start.el comes first.  This
 allows site administrators to customize things that can normally only be
@@ -296,6 +296,12 @@ that your popup interface uses for a more integrated experience.
 but as a plain Lisp variable, not a user option.)
 
 ---
+*** New user option 'completion-preview-inhibit-functions'.
+This option provides fine-grained control over Completion Preview mode
+activation.  You can use it to specify arbitrary conditions in which to
+inhibit the mode's operation.
+
+---
 *** New mode 'minibuffer-nonselected-mode'.
 This mode, enabled by default, directs the attention to the active
 minibuffer window using the 'minibuffer-nonselected' face in case
@@ -310,6 +316,12 @@ It still can use 'read-key' when the variable
 *** 'map-y-or-n-p' now uses the minibuffer to read a character.
 It still can use 'read-key' when the variable
 'y-or-n-p-use-read-key' is non-nil.
+
+*** 'flex' completion style rewritten to be faster and more accurate.
+Completion and highlighting use a new superior algorithm.  For example,
+pattern "scope" now ranks 'elisp-scope-*' functions well above
+'dos-codepage' and 'test-completion'.  Pattern "botwin" finds
+'menu-bar-bottom-window-divider' before 'ibuffer-other-window'.
 
 ** Mouse
 
@@ -726,6 +738,11 @@ If the value of 'project-mode-line' is 'non-remote', project name and
 the Project menu will be shown on the mode line only for projects with
 local files.
 
+*** The "VC-aware" project backend caches the current project and its name.
+The duration for which the values are cached depends on whether it's
+called from 'non-essential' context, and it determined by variables
+'project-vc-cache-timeout' and 'project-vc-non-essential-cache-timeout'.
+
 ** Help
 
 +++
@@ -978,6 +995,11 @@ of the modified region.
 
 * Changes in Specialized Modes and Packages in Emacs 31.1
 
+** Delete-selection mode
+*** New face 'delete-selection-replacement' for the replacement text
+This comes with a change to how we track what is considered "the
+replacement text", which should be more robust now, and is made
+more clear by the highlighting.
 ** Editorconfig
 
 ---
@@ -1782,6 +1804,14 @@ response.
 It is believed to no longer be useful as a method to fight spam.  The
 'spam-use-hashcash' hook is now obsolete and has no effect.
 
+---
+*** Add 'M-i' keybinding as the symbolic prefix in the group keymap.
+The symbolic prefix is another kind of universal prefix that is used in
+Gnus, see "(gnus) Symbolic Prefixes" in the Gnus manual.
+
+---
+*** Sorting selected groups is now possible with 'gnus-topic-mode'.
+
 ** Sieve
 
 +++
@@ -2168,6 +2198,12 @@ To unconditionally enable 'flyspell-mode' from a hook, use this instead:
     (add-hook 'text-mode-hook #'flyspell-mode)
 
 ** Tramp
+
++++
+*** Tramp signals 'remote-file-error' in case of connection problems.
+This is a subcategory of 'file-error'.  Therefore, all checks for
+'file-error' in 'condition-case', 'ignore-error', 'error-conditions' and
+alike still work.
 
 +++
 *** New command 'tramp-cleanup-bufferless-connections'.
@@ -2969,6 +3005,21 @@ The package review can include reading the downloaded source code,
 presenting a diff between the downloaded code and a previous
 installation or displaying a ChangeLog.
 
++++
+*** New command 'package-autosuggest'.
+Using a built-in database of ELPA package suggestions, this command will
+install viable packages if no specific major mode is available for the
+contents of the current buffer.
+
++++
+*** New minor mode 'package-autosuggest-mode'.
+When enabled, this displays indications about the availability of add-on
+ELPA packages for the current buffer and suggestions for installing
+those packages.  The default is to show a button on the mode line that
+can be used to install such packages, but you can customise the
+presentation style of these suggestions using
+'package-autosuggest-style'.
+
 ** Rcirc
 
 +++
@@ -3079,9 +3130,19 @@ Meant to be given a global binding convenient to the user.  Example:
 
 ** Icomplete
 
-*** New key 'M-j' for 'icomplete-mode' and 'icomplete-vertical-mode'.
-Like 'M-j' in 'fido-mode', it can exit the minibuffer with a selected
-candidate even when 'icomplete-show-matches-on-no-input' is non-nil.
+*** Change in meaning of 'icomplete-show-matches-on-no-input' (again).
+For Emacs 28 to Emacs 30, when 'icomplete-show-matches-on-no-input' was
+non-nil, 'RET' had special behavior when the minibuffer's contents was
+equal to the initial input it had right after minibuffer activation.
+In that case, 'RET' would choose the first completion candidate, if
+there was one, instead of the minibuffer's default value.
+'RET' has now returned to selecting the default value in this case; you
+can use 'C-j' to choose the completion under point instead.
+You can opt back in to the special behavior of 'RET' like this:
+
+    (keymap-set
+      icomplete-minibuffer-map "<remap> <minibuffer-complete-and-exit>"
+      #'icomplete-ret)
 
 *** New user options for 'icomplete-vertical-mode'.
 New user options have been added to enhance 'icomplete-vertical-mode':
@@ -3329,7 +3390,7 @@ changing the marking state in the calendar buffer.
 A new library has been added to the calendar for handling iCalendar
 (RFC5545) data.  The library is designed for reuse in other parts of
 Emacs and in third-party packages.  Package authors can find the new
-library in the Emacs distribution under lisp/calendar/icalendar-*.el.
+library in the Emacs distribution under "lisp/calendar/icalendar-*.el".
 
 Most of the functions and variables in the older icalendar.el have been
 marked obsolete and now suggest appropriate replacements from the new
@@ -3522,6 +3583,17 @@ value.  Previously, only 'hi-lock-face-buffer' supported this.
 
 *** 'shadow-info-buffer' and 'shadow-todo-buffer' use ephemeral buffer names now.
 
+** Display Battery mode
+
+---
+*** UPower battery status can update automatically without polling.
+On systems where the user option 'battery-status-function' is set to
+'battery-upower', it is now possible to get battery status updates on
+the mode line without polling for changes every
+'battery-update-interval' seconds.  Setting this user option to nil
+means the mode line will update only when the battery power state,
+percentage, or presence in the bay changes.
+
 
 * New Modes and Packages in Emacs 31.1
 
@@ -3575,6 +3647,23 @@ On GNU/Linux systems, shell extensions or similar helpers such as
 "dash-to-dock" may be required.  See
 <https://extensions.gnome.org/extension/307/dash-to-dock/> and
 <https://wiki.ubuntu.com/Unity/LauncherAPI>.
+
++++
+** New package 'system-sleep'.
+This package provides platform-neutral interfaces to block your system
+from entering idle sleep and a hook to process pre-sleep and post-wake
+events.  You can use this to avoid the system entering an idle sleep
+state and interrupting a long-running process due to lack of user
+activity.  The sleep event hook lets you, for example, close external
+connections or serial ports before sleeping, and reestablish them when
+the system wakes up.
+
+Supported capable systems are GNU/Linux via D-Bus (sleep blocking and
+sleep events require the org.freedesktop.login1 service, display sleep
+blocking requires org.freedesktop.Screensaver service), macOS
+(sleep/display blocking requires version 10.9 or later, sleep events are
+supported on all versions), MS-Windows (sleep blocking is supported on
+all versions, sleep events require Windows 8 or later).
 
 
 * Incompatible Lisp Changes in Emacs 31.1
@@ -3721,10 +3810,11 @@ Emacs core.
 
 +++
 ** A thread's current buffer can now be killed.
-We introduce a new attribute for threads called 'buffer-disposition'.
-See the new argument in 'make-thread'.  The default value allows the
-thread's current buffer to be killed by another thread.  This does not
-apply to the main thread's buffer.
+We introduce a new attribute for threads called "buffer disposition".
+See the new argument in 'make-thread' as well as the
+'thread-buffer-disposition' and 'thread-set-buffer-disposition' functions.
+The default value allows the thread's current buffer to be killed by another
+thread.  This does not apply to the main thread's buffer.
 
 ---
 ** Defining or modifying a face so that it inherits from itself signals error.
@@ -3735,6 +3825,13 @@ could get away with this, and the problem would either be detected at
 display time or even cause Emacs to hang trying to display such a face.
 Affected APIs include 'defface', 'set-face-attribute', their callers,
 and other similar functions.
+
++++
+Original behavior of 'overlays-in' and 'overlays-at' has been restored.
+Before Emacs 29.1, the list of overlays returned by these two functions
+included overlays outside of the current narrowing of the buffer.  This
+behavior has been restored.  As result, 'remove-overlays' can now again
+remove overlays outside of the narrowing, as it did before Emacs 29.1.
 
 ---
 ** 'help-setup-xref' now re-enables the major mode of the Help buffer.
@@ -3749,6 +3846,7 @@ When no tags file is loaded, symbol completion just won't provide any
 suggestions.  So the 'M-?' command now works without a tags table.  And
 the 'M-.' will show a message describing the several built-in options
 that will provide an Xref backend when used.
+
 
 * Lisp Changes in Emacs 31.1
 
