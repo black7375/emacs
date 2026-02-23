@@ -4,7 +4,7 @@
 
 ;; Author: Stephane Marks <shipmints@gmail.com>
 ;; Maintainer: emacs-devel@gnu.org
-;; Keywords: convenience
+;; Keywords: system-interface
 ;; Package-Requires: ((emacs "31.1"))
 
 ;; This file is part of GNU Emacs.
@@ -108,12 +108,13 @@
   "A list of active sleep-block tokens.
 If non-nil, idle sleep is inhibited by `system-sleep'.")
 
-;;;###autoload
 (cl-defstruct
     (sleep-event (:type list) :named
                  (:constructor nil)
                  (:constructor make-sleep-event (state)))
   state)
+
+;;;###autoload (autoload 'sleep-event-state "system-sleep.el")
 
 ;;;###autoload
 (defcustom system-sleep-event-functions nil
@@ -204,8 +205,8 @@ The block is unblocked when BODY completes."
   (setq system-sleep--back-end
         (cond ((featurep 'ns) 'ns)
               ((featurep 'w32) 'w32)
-              ((and (require 'dbus)
-                    (featurep 'dbusbind))
+              ((and (featurep 'dbusbind)
+                    (require 'dbus))
                'dbus)
               (t nil))))
 
