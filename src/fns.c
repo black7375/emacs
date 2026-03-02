@@ -2835,6 +2835,9 @@ equal_no_quit (Lisp_Object o1, Lisp_Object o2)
 static ptrdiff_t hash_find_with_hash (struct Lisp_Hash_Table *h,
 				      Lisp_Object key, hash_hash_t hash);
 
+static bool internal_equal_cycle (Lisp_Object o1, Lisp_Object o2,
+				  enum equal_kind equal_kind,
+				  int depth, Lisp_Object *ht);
 
 /* Return true if O1 and O2 are equal.  EQUAL_KIND specifies what kind
    of equality test to use: if it is EQUAL_NO_QUIT, do not check for
@@ -2909,7 +2912,7 @@ internal_equal_1 (Lisp_Object o1, Lisp_Object o2, enum equal_kind equal_kind,
 	      return true;
 	  }
       else
-	FOR_EACH_TAIL (o1)
+	FOR_EACH_TAIL_BASIC (o1,)
 	  {
 	    if (! CONSP (o2))
 	      return false;
@@ -2919,6 +2922,11 @@ internal_equal_1 (Lisp_Object o1, Lisp_Object o2, enum equal_kind equal_kind,
 	    o2 = XCDR (o2);
 	    if (EQ (XCDR (o1), o2))
 	      return true;
+
+	    if (FOR_EACH_TAIL_STEP_CYCLEP (o1, true))
+	      /* Cycle in o1; see if there is one in o2 as well.  */
+	      return (CONSP (o2)
+		      && internal_equal_cycle (o2, o1, equal_kind, depth, ht));
 	  }
       depth++;
       goto tail_recurse;
@@ -2932,12 +2940,12 @@ internal_equal_1 (Lisp_Object o1, Lisp_Object o2, enum equal_kind equal_kind,
 	if (ASIZE (o2) != size)
 	  return false;
 
-	/* Compare bignums, overlays, markers, boolvectors, and
-	   symbols with position specially, by comparing their values.  */
-	if (BIGNUMP (o1))
-	  return mpz_cmp (*xbignum_val (o1), *xbignum_val (o2)) == 0;
-	if (OVERLAYP (o1))
+	switch (PSEUDOVECTOR_TYPE (XVECTOR (o1)))
 	  {
+	  case PVEC_BIGNUM:
+	    return mpz_cmp (*xbignum_val (o1), *xbignum_val (o2)) == 0;
+
+	  case PVEC_OVERLAY:
 	    if (OVERLAY_BUFFER (o1) != OVERLAY_BUFFER (o2)
 		|| OVERLAY_START (o1) != OVERLAY_START (o2)
 		|| OVERLAY_END (o1) != OVERLAY_END (o2))
@@ -2946,53 +2954,50 @@ internal_equal_1 (Lisp_Object o1, Lisp_Object o2, enum equal_kind equal_kind,
 	    o2 = XOVERLAY (o2)->plist;
 	    depth++;
 	    goto tail_recurse;
-	  }
-	if (MARKERP (o1))
-	  {
+
+	  case PVEC_MARKER:
 	    return (XMARKER (o1)->buffer == XMARKER (o2)->buffer
 		    && (XMARKER (o1)->buffer == 0
 			|| XMARKER (o1)->bytepos == XMARKER (o2)->bytepos));
-	  }
-	if (BOOL_VECTOR_P (o1))
-	  {
-	    EMACS_INT size = bool_vector_size (o1);
-	    return (size == bool_vector_size (o2)
-		    && !memcmp (bool_vector_data (o1), bool_vector_data (o2),
-			        bool_vector_bytes (size)));
-	  }
+
+	  case PVEC_BOOL_VECTOR:
+	    {
+	      EMACS_INT size = bool_vector_size (o1);
+	      return (size == bool_vector_size (o2)
+		      && !memcmp (bool_vector_data (o1), bool_vector_data (o2),
+				  bool_vector_bytes (size)));
+	    }
 
 #ifdef HAVE_TREE_SITTER
-	if (TS_NODEP (o1))
-	  return treesit_node_eq (o1, o2);
+	  case PVEC_TS_NODE:
+	    return treesit_node_eq (o1, o2);
 #endif
-	if (SYMBOL_WITH_POS_P (o1))
-	  {
+	  case PVEC_SYMBOL_WITH_POS:
 	    eassert (!symbols_with_pos_enabled);
 	    return (BASE_EQ (XSYMBOL_WITH_POS_SYM (o1),
 			     XSYMBOL_WITH_POS_SYM (o2))
 		    && BASE_EQ (XSYMBOL_WITH_POS_POS (o1),
 				XSYMBOL_WITH_POS_POS (o2)));
-	  }
 
-	/* Aside from them, only true vectors, char-tables, compiled
-	   functions, and fonts (font-spec, font-entity, font-object)
-	   are sensible to compare, so eliminate the others now.  */
-	if (size & PSEUDOVECTOR_FLAG)
-	  {
-	    if (((size & PVEC_TYPE_MASK) >> PSEUDOVECTOR_AREA_BITS)
-		< PVEC_CLOSURE)
-	      return false;
+	    /* Compare these element-wise.  */
+	  case PVEC_CLOSURE:
+	  case PVEC_CHAR_TABLE:
+	  case PVEC_SUB_CHAR_TABLE:
+	  case PVEC_RECORD:
+	  case PVEC_FONT:
 	    size &= PSEUDOVECTOR_SIZE_MASK;
+	    FALLTHROUGH;
+
+	  case PVEC_NORMAL_VECTOR:
+	    for (ptrdiff_t i = 0; i < size; i++)
+	      if (!internal_equal_1 (AREF (o1, i), AREF (o2, i),
+				     equal_kind, depth + 1, ht))
+		return false;
+	    return true;
+
+	  default:
+	    return false;
 	  }
-	for (ptrdiff_t i = 0; i < size; i++)
-	  {
-	    Lisp_Object v1, v2;
-	    v1 = AREF (o1, i);
-	    v2 = AREF (o2, i);
-	    if (!internal_equal_1 (v1, v2, equal_kind, depth + 1, ht))
-	      return false;
-	  }
-	return true;
       }
       break;
 
@@ -3007,6 +3012,34 @@ internal_equal_1 (Lisp_Object o1, Lisp_Object o2, enum equal_kind equal_kind,
       break;
     }
 
+  return false;
+}
+
+/* Slow path comparison when o1 and o2 are lists and o2 is circular.  */
+static bool
+internal_equal_cycle (Lisp_Object o1, Lisp_Object o2,
+		      enum equal_kind equal_kind, int depth, Lisp_Object *ht)
+{
+  eassert (CONSP (o1) && CONSP (o2));
+  eassert (equal_kind != EQUAL_NO_QUIT);
+
+  FOR_EACH_TAIL_BASIC (o1,)
+    {
+      if (!CONSP (o2))
+	return false;
+      if (!internal_equal_1 (XCAR (o1), XCAR (o2), equal_kind, depth + 1, ht))
+	return false;
+      o2 = XCDR (o2);
+      if (EQ (XCDR (o1), o2))
+	return true;
+
+      if (FOR_EACH_TAIL_STEP_CYCLEP (o1, true))
+	/* Cycle in o1 detected.  Since o2 is circular too and no
+	   differences were found, they are equal.
+	   (Their structures may differ but that's not relevant to `equal'.)  */
+	return true;
+    }
+  /* o1 terminated but o2 is circular: not equal.  */
   return false;
 }
 

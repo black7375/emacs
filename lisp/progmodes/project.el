@@ -1372,6 +1372,8 @@ by the user at will."
 
 Depending on `project-file-history-behavior', entries are made
 project-relative where possible."
+  (unless all-files
+    (user-error "Empty file list"))
   (let ((file
          (cl-letf ((history-add-new-input nil)
                    ((symbol-value hist)
@@ -1400,7 +1402,8 @@ directories listed in `vc-directory-exclusion-list'."
   (let* ((vc-dirs-ignores (mapcar
                            (lambda (dir)
                              (concat dir "/"))
-                           vc-directory-exclusion-list))
+                           (and include-all
+                                vc-directory-exclusion-list)))
          (all-files
           (if include-all
               (mapcan
@@ -1863,10 +1866,10 @@ Return non-nil if PROJECT is not a remote project."
          (predicate
           (lambda (buffer)
             ;; BUFFER is an entry (BUF-NAME . BUF-OBJ) of Vbuffer_alist.
-            (and (memq (cdr buffer) buffers)
-                 (not
-                  (project--buffer-check
-                   buffer project-ignore-buffer-conditions)))))
+            (setq buffer (cdr buffer))
+            (and (memq buffer buffers)
+                 (not (project--buffer-check
+                       buffer project-ignore-buffer-conditions)))))
          (completion-ignore-case read-buffer-completion-ignore-case)
          (buffers-alist
           (if (and (fboundp 'uniquify-get-unique-names)

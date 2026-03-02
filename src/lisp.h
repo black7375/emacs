@@ -4390,6 +4390,8 @@ extern void message1 (const char *);
 extern void message1_nolog (const char *);
 extern void message3 (Lisp_Object);
 extern void message3_nolog (Lisp_Object);
+extern void message3_frame (Lisp_Object, struct frame *);
+extern void message3_frame_nolog (Lisp_Object, struct frame *);
 extern void message_dolog (const char *, ptrdiff_t, bool, bool);
 extern void message_with_string (const char *, Lisp_Object, bool);
 extern void message_log_maybe_newline (void);
@@ -5278,7 +5280,7 @@ maybe_disable_address_randomization (int argc, char **argv)
 extern int emacs_exec_file (char const *, char *const *, char *const *);
 extern void init_standard_fds (void);
 extern char *emacs_get_current_dir_name (void);
-extern void stuff_char (char c);
+extern int stuff_char (char c);
 extern void init_foreground_group (void);
 extern void sys_subshell (void);
 extern void sys_suspend (void);
@@ -5870,15 +5872,24 @@ struct for_each_tail_internal
    is little point to calling maybe_quit here.  */
 
 #define FOR_EACH_TAIL_INTERNAL(tail, cycle, check_quit)			\
-  for (struct for_each_tail_internal li = { tail, 2, 0, 2 };		\
-       CONSP (tail);							\
-       ((tail) = XCDR (tail),						\
-	((--li.q != 0							\
-	  || ((check_quit) ? maybe_quit () : (void) 0, 0 < --li.n)	\
-	  || (li.q = li.n = li.max <<= 1, li.n >>= USHRT_WIDTH,		\
-	      li.tortoise = (tail), false))				\
-	 && BASE_EQ (tail, li.tortoise))				\
-	? (cycle) : (void) 0))
+ FOR_EACH_TAIL_BASIC(tail,						\
+		     FOR_EACH_TAIL_STEP_CYCLEP (tail, check_quit)	\
+		     ? (cycle) : (void) 0)
+
+#define FOR_EACH_TAIL_BASIC(tail, stepper)			\
+  for (struct for_each_tail_internal li = { tail, 2, 0, 2 };	\
+       CONSP (tail); stepper)
+
+/* Step TAIL and return whether a cycle has been detected.
+   If CHECK_QUIT then check for quit occasionally.  */
+#define FOR_EACH_TAIL_STEP_CYCLEP(tail, check_quit)		\
+  ((tail) = XCDR (tail),					\
+   ((--li.q != 0						\
+     || ((check_quit) ? maybe_quit () : (void) 0, 0 < --li.n)	\
+     || (li.q = li.n = li.max <<= 1, li.n >>= USHRT_WIDTH,	\
+	 li.tortoise = (tail), false))				\
+    && BASE_EQ (tail, li.tortoise)))
+
 
 /* Do a `for' loop over alist values.  */
 

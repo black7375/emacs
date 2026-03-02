@@ -1424,7 +1424,7 @@ It is an error to supply both or neither."
              ;; before doing this we know the index is empty (we just
              ;; committed) and so we can just make use of it and reset
              ;; afterwards.
-             (when patch-string
+             (when (and patch-string (not (string-empty-p patch-string)))
                (vc-git-command nil 0 nil "add" "--all")
                (with-temp-buffer
                  (vc-git--with-apply-temp (patch t 1 "--3way")
@@ -1979,7 +1979,8 @@ log entries."
                   (cadr vc-git-root-log-format)
                 "^commit +\\([0-9a-z]+\\)"))
   ;; Allow expanding short log entries.
-  (when (memq vc-log-view-type '(short log-outgoing log-incoming mergebase))
+  (when (memq vc-log-view-type
+              '(short log-outgoing log-incoming log-outstanding mergebase))
     (setq truncate-lines t)
     (setq-local log-view-expanded-log-entry-function
                 'vc-git-expanded-log-entry))
