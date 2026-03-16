@@ -1219,8 +1219,7 @@ errors signaled by ERROR-FORM or by BODY).
        (when (condition-case ,err
                  (progn ,@before-body t)
                (error (funcall error-function)
-                      (unless noerror
-                        (signal (car ,err) (cdr ,err)))))
+                      (unless noerror (signal ,err))))
          (funcall ,body)))))
 
 (cl-defun package--with-response-buffer-1 (url body &key async file error-function noerror &allow-other-keys)
@@ -4841,7 +4840,7 @@ will be signaled in that case."
          (extras (package-desc-extras pkg-desc))
          (maint (ensure-list
                  (or (and-let* ((list (cdr (assoc :maintainer extras))))
-                       (if (consp (cdr list)) list (list list)))
+                       (if (consp (car-safe list)) list (list list)))
                      (cdr (assoc :maintainers extras))
                      ;; If no maintainers are listed, contact authors
                      ;; instead (bug#80478)
