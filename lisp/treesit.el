@@ -361,8 +361,9 @@ If INCLUDE-NODE is non-nil, return NODE if it satisfies PRED."
 Use the first parser in the parser list if LANGUAGE is omitted.
 
 If LANGUAGE is non-nil, use the first parser for LANGUAGE with TAG in
-the parser list.  If there's no such parser, return nil.  TAG defaults
-to nil."
+the parser list.  TAG defaults to nil.
+
+If no parser is available, throw `treesit-no-parser'."
   (let ((parser
          (or (car (treesit-parser-list nil language tag))
              (signal 'treesit-no-parser (list language)))))
@@ -1447,10 +1448,10 @@ queries."
             (signal 'treesit-query-error value))
         (condition-case err
             (let ((compiled (treesit-query-compile lang query 'eager)))
-              (puthash (cons lang query) compiled treesit--query-cache)
+              (puthash (cons lang query-source) compiled treesit--query-cache)
               compiled)
           (treesit-query-error
-           (puthash (cons lang query) (cdr err) treesit--query-cache)
+           (puthash (cons lang query-source) (cdr err) treesit--query-cache)
            (signal 'treesit-query-error (cdr err))))))))
 
 (defvar-local treesit-font-lock-settings nil
@@ -2170,7 +2171,8 @@ If LOUDLY is non-nil, display some debugging information."
         (when (eq treesit--font-lock-fast-mode 'unspecified)
           (pcase-let ((`(,max-depth ,max-width)
                        (treesit-subtree-stat
-                        (treesit-buffer-root-node language))))
+                        (treesit-parser-root-node
+                         treesit-primary-parser))))
             (setq treesit--font-lock-fast-mode
                   (or (> max-depth 100) (> max-width 4000)))))
 
@@ -4452,12 +4454,14 @@ For BOUND, MOVE, BACKWARD, LOOKING-AT, see the descriptions in
       (setq level (1+ level)))
 
     ;; Continue counting the host nodes.
-    (dolist (parser (mapcar #'cdr (treesit-parsers-at (point) nil t '(global local))))
-      (let* ((node (treesit-node-at (point) parser))
-             (lang (treesit-parser-language parser))
-             (pred (alist-get lang treesit-aggregated-outline-predicate)))
-        (while (setq node (treesit-parent-until node pred))
-          (setq level (1+ level)))))
+    (when treesit-aggregated-outline-predicate
+      (dolist (parser (mapcar #'cdr (treesit-parsers-at
+                                     (point) nil t '(global local))))
+        (let* ((node (treesit-node-at (point) parser))
+               (lang (treesit-parser-language parser))
+               (pred (alist-get lang treesit-aggregated-outline-predicate)))
+          (while (setq node (treesit-parent-until node pred))
+            (setq level (1+ level))))))
 
     level))
 
@@ -4608,6 +4612,10 @@ as belonging to the node that ends before POS (by subtracting 1 from POS)."
 
 LANGUAGE is the language symbol to check for availability.
 It can also be a list of language symbols.
+
+It checks that tree-sitter available, the language(s) grammar are
+available, and the current buffer's size isn't too
+large (`treesit-max-buffer-size').
 
 If tree-sitter is not ready, emit a warning and return nil.  If
 the user has chosen to activate tree-sitter for LANGUAGE and
@@ -5727,7 +5735,7 @@ on the mode."
 The option `treesit-auto-install-grammar' defines whether to install
 the grammar library if it's unavailable."
   (when (treesit-available-p)
-    (or (treesit-ready-p lang t)
+    (or (treesit-language-available-p lang)
         (let ((out-dir (or (seq-find #'file-writable-p
                                      treesit-extra-load-path)
                            (locate-user-emacs-file "tree-sitter"))))
@@ -5746,7 +5754,7 @@ Install grammar for `%s' to" nil lang)
                                t))))
             (treesit-install-language-grammar lang out-dir)
             ;; Check that the grammar was installed successfully
-            (treesit-ready-p lang))))))
+            (treesit-language-available-p lang))))))
 
 ;;; Treesit enabled modes
 
