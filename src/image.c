@@ -3562,7 +3562,7 @@ lookup_image (struct frame *f, Lisp_Object spec, int face_id)
       img->face_font_size = font_size;
       img->face_font_height = face->font->height;
       img->face_font_width = face->font->average_width;
-      size_t len = strlen (font_family) + 1;
+      ptrdiff_t len = strlen (font_family) + 1;
       img->face_font_family = xmalloc (len);
       memcpy (img->face_font_family, font_family, len);
       img->load_failed_p = ! img->type->load_img (f, img);
@@ -5538,7 +5538,7 @@ static struct xpm_cached_color **xpm_color_cache;
 static void
 xpm_init_color_cache (struct frame *f, XpmAttributes *attrs)
 {
-  size_t nbytes = XPM_COLOR_CACHE_BUCKETS * sizeof *xpm_color_cache;
+  ptrdiff_t nbytes = XPM_COLOR_CACHE_BUCKETS * sizeof *xpm_color_cache;
   xpm_color_cache = xzalloc (nbytes);
   init_color_table ();
 
@@ -5598,8 +5598,8 @@ xpm_cache_color (struct frame *f, char *color_name, XColor *color, int bucket)
   if (bucket < 0)
     bucket = xpm_color_bucket (color_name);
 
-  size_t len = strlen (color_name) + 1;
-  size_t nbytes = FLEXSIZEOF (struct xpm_cached_color, name, len);
+  ptrdiff_t len = strlen (color_name) + 1;
+  ptrdiff_t nbytes = FLEXSIZEOF (struct xpm_cached_color, name, len);
   struct xpm_cached_color *p = xmalloc (nbytes);
   memcpy (p->name, color_name, len);
   p->color = *color;
@@ -6950,7 +6950,7 @@ image_to_emacs_colors (struct frame *f, struct image *img, bool rgb_p)
   if (ckd_mul (&nbytes, sizeof *colors, img->width)
       || ckd_mul (&nbytes, nbytes, img->height)
       || SIZE_MAX < nbytes)
-    memory_full (SIZE_MAX);
+    memory_full_up ();
   colors = xmalloc (nbytes);
 
   /* Get the X image or create a memory device context for IMG. */
@@ -7100,7 +7100,7 @@ image_detect_edges (struct frame *f, struct image *img,
 
   if (ckd_mul (&nbytes, sizeof *new, img->width)
       || ckd_mul (&nbytes, nbytes, img->height))
-    memory_full (SIZE_MAX);
+    memory_full_up ();
   new = xmalloc (nbytes);
 
   for (y = 0; y < img->height; ++y)
@@ -8486,7 +8486,7 @@ png_load_body (struct frame *f, struct image *img, struct png_load_context *c)
   /* Allocate memory for the image.  */
   if (ckd_mul (&nbytes, row_bytes, sizeof *pixels)
       || ckd_mul (&nbytes, nbytes, height))
-    memory_full (SIZE_MAX);
+    memory_full_up ();
   c->pixels = pixels = xmalloc (nbytes);
   c->rows = rows = xmalloc (height * sizeof *rows);
   for (i = 0; i < height; ++i)
