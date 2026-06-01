@@ -25,6 +25,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <stdarg.h>
 #include <stdbit.h>
 #include <stdckdint.h>
+#include <stdcountof.h>
 #include <stddef.h>
 #include <string.h>
 #include <float.h>
@@ -69,9 +70,6 @@ INLINE_HEADER_BEGIN
 #undef max
 #define max(a, b) ((a) > (b) ? (a) : (b))
 #define min(a, b) ((a) < (b) ? (a) : (b))
-
-/* Number of elements in an array.  */
-#define ARRAYELTS(arr) (sizeof (arr) / sizeof (arr)[0])
 
 /* Number of bits in a Lisp_Object tag.  */
 DEFINE_GDB_SYMBOL_BEGIN (int, GCTYPEBITS)
@@ -409,7 +407,7 @@ typedef EMACS_INT Lisp_Word;
 #define lisp_h_XHASH(a) XUFIXNUM_RAW (a)
 #if USE_LSB_TAG
 # define lisp_h_make_fixnum_wrap(n) \
-    XIL ((EMACS_INT) (((EMACS_UINT) (n) << INTTYPEBITS) + Lisp_Int0))
+    XIL ((EMACS_INT) (((EMACS_UINT) {(n)} << INTTYPEBITS) + Lisp_Int0))
 # if defined HAVE_STATEMENT_EXPRESSIONS && defined HAVE_TYPEOF
 #  define lisp_h_make_fixnum(n) \
      ({ typeof (+(n)) lisp_h_make_fixnum_n = n; \
@@ -747,10 +745,11 @@ INLINE void
 
 /* Extract A's pointer value, assuming A's Lisp type is TYPE and the
    extracted pointer's type is CTYPE *.  When !USE_LSB_TAG this simply
-   extracts A's low-order bits, as (uintptr_t) LISP_WORD_TAG (type) is
+   extracts A's low-order bits, as LISP_WORD_TAG (type) & UINTPTR_MAX is
    always zero then.  */
 #define XUNTAG(a, type, ctype) \
-  ((ctype *) ((uintptr_t) XLP (a) - (uintptr_t) LISP_WORD_TAG (type)))
+  ((ctype *) ((uintptr_t) XLP (a) \
+	      - (uintptr_t) {LISP_WORD_TAG (type) & UINTPTR_MAX}))
 
 /* A forwarding pointer to a value.  It uses a generic pointer to
    avoid alignment bugs that could occur if it used a pointer to a
@@ -1841,10 +1840,10 @@ enum
 #define BOOL_VECTOR_LENGTH_MAX \
   min (MOST_POSITIVE_FIXNUM, \
        ((INT_MULTIPLY_OVERFLOW (min (PTRDIFF_MAX, SIZE_MAX) - bool_header_size,\
-				(EMACS_INT) BOOL_VECTOR_BITS_PER_CHAR) \
+				(EMACS_INT) {BOOL_VECTOR_BITS_PER_CHAR}) \
 	 ? EMACS_INT_MAX \
 	 : ((min (PTRDIFF_MAX, SIZE_MAX) - bool_header_size) \
-	    * (EMACS_INT) BOOL_VECTOR_BITS_PER_CHAR)) \
+	    * (EMACS_INT) {BOOL_VECTOR_BITS_PER_CHAR}))	     \
 	- (BITS_PER_BITS_WORD - 1)))
 
 /* The number of data words and bytes in a bool vector with SIZE bits.  */
@@ -2437,7 +2436,7 @@ make_lisp_obarray (struct Lisp_Obarray *o)
 INLINE ptrdiff_t
 obarray_size (const struct Lisp_Obarray *o)
 {
-  return (ptrdiff_t)1 << o->size_bits;
+  return (ptrdiff_t) {1} << o->size_bits;
 }
 
 Lisp_Object check_obarray_slow (Lisp_Object);
@@ -2557,7 +2556,8 @@ typedef enum hash_table_weakness_t {
 
 /* The type of a hash table index, both for table indices and index
    (hash) indices.  It's signed and a subtype of ptrdiff_t.  */
-typedef int32_t hash_idx_t;
+typedef int_least32_t hash_idx_t;
+#define PRIdHASH_IDX PRIdLEAST32
 
 struct Lisp_Hash_Table
 {
@@ -2715,7 +2715,7 @@ HASH_TABLE_SIZE (const struct Lisp_Hash_Table *h)
 INLINE ptrdiff_t
 hash_table_index_size (const struct Lisp_Hash_Table *h)
 {
-  return (ptrdiff_t)1 << h->index_bits;
+  return (ptrdiff_t) {1} << h->index_bits;
 }
 
 /* Hash value for KEY in hash table H.  */
@@ -3450,7 +3450,7 @@ enum maxargs
   };
 
 /* Call a function F that accepts many args, passing it ARRAY's elements.  */
-#define CALLMANY(f, array) (f) (ARRAYELTS (array), array)
+#define CALLMANY(f, array) (f) (countof (array), array)
 
 /* Call a function F that accepts many args, passing it the remaining args,
    E.g., 'return CALLN (Fformat, fmt, text);' is less error-prone than
@@ -4491,7 +4491,7 @@ extern Lisp_Object list5 (Lisp_Object, Lisp_Object, Lisp_Object, Lisp_Object,
 			  Lisp_Object);
 extern Lisp_Object listn (ptrdiff_t, Lisp_Object, ...);
 #define list(...) \
-  listn (ARRAYELTS (((Lisp_Object []) {__VA_ARGS__})), __VA_ARGS__)
+  listn (countof (((Lisp_Object []) {__VA_ARGS__})), __VA_ARGS__)
 
 enum gc_root_type
 {
