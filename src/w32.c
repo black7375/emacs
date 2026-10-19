@@ -37,9 +37,6 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>.  */
 #include <sys/file.h>
 #include <sys/types.h>	/* must be before <time.h>, for MinGW64 */
 #include <time.h>	/* must be before nt/inc/sys/time.h, for MinGW64 */
-#ifdef localtime	/* Gnulib's time.h redirects to rpl_localtime */
-# undef localtime
-#endif
 #include <sys/time.h>
 #include <sys/utime.h>
 #include <math.h>
@@ -10351,12 +10348,6 @@ sys_localtime (const time_t *t)
   tzset ();
   w32_fix_tzset ();
   return localtime (t);
-}
-
-struct tm *
-rpl_localtime (const time_t *t)
-{
-  return sys_localtime (t);
 }
 
 /* The Windows CRT implementation of 'clock' doesn't really return CPU
