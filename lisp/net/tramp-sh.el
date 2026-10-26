@@ -1225,7 +1225,7 @@ characters need to be doubled.")
 (defconst tramp-bundle-read-file-names "\
 printf \"(\\n\"
 while IFS= read file; do
-  if (%m -n \"$1\") && !(echo \"$file\" | grep -qe '[^-_./[:alnum:]~$]')
+  if (%m -n \"$1\") && (echo \"$file\" | grep -qe '^[-_./[:alnum:]~$]*$')
   then
     file=`eval echo \"$file\"`
   fi
@@ -3002,7 +3002,7 @@ will be used."
 	     (eenv (setenv-internal eenv "PS1" nil nil))
 	     vars
 	     (eenv (dolist (item (reverse eenv) vars)
-		     (setq item (string-split item "=" 'omit))
+		     (setq item (string-split item "="))
 		     (setcdr item (string-join (cdr item) "="))
 		     (push (format "%s %s" (car item) (cdr item)) vars)))
 	     (command
@@ -4627,7 +4627,7 @@ process to set up.  VEC specifies the connection."
       (dolist (item (reverse
 		     (append `(,(tramp-get-remote-locale vec))
 			     (copy-sequence tramp-remote-process-environment))))
-	(setq item (string-split item "=" 'omit))
+	(setq item (string-split item "="))
 	(setcdr item (string-join (cdr item) "="))
 	(if (and (stringp (cdr item)) (not (string-empty-p (cdr item))))
 	    (push (format "%s %s" (car item) (cdr item)) vars)
