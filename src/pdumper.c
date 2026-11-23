@@ -1236,7 +1236,7 @@ dump_queue_dequeue (struct dump_queue *dump_queue, dump_off basis)
   dump_trace
     (("dump_queue_dequeue basis=%"PRIdDUMP_OFF" fancy=%"PRIdPTR
       " zero=%"PRIdPTR" normal=%"PRIdPTR" strong=%"PRIdPTR
-      " hash=%"PRIdHASH_IDX"\n"),
+      " hash=%td\n"),
      basis,
      dump_tailq_length (&dump_queue->fancy_weight_objects),
      dump_tailq_length (&dump_queue->zero_weight_objects),
@@ -2670,7 +2670,7 @@ dump_hash_table_contents (struct dump_context *ctx, struct Lisp_Hash_Table *h)
 static dump_off
 dump_hash_table (struct dump_context *ctx, Lisp_Object object)
 {
-#if CHECK_STRUCTS && !defined HASH_Lisp_Hash_Table_2A3C3E2B62
+#if CHECK_STRUCTS && !defined HASH_Lisp_Hash_Table_90F53D957B
 # error "Lisp_Hash_Table changed. See CHECK_STRUCTS comment in config.h."
 #endif
   const struct Lisp_Hash_Table *hash_in = XHASH_TABLE (object);
@@ -2724,7 +2724,7 @@ dump_obarray_buckets (struct dump_context *ctx, const struct Lisp_Obarray *o)
 static dump_off
 dump_obarray (struct dump_context *ctx, Lisp_Object object)
 {
-#if CHECK_STRUCTS && !defined HASH_Lisp_Obarray_F6375D820A
+#if CHECK_STRUCTS && !defined HASH_Lisp_Obarray_7E8A83B5FC
 # error "Lisp_Obarray changed. See CHECK_STRUCTS comment in config.h."
 #endif
   const struct Lisp_Obarray *in_oa = XOBARRAY (object);
